@@ -86,18 +86,91 @@ public sealed class UpdateIntelligenceTests
     }
 
     [TestMethod]
-    public void AmbiguousPublisherWithAnEqualVersionIsReviewRequiredNotCurrent()
+    public void AmbiguousPublisherWithAnEqualVersionIsNeitherCurrentNorAReviewItem()
     {
         ProductMatchProfile product = Product("ambiguous-current", null, "1.0.0");
         SourceSnapshot source = new("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.AmbiguousCurrent", "ambiguous-current", null, "1.0.0", "1.0.0", "Machine", "x64", "Stable")], []);
 
         UpdateIntelligenceItem item = UpdateIntelligence.Assess([product], [source]).Items.Single();
 
-        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, item.Status);
+        // Nothing newer exists, so there is nothing to review; the unconfirmed identity is not presented as current either.
+        Assert.AreEqual(UpdateIntelligenceStatus.Unmanaged, item.Status);
         Assert.IsNotNull(item.Mapping);
+        Assert.IsFalse(item.Mapping.IsActionable);
         CollectionAssert.Contains(item.Mapping.ReviewReasons.ToArray(), MappingReviewReason.AmbiguousPublisher);
         CollectionAssert.DoesNotContain(item.Mapping.ReviewReasons.ToArray(), MappingReviewReason.CandidateIsCurrent);
-        StringAssert.Contains(item.Explanation, "not used until package identity is verified", StringComparison.OrdinalIgnoreCase);
+        StringAssert.Contains(item.Explanation, "nothing to update", StringComparison.OrdinalIgnoreCase);
+        StringAssert.Contains(item.Explanation, "hasn't been confirmed", StringComparison.OrdinalIgnoreCase);
+    }
+
+    [TestMethod]
+    public void AmbiguousPublisherWithANewerVersionStaysAReviewItem()
+    {
+        ProductMatchProfile product = Product("ambiguous-newer", null, "1.0.0");
+        SourceSnapshot source = new("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.AmbiguousNewer", "ambiguous-newer", null, "1.0.0", "1.1.0", "Machine", "x64", "Stable")], []);
+
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, UpdateIntelligence.Assess([product], [source]).Items.Single().Status);
+    }
+
+    [TestMethod]
+    public void SameVersionWithoutInstallerEvidenceIsCurrent()
+    {
+        // WinGet's installed list gives no scope, architecture or channel for a package without an update; nothing would run.
+        ProductMatchProfile product = new("product:same", "same", "Contoso.Same", null, null, null, "2.0.0", "Unknown", "Unknown", null, InstalledSourceId: "winget", HasConcreteLocalEvidence: false);
+        SourceSnapshot source = Source([new SourcePackageRecord("winget", "Contoso.Same", "same", null, "2.0.0", "2.0.0", "Unknown", "Unknown", null)]);
+
+        UpdateIntelligenceItem item = UpdateIntelligence.Assess([product], [source]).Items.Single();
+
+        Assert.AreEqual(UpdateIntelligenceStatus.Current, item.Status);
+        Assert.IsNotNull(item.Mapping);
+        Assert.IsFalse(item.Mapping.IsActionable);
+        CollectionAssert.Contains(item.Mapping.ReviewReasons.ToArray(), MappingReviewReason.MissingArchitectureEvidence);
+    }
+
+    [TestMethod]
+    public void NewerVersionWithoutInstallerEvidenceStaysAReviewItem()
+    {
+        ProductMatchProfile product = new("product:newer", "newer", "Contoso.Newer", null, null, null, "2.0.0", "Unknown", "Unknown", null, InstalledSourceId: "winget", HasConcreteLocalEvidence: false);
+        SourceSnapshot source = Source([new SourcePackageRecord("winget", "Contoso.Newer", "newer", null, "2.0.0", "2.1.0", "Unknown", "Unknown", null)]);
+
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, UpdateIntelligence.Assess([product], [source]).Items.Single().Status);
+    }
+
+    [TestMethod]
+    public void SameVersionWithAnArchitectureConflictStaysAReviewItem()
+    {
+        ProductMatchProfile product = Product("same-conflict", "Contoso.SameConflict", "1.0.0", "x86");
+        SourceSnapshot source = Source([new SourcePackageRecord("winget", "Contoso.SameConflict", "same-conflict", "Contoso", "1.0.0", "1.0.0", "Machine", "x64", "Stable")]);
+
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, UpdateIntelligence.Assess([product], [source]).Items.Single().Status);
+    }
+
+    [TestMethod]
+    public void WinGetsOwnRecordOfAnAppItLinksToAnUninstallEntryGetsNoRowOfItsOwn()
+    {
+        ProductMatchProfile entry = new("registry:entry", "Chat", null, null, null, "Contoso", "1.0.0", "User", "x64", null);
+        ProductMatchProfile wingetRecord = new("winget:Contoso.Chat", "Chat", "Contoso.Chat", null, null, null, "1.0.0", "Unknown", "Unknown", null, InstalledSourceId: "winget", HasConcreteLocalEvidence: false);
+        SourceSnapshot source = Source([new SourcePackageRecord("winget", "Contoso.Chat", "Chat", "Contoso", "1.0.0", "1.1.0", "User", "x64", "Stable", ProviderSuppliedStableProductKey: "REGISTRY:ENTRY")]);
+
+        UpdateIntelligenceSummary summary = UpdateIntelligence.Assess([entry, wingetRecord], [source]);
+
+        UpdateIntelligenceItem item = summary.Items.Single();
+        Assert.AreEqual(entry.StableProductKey, item.StableProductKey);
+        Assert.AreEqual(UpdateIntelligenceStatus.VerifiedUpdate, item.Status);
+        Assert.AreEqual(0, summary.Counts[UpdateIntelligenceStatus.ReviewRequired]);
+    }
+
+    [TestMethod]
+    public void WinGetsOwnRecordKeepsItsRowWithoutALinkOrWhenItIsTheLinkedProduct()
+    {
+        ProductMatchProfile entry = new("registry:entry", "Chat", null, null, null, "Contoso", "1.0.0", "User", "x64", null);
+        ProductMatchProfile unlinked = new("winget:Contoso.Chat", "Chat", "Contoso.Chat", null, null, null, "1.0.0", "Unknown", "Unknown", null, InstalledSourceId: "winget", HasConcreteLocalEvidence: false);
+        SourceSnapshot noLink = Source([new SourcePackageRecord("winget", "Contoso.Chat", "Chat", "Contoso", "1.0.0", "1.1.0", "User", "x64", "Stable")]);
+        // A link naming only a product with no uninstall entry or MSIX package of its own hides nothing.
+        SourceSnapshot linkToRecordOnly = Source([new SourcePackageRecord("winget", "Contoso.Chat", "Chat", "Contoso", "1.0.0", "1.1.0", "User", "x64", "Stable", ProviderSuppliedStableProductKey: unlinked.StableProductKey)]);
+
+        Assert.IsTrue(UpdateIntelligence.Assess([entry, unlinked], [noLink]).Items.Any(item => item.StableProductKey == unlinked.StableProductKey));
+        Assert.IsTrue(UpdateIntelligence.Assess([unlinked], [linkToRecordOnly]).Items.Any(item => item.StableProductKey == unlinked.StableProductKey));
     }
 
     [TestMethod]

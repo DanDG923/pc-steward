@@ -153,6 +153,25 @@ public sealed class InventoryWorkflowUpdateSourceTests
     }
 
     [TestMethod]
+    public async Task WinGetsOwnRecordOfALinkedAppIsNotASecondUpdateRow()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        CanonicalProduct entry = new(Guid.NewGuid(), "registry:contoso.chat", "Contoso Chat");
+        CanonicalProduct record = new(Guid.NewGuid(), "winget:winget:contoso.chat", "Contoso Chat");
+        InstallationInstance registry = new(Guid.NewGuid(), entry.Id, "registry", "ContosoChat", "1.0.0", "User", "x64", "Contoso");
+        InstallationInstance winget = new(Guid.NewGuid(), record.Id, "winget", "Contoso.Chat", "1.0.0", "Unknown", "Unknown", null, SourceId: "winget");
+        await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [entry, record], [registry, winget], [], [], CancellationToken.None);
+        SourceSnapshot snapshot = new("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.Chat", "Contoso Chat", "Contoso", "1.0.0", "1.1.0", "User", "x64", "Stable", ProviderSuppliedStableProductKey: entry.StableKey)], []);
+        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(snapshot)]);
+
+        UpdateIntelligenceSummary result = await workflow.RefreshUpdateIntelligenceAsync(true, CancellationToken.None);
+
+        UpdateIntelligenceItem item = result.Items.Single();
+        Assert.AreEqual(entry.StableKey, item.StableProductKey);
+        Assert.AreEqual(UpdateIntelligenceStatus.VerifiedUpdate, item.Status);
+    }
+
+    [TestMethod]
     public async Task SamePackageIdFromAnotherSourceAndMultipleInstallTargetsRemainReviewOnly()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();

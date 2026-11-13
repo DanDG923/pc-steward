@@ -15,8 +15,18 @@ public static class UpdateIntelligence
         string[] trustedSources = snapshots.Where(source => source.State is SourceSnapshotState.Live or SourceSnapshotState.Cached).Select(source => source.SourceId).ToArray();
         Dictionary<string, SourceSnapshot> sourceById = snapshots.ToDictionary(source => source.SourceId, StringComparer.OrdinalIgnoreCase);
         List<UpdateIntelligenceItem> items = [];
-        foreach (ProductMatchProfile product in products.OrderBy(product => product.StableProductKey, StringComparer.Ordinal))
+        ProductMatchProfile[] profiles = products.OrderBy(product => product.StableProductKey, StringComparer.Ordinal).ToArray();
+        HashSet<(string SourceId, string PackageId)> linkedToConcreteProduct = LinkedToConcreteProduct(profiles, snapshots);
+        foreach (ProductMatchProfile product in profiles)
         {
+            // WinGet's own installed record of an app whose uninstall entry WinGet links to the same package by product code is the
+            // same app, already assessed on that entry's row. It gets no row of its own (no duplicate in Updates).
+            if (!product.HasConcreteLocalEvidence && product.ProviderPackageId is { } ownPackage && product.InstalledSourceId is { } ownSource &&
+                linkedToConcreteProduct.Contains((ownSource.ToUpperInvariant(), ownPackage.ToUpperInvariant())))
+            {
+                continue;
+            }
+
             ProductUpdatePolicy policy = policies?.GetValueOrDefault(product.StableProductKey) ?? new();
             if (policy.IsIgnoreActive(DateTimeOffset.UtcNow)) { items.Add(new(product.StableProductKey, UpdateIntelligenceStatus.Ignored, null, policy.IgnoreUntil is null ? "The product is ignored indefinitely by a recorded user decision." : $"The product is ignored until {policy.IgnoreUntil.Value:O} by a recorded user decision.")); continue; }
             if (policy.IsPinned) { items.Add(new(product.StableProductKey, UpdateIntelligenceStatus.Pinned, null, policy.PinDescription ?? "The product is pinned by a recorded user decision.")); continue; }
@@ -63,9 +73,12 @@ public static class UpdateIntelligence
                 : availabilityUnavailable ? UpdateIntelligenceStatus.FailedUnavailable
                 : mapping.IsActionable ? UpdateIntelligenceStatus.VerifiedUpdate
                 : IsVerifiedCurrent(mapping) ? UpdateIntelligenceStatus.Current
+                : IsUnconfirmedSameVersion(mapping) ? UpdateIntelligenceStatus.Unmanaged
                 : UpdateIntelligenceStatus.ReviewRequired;
             string itemExplanation = availabilityUnavailable
                 ? "The repository identified the exact package, but it did not establish update availability. This is incomplete source evidence, not a decision for you; refresh the source to retry."
+                : status == UpdateIntelligenceStatus.Unmanaged
+                ? "A package that might be this app has the same version, so there is nothing to update. It hasn't been confirmed as the same app."
                 : mapping.EvidenceExplanation;
             // Owner decision 2026-11-02: a recorded skip of exactly this candidate version hides it. It runs after matching and can
             // only remove actionability; a newer candidate than the skipped version is assessed normally again.
@@ -92,10 +105,31 @@ public static class UpdateIntelligence
             || HasDifferentKnownValues(observations.Select(observation => observation.Channel));
     }
 
+    // Owner-facing rule (2026-11-13): when the package's version equals the installed one, nothing would ever run, so the scope,
+    // architecture and channel evidence that binding an update needs is not required to call the app current. Conflicts still are.
     private static bool IsVerifiedCurrent(PackageMapping mapping) =>
         mapping.Confidence >= MappingConfidence.Medium &&
         mapping.VersionComparison.Outcome == VersionComparisonOutcome.Equal &&
-        mapping.ReviewReasons.All(reason => reason == MappingReviewReason.CandidateIsCurrent);
+        mapping.ReviewReasons.All(reason => reason is MappingReviewReason.CandidateIsCurrent
+            or MappingReviewReason.MissingScopeEvidence or MappingReviewReason.MissingArchitectureEvidence or MappingReviewReason.MissingChannelEvidence);
+
+    // A weak automatic match (near name, missing or different publisher) at the same version offers nothing to review: no update
+    // exists, and confirming the identity can wait until the package has a newer version.
+    private static bool IsUnconfirmedSameVersion(PackageMapping mapping) =>
+        mapping.Confidence < MappingConfidence.Medium &&
+        mapping.Origin == MappingOrigin.Automatic &&
+        mapping.VersionComparison.Outcome == VersionComparisonOutcome.Equal;
+
+    private static HashSet<(string SourceId, string PackageId)> LinkedToConcreteProduct(IReadOnlyCollection<ProductMatchProfile> profiles, IReadOnlyCollection<SourceSnapshot> snapshots)
+    {
+        HashSet<string> concreteKeys = profiles.Where(profile => profile.HasConcreteLocalEvidence).Select(profile => profile.StableProductKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return snapshots
+            .Where(snapshot => snapshot.State is SourceSnapshotState.Live or SourceSnapshotState.Cached)
+            .SelectMany(snapshot => snapshot.Packages)
+            .Where(package => package.ProviderSuppliedStableProductKey is { } key && concreteKeys.Contains(key))
+            .Select(package => (package.SourceId.ToUpperInvariant(), package.PackageId.ToUpperInvariant()))
+            .ToHashSet();
+    }
 
     private static bool IsAvailabilityUnavailable(PackageMapping mapping, SourceSnapshot? source)
     {
