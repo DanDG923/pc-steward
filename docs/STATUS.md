@@ -5,7 +5,8 @@
 - **Keyboard and screen readers.** Focus stays on the list when the column opens, and a screen reader is told "Details for <app> are shown beside the list." The column is part of the page for F6, comes after the list in tab order, and the app's name in it is a level-2 heading under the page's title. A refresh that started from the column keeps focus in the column.
 - **Tests.** `UiReviewWideWindowPresentationTests.DetailsOpenBesideAListOnAWideWindow` and `TheDetailsColumnLeavesTheListMostOfTheWidth` (portable); source contract `UiRedesignContractTests.DetailsOpenBesideAListOnAWideWindow` (the column is built only from the details page, has no operation of its own, and the details page stays the fallback). The Windows launch smoke test opens the first row after its scan and logs where the column sits against the list.
 - **Not claimed.** Seen only through the launch smoke test's measurements on a 1920 x 1080 runner, not on the owner's display. The row that is open is not highlighted in the list beyond the list's own selection. Home's rows still open details as a page.
-- **Next.** Real app icons, decision record first (item 20).
+- **Real app icons (item 20): decision record only.** [ADR-035](adr/ADR-035-REAL-APP-ICONS.md) is Proposed: where an icon may be read from, how, and what is kept. No icon code exists; the lists keep their two-letter tiles until the owner chooses an option.
+- **Next.** Item 20 after the owner's choice on ADR-035.
 
 **UI review, part 5a: a guided first run and a reading column for text pages, for release 0.1.14 (2026-11-13; code and tests).** Requirements: `FR-UI-01/05`, `FR-UPD-01`, `FR-SRC-01–05` (consent unchanged), `AC-UX-01` (best effort). Item 21 and the first half of item 19 of the UI review the owner approved. Presentation only: no decision, match, consent or update rule changes, and no stored key changes. Recorded in [ADR-030](adr/ADR-030-DESKTOP-UI-UX-OVERHAUL-DIRECTION.md) implementation notes.
 
