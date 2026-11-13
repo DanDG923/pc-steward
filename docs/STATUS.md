@@ -1,3 +1,13 @@
+**Updates for MSIX apps such as Windows Terminal and Elgato Wave Link, for release 0.1.12 (2026-11-13; code and tests; found on the owner's PC with 0.1.11).** Requirements: `FR-INV-01`, `FR-UPD-01/15`. [Design note](review/PHASE_D4B_MSIX_UPDATES_DESIGN.md). Both apps had WinGet updates but stayed in Needs review ("install scope / architecture isn't known"), and Wave Link appeared twice.
+
+- **Identity.** The MSIX inventory (desktop and scheduled host) now names an app by its package family name, not its full package name. The full name includes the version, so before this every update made a new product. Rows use the name and publisher Windows shows, with the package name and publisher ID as a fallback.
+- **WinGet's own link.** WinGet's structured API reports the package family it links to an installed package. Exactly one family and no product code now link the update to that MSIX app (`ProviderSupplied`, as for uninstall entries by product code), so WinGet's own record gets no second row.
+- **Scope.** WinGet records no installed scope for MSIX apps. An `msix` installer that names no scope, linked to exactly one family, is a per-user update. It runs on the existing per-user reviewed route with `--scope user`.
+- **Owner's choice.** Windows Terminal, which the Store installed, is offered like Wave Link.
+- **One-time effect.** MSIX product keys change once, so a skip, ignore or pin recorded on an MSIX row no longer applies.
+- **Tests.** The package family format, shown names and fallbacks, WinGet's family link and its refusals, the per-user scope rule and its limits, one offered row for a linked MSIX app, and an architecture conflict that stays a review item.
+- **Next.** Release 0.1.12, then a host check: update Wave Link and Terminal through PC Steward.
+
 **Microsoft Store and other MSIX app versions, for release 0.1.11 (2026-11-13; code; found on the owner's PC with 0.1.9).** Requirement: `FR-INV-01`. The Updates page showed "Installed Windows.ApplicationModel.PackageVersion" for Elgato Wave Link and Claude. The MSIX inventory (desktop and scheduled host) used `PackageId.Version.ToString()`, which for the WinRT `PackageVersion` struct gives its type name. It now writes `Major.Minor.Build.Revision`, so these apps get a real installed version to compare with the package source. Older records are replaced by the next scan.
 
 **False updates for apps whose uninstall entry numbers a release differently, and the details page cards, for release 0.1.10 (2026-11-13; code and tests; found on the owner's PC with 0.1.8 and 0.1.9).** Requirements: `FR-UPD-01`, `FR-UI-05`.

@@ -18,11 +18,22 @@ internal sealed class WindowsCurrentUserPackageCatalog : ICurrentUserPackageCata
             MsixPackageInfo? record;
             try
             {
-                record = new MsixPackageInfo(package.Id.FamilyName ?? string.Empty, package.Id.FullName ?? string.Empty, package.Id.Name ?? string.Empty, $"{package.Id.Version.Major}.{package.Id.Version.Minor}.{package.Id.Version.Build}.{package.Id.Version.Revision}", package.Id.Architecture.ToString() ?? string.Empty, package.Id.PublisherId ?? string.Empty, null, package.IsFramework, package.IsResourcePackage, false);
+                bool isFramework = package.IsFramework, isResource = package.IsResourcePackage;
+                // Shown names are read only for apps: frameworks and resource packs are most of the catalog and never offered.
+                bool isApp = !isFramework && !isResource;
+                record = new MsixPackageInfo(package.Id.FamilyName ?? string.Empty, package.Id.FullName ?? string.Empty, package.Id.Name ?? string.Empty, $"{package.Id.Version.Major}.{package.Id.Version.Minor}.{package.Id.Version.Build}.{package.Id.Version.Revision}", package.Id.Architecture.ToString() ?? string.Empty, package.Id.PublisherId ?? string.Empty, null, isFramework, isResource, false,
+                    isApp ? ReadOrNull(() => package.DisplayName) : null, isApp ? ReadOrNull(() => package.PublisherDisplayName) : null);
             }
             catch (Exception) { continue; }
             yield return record;
         }
+    }
+
+    // The shown names come from the package's resources; a package whose resources can't be read keeps its package name.
+    internal static string? ReadOrNull(Func<string?> read)
+    {
+        try { return read(); }
+        catch (Exception) { return null; }
     }
 }
 
@@ -40,7 +51,10 @@ internal sealed class MsixLocalInventoryProvider(Func<bool> enabled) : ILocalInv
         List<CanonicalProduct> products = []; List<InstallationInstance> instances = []; List<RawProviderRecord> raw = [];
         foreach (MsixInventoryRecord record in result.Records)
         {
-            cancellationToken.ThrowIfCancellationRequested(); Guid productId = GuidFor("product|" + record.PackageFamilyName); products.Add(new CanonicalProduct(productId, record.PackageFamilyName, record.DisplayName)); instances.Add(new InstallationInstance(GuidFor("instance|" + record.PackageFullName), productId, record.Provider, record.PackageFullName, record.Version, "User", record.Architecture, record.PublisherId, null, record.InstallLocation, null, record.Classification)); raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, record.Provider, record.PackageFullName, $"family={record.PackageFamilyName};publisher={record.PublisherId};classification={record.Classification};path={record.InstallLocation}"));
+            cancellationToken.ThrowIfCancellationRequested();
+            // The raw record is keyed by the same identity as the installation, so the details page still finds it (MSIX design note §3.1).
+            string identity = MsixInventoryProvider.ProviderIdentity(record);
+            Guid productId = GuidFor("product|" + identity); products.Add(new CanonicalProduct(productId, identity, record.DisplayName)); instances.Add(new InstallationInstance(GuidFor("instance|" + record.PackageFullName), productId, record.Provider, identity, record.Version, "User", record.Architecture, record.Publisher ?? record.PublisherId, null, record.InstallLocation, null, record.Classification)); raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, record.Provider, identity, $"full={record.PackageFullName};family={record.PackageFamilyName};publisher={record.PublisherId};classification={record.Classification};path={record.InstallLocation}"));
         }
         return new ProviderScanResult(products, instances, raw, result.Warnings);
     }, cancellationToken);

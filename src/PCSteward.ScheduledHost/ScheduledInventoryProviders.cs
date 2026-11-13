@@ -42,14 +42,21 @@ internal sealed class ScheduledMsixInventoryProvider(Func<bool> isEnabled) : ILo
         {
             cancellationToken.ThrowIfCancellationRequested(); if (package.IsFramework || package.IsResourcePackage) continue;
             string family = package.Id.FamilyName ?? string.Empty; string full = package.Id.FullName ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(family) || string.IsNullOrWhiteSpace(full)) continue;
+            if (!PackageFamilyName.IsValid(family) || string.IsNullOrWhiteSpace(full)) continue;
             Guid productId = StableGuid("product|" + family);
-            products.Add(new CanonicalProduct(productId, family, package.Id.Name ?? family));
-            instances.Add(new InstallationInstance(StableGuid("instance|" + full), productId, "msix", full, $"{package.Id.Version.Major}.{package.Id.Version.Minor}.{package.Id.Version.Build}.{package.Id.Version.Revision}", "User", package.Id.Architecture.ToString(), package.Id.PublisherId, null, package.InstalledLocation?.Path, null, "Application"));
-            raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, "msix", full, $"family={family};publisher={package.Id.PublisherId};classification=Application"));
+            // The same identity and names as the desktop's MSIX inventory: the package family names the app (stable across versions),
+            // and the names Windows shows are used when it has them.
+            products.Add(new CanonicalProduct(productId, family, MsixInventoryProvider.ShownName(ReadOrNull(() => package.DisplayName)) ?? package.Id.Name ?? family));
+            instances.Add(new InstallationInstance(StableGuid("instance|" + full), productId, "msix", family, $"{package.Id.Version.Major}.{package.Id.Version.Minor}.{package.Id.Version.Build}.{package.Id.Version.Revision}", "User", package.Id.Architecture.ToString(), MsixInventoryProvider.ShownName(ReadOrNull(() => package.PublisherDisplayName)) ?? package.Id.PublisherId, null, package.InstalledLocation?.Path, null, "Application"));
+            raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, "msix", family, $"full={full};family={family};publisher={package.Id.PublisherId};classification=Application"));
         }
         return new ProviderScanResult(products, instances, raw, []);
         }, cancellationToken);
+    }
+    private static string? ReadOrNull(Func<string?> read)
+    {
+        try { return read(); }
+        catch (Exception) { return null; }
     }
     private static Guid StableGuid(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));
 }
