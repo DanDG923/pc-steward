@@ -69,7 +69,7 @@ public sealed partial class MainWindow
         ComboBox publisher = FilterBox(viewModel.PublisherFilter, ["All publishers", .. viewModel.AvailablePublishers]);
         ComboBox source = FilterBox(FilterLabelFor(viewModel.SourceFilter, sourceOptions), ["All sources", .. sourceOptions.Select(option => option.Label)]);
         ComboBox scope = FilterBox(FilterLabelFor(viewModel.ScopeFilter, scopeOptions), ["All scopes", .. scopeOptions.Select(option => option.Label)]);
-        ComboBox sort = FilterBox(viewModel.SortField, "Name", "Source", "Publisher");
+        ComboBox sort = FilterBox(viewModel.SortField, InstalledAppsFilters.SortOptions);
         status.Header = "Status"; publisher.Header = "Publisher"; source.Header = "Source"; scope.Header = "Scope";
         AutomationProperties.SetName(status, "Filter applications by status"); AutomationProperties.SetName(publisher, "Filter applications by publisher"); AutomationProperties.SetName(source, "Filter applications by source"); AutomationProperties.SetName(scope, "Filter applications by scope"); AutomationProperties.SetName(sort, "Sort applications");
         foreach (ComboBox box in new[] { status, publisher, source, scope }) box.MinWidth = 200;
@@ -146,17 +146,54 @@ public sealed partial class MainWindow
         Grid columns = new() { Padding = new Thickness(StewardSpacing.Large, 0, StewardSpacing.Large, 0), ColumnSpacing = StewardSpacing.Large };
         foreach (GridLength width in new[] { new GridLength(32), new GridLength(3, GridUnitType.Star), new GridLength(1, GridUnitType.Star), new GridLength(1, GridUnitType.Star), new GridLength(1.4, GridUnitType.Star), new GridLength(16) })
             columns.ColumnDefinitions.Add(new ColumnDefinition { Width = width });
-        string[] headings = ["Name", "Version", "Installed for", "Status"];
-        for (int index = 0; index < headings.Length; index++)
+        // UI review 2026-11-13 (item 18): Name, Installed for and Status sort the list when selected, and turn the order round
+        // when selected again. The "Sort by" list stays in step, and also offers Source and Publisher.
+        IReadOnlyList<string> headings = InstalledAppsFilters.ColumnHeadings;
+        bool sortDescending = viewModel.SortDescending;
+        List<(Button Heading, FontIcon Arrow, string Field)> sortHeadings = [];
+        for (int index = 0; index < headings.Count; index++)
         {
-            TextBlock heading = new() { Text = headings[index], Style = AppStyle("StewardCaptionStyle") };
-            Grid.SetColumn(heading, index + 1);
-            columns.Children.Add(heading);
+            string field = headings[index];
+            TextBlock heading = new() { Text = headings[index], Style = AppStyle("StewardCaptionStyle"), VerticalAlignment = VerticalAlignment.Center };
+            FrameworkElement cell = heading;
+            if (InstalledAppsFilters.SortsWhenSelected(field))
+            {
+                FontIcon arrow = new() { FontSize = 10, Foreground = StewardVisuals.Brush("StewardSecondaryTextBrush"), VerticalAlignment = VerticalAlignment.Center };
+                Grid label = new() { ColumnSpacing = StewardSpacing.XSmall };
+                label.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                label.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                label.Children.Add(heading);
+                Grid.SetColumn(arrow, 1);
+                label.Children.Add(arrow);
+                Button sortBy = new() { Content = label, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0), Padding = new Thickness(0), MinHeight = 32, HorizontalAlignment = HorizontalAlignment.Left };
+                AutomationProperties.SetName(sortBy, InstalledAppsFilters.SortHeadingName(field));
+                sortHeadings.Add((sortBy, arrow, field));
+                cell = sortBy;
+            }
+            Grid.SetColumn(cell, index + 1);
+            columns.Children.Add(cell);
         }
         AutomationProperties.SetAccessibilityView(columns, AccessibilityView.Raw);
+        void ShowSort()
+        {
+            foreach ((Button sortBy, FontIcon arrow, string field) in sortHeadings)
+            {
+                bool sorted = string.Equals(viewModel.SortField, field, StringComparison.Ordinal);
+                arrow.Glyph = viewModel.SortDescending ? "\uE70D" : "\uE70E";
+                arrow.Visibility = Shown(sorted);
+                AutomationProperties.SetItemStatus(sortBy, InstalledAppsFilters.SortState(sorted, viewModel.SortDescending));
+            }
+        }
+        void SortBy(string field)
+        {
+            bool same = string.Equals(viewModel.SortField, field, StringComparison.Ordinal);
+            sortDescending = same && !viewModel.SortDescending;
+            // A different column is chosen through the "Sort by" list, whose change applies it.
+            if (same) { ApplyFilters(); ShowSort(); } else sort.SelectedItem = field;
+        }
         void ApplyFilters()
         {
-            viewModel.SetFilters(search.Text, StatusVocabulary.FilterKeyForLabel(status.SelectedItem?.ToString()), publisher.SelectedItem?.ToString(), FilterRawFor(source.SelectedItem?.ToString(), sourceOptions, "All sources"), FilterRawFor(scope.SelectedItem?.ToString(), scopeOptions, "All scopes"), sort.SelectedItem?.ToString());
+            viewModel.SetFilters(search.Text, StatusVocabulary.FilterKeyForLabel(status.SelectedItem?.ToString()), publisher.SelectedItem?.ToString(), FilterRawFor(source.SelectedItem?.ToString(), sourceOptions, "All sources"), FilterRawFor(scope.SelectedItem?.ToString(), scopeOptions, "All scopes"), sort.SelectedItem?.ToString(), sortDescending);
             RenderInventory(list);
             currentMatches = viewModel.SavedFilter != InstalledAppsFilter.NeedsReview || !viewModel.IsUpdateSourceEnabled ? [] : [.. viewModel.VisibleRows
                 .Where(row => row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired))
@@ -169,9 +206,13 @@ public sealed partial class MainWindow
             columns.Visibility = listCard.Visibility;
             empty.Visibility = none ? Visibility.Visible : Visibility.Collapsed;
         }
-        search.TextChanged += (_, _) => ApplyFilters(); status.SelectionChanged += (_, _) => ApplyFilters(); publisher.SelectionChanged += (_, _) => ApplyFilters(); source.SelectionChanged += (_, _) => ApplyFilters(); scope.SelectionChanged += (_, _) => ApplyFilters(); sort.SelectionChanged += (_, _) => ApplyFilters();
+        search.TextChanged += (_, _) => ApplyFilters(); status.SelectionChanged += (_, _) => ApplyFilters(); publisher.SelectionChanged += (_, _) => ApplyFilters(); source.SelectionChanged += (_, _) => ApplyFilters(); scope.SelectionChanged += (_, _) => ApplyFilters(); 
+        // Choosing another order from the list starts it the usual way round; a heading that asked for this change has already set that.
+        sort.SelectionChanged += (_, _) => { if (!string.Equals(viewModel.SortField, sort.SelectedItem?.ToString(), StringComparison.Ordinal)) sortDescending = false; ApplyFilters(); ShowSort(); };
+        foreach ((Button sortBy, _, string field) in sortHeadings) sortBy.Click += (_, _) => SortBy(field);
         list.ItemClick += async (_, args) => await ShowDetailsAsync(((ApplicationListItem)args.ClickedItem).Row);
         ApplyFilters();
+        ShowSort();
         StackPanel table = new() { Spacing = 6 };
         table.Children.Add(columns);
         table.Children.Add(listCard);

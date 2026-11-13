@@ -98,20 +98,23 @@ public static class FreshnessPresenter
 /// <summary>Where a Home row leads: a page, plus the saved filter it opens with.</summary>
 public sealed record HomeRowTarget(ShellPage Page, InstalledAppsFilter? AppsFilter = null, ActivityFilter? ActivityFilter = null);
 
-/// <summary>The "At a glance" rows on Home (UI polish phase 2, approved targets T-Home and T-Home-Ready).</summary>
+/// <summary>
+/// The lines Home shows under the ready updates (UI review 2026-11-13, item 15). A line is shown only when it has something to
+/// say, so a calm PC has none: the navigation pane already opens Installed apps, Activity and Decisions.
+/// </summary>
 public enum HomeRowKind
 {
-    Updates,
+    /// <summary>Apps with a possible match the owner can confirm, and something newer on offer.</summary>
     NeedsReview,
-    InstalledApps,
-    RestartsAndChecks,
-    Decisions,
-    RecentActivity
+    /// <summary>Apps with something newer on offer that PC Steward can't update yet.</summary>
+    CantUpdateYet,
+    /// <summary>Apps the owner pinned, ignored or skipped.</summary>
+    Decisions
 }
 
 /// <summary>
-/// One "At a glance" row: an icon, a title and one plain sentence, and the page it opens. It is a real button: its
-/// <see cref="AccessibleName"/> starts with the title, then says what the row says and where it leads.
+/// One Home line: an icon, a title and one plain sentence, and the page it opens. It is a real button: its
+/// <see cref="AccessibleName"/> starts with the title, then says what the line says and where it leads.
 /// </summary>
 public sealed record HomeRow(HomeRowKind Kind, string Title, string Description, string Glyph, StatusTone Tone, HomeRowTarget Target)
 {
@@ -123,8 +126,8 @@ public enum HomeActionKind
 {
     /// <summary>Opens the existing package-source consent; turning checks on starts nothing by itself.</summary>
     TurnOnUpdateChecks,
-    /// <summary>Opens the Updates page.</summary>
-    ReviewUpdates,
+    /// <summary>Opens one review of every ready update; nothing is installed until the owner confirms there.</summary>
+    UpdateAll,
     /// <summary>A read-only scan, then a refresh of the enabled sources.</summary>
     CheckForUpdates,
     /// <summary>A read-only scan only (sources are off).</summary>
@@ -136,6 +139,17 @@ public sealed record HomeAction(HomeActionKind Kind, string Label, string Access
 
 /// <summary>One fact under the status sentence: an icon and a short phrase. The text carries the meaning, never the colour.</summary>
 public sealed record HomeFact(string Glyph, string Text, StatusTone Tone);
+
+/// <summary>
+/// A ready update listed on Home (UI review 2026-11-13, item 15): the same app, versions and "Update…" as its row on Updates.
+/// </summary>
+public sealed record HomeReadyUpdate(string StableProductKey, string Name, string VersionText, string NewVersion);
+
+/// <summary>One line under "Recent" on Home: what happened and when, with the outcome's icon.</summary>
+public sealed record HomeRecentLine(string Text, string When, string Glyph, StatusTone Tone)
+{
+    public string Line => $"{Text} · {When}";
+}
 
 /// <summary>The kinds of message Home shows above the page when something needs the owner.</summary>
 public enum HomeNoticeKind
@@ -172,7 +186,17 @@ public sealed record HomePresentation(
     HomeCounts Counts,
     IReadOnlyList<HomeRow> Rows,
     IReadOnlyList<HomeNotice> Notices,
-    IReadOnlyList<HomeAttentionItem> Attention);
+    IReadOnlyList<HomeAttentionItem> Attention,
+    IReadOnlyList<HomeReadyUpdate> ReadyUpdates,
+    IReadOnlyList<string> ReadyKeys,
+    IReadOnlyList<HomeRecentLine> Recent)
+{
+    /// <summary>How many ready updates are on Updates but not listed on Home.</summary>
+    public int MoreReady => ReadyKeys.Count - ReadyUpdates.Count;
+
+    /// <summary>The link under the ready updates when Home doesn't list them all, or null.</summary>
+    public string? MoreReadyText => MoreReady <= 0 ? null : $"and {MoreReady.ToString("N0", CultureInfo.CurrentCulture)} more on Updates";
+}
 
 /// <summary>
 /// Inputs for <see cref="HomePresenter.Build"/>; all are existing presentation state. <see cref="LastBootAt"/> (Task 51) is when Windows
@@ -191,12 +215,13 @@ public sealed record HomeInputs(
     DateTimeOffset? LastBootAt = null);
 
 /// <summary>
-/// FR-UI-01/05/06 (ADR-030 concept A; UI polish phase 2, approved targets T-Home and T-Home-Ready): Home is one status card (an icon,
-/// one sentence, facts with icons, and the action that fits the state), info bars for updates that need the owner, and an "At a
-/// glance" list of plain-English rows that open filtered pages. The primary action follows the state: "Turn on update checks…" when
-/// local-only, "See updates" when updates are ready, otherwise "Check for updates" (UI review 2026-11-13, item 6: "Review" names only
-/// the step before an update is installed). The ready count is the Updates page's Ready
-/// group, so Home never promises more than Updates can review. Presentation only: nothing here starts, approves or elevates.
+/// FR-UI-01/05/06 (ADR-030 concept A; UI review 2026-11-13, item 15): Home answers one question, "is anything out of date?". It
+/// is one status card (an icon, one sentence, facts with icons, and the action that fits the state), info bars for updates that
+/// need the owner, the ready updates themselves, lines that appear only when they have something to say, and the last few things
+/// PC Steward did. The primary action follows the state: "Turn on update checks…" when local-only, "Update all N…" when updates
+/// are ready, otherwise "Check for updates". The ready updates are the Updates page's Ready group and "Update all N…" opens the
+/// same review, so Home never offers more than Updates can review and every update still passes the review step (FR-UPD-01).
+/// Presentation only: nothing here starts, approves or elevates.
 /// </summary>
 public static class HomePresenter
 {
@@ -215,7 +240,23 @@ public static class HomePresenter
     public const string ScanAgainHelp =
         "Reads the apps installed on this PC again. Update checks are off, so it doesn't look for updates.";
 
-    public const string ReviewUpdatesHelp = "Opens Updates, where you choose what to update.";
+    public const string UpdateAllHelp = "Opens one review of every ready update. Nothing is installed until you confirm there.";
+
+    /// <summary>The most ready updates listed on Home; the rest are one click away on Updates.</summary>
+    public const int MaximumReadyUpdates = 5;
+
+    /// <summary>The most lines under "Recent".</summary>
+    public const int MaximumRecentLines = 3;
+
+    /// <summary>The Activity filter that "See all activity" under Recent opens with.</summary>
+    public const ActivityFilter RecentActivityFilter = ActivityFilter.All;
+
+    /// <summary>
+    /// UI review 2026-11-13 (item 15): whether Home shows the bar about PC Steward's own update. A problem, or an update still in
+    /// progress, is always shown. A finished update is shown until the owner closes it, and for a day after it was recorded.
+    /// </summary>
+    public static bool ShowsOwnUpdateBar(bool succeeded, bool closed, DateTimeOffset? recordedAt, DateTimeOffset now) =>
+        !succeeded || (!closed && (recordedAt is not { } at || now - at < TimeSpan.FromDays(1)));
 
     public const string AttentionProblemsLinkName = "View in Activity: update problems";
     public const string AttentionUpdatesLinkName = "View in Activity: updates, including restarts and problems";
@@ -225,7 +266,8 @@ public static class HomePresenter
     {
         ArgumentNullException.ThrowIfNull(inputs);
         IReadOnlyList<InventoryRow> rows = inputs.Rows;
-        int ready = UpdatesPagePresenter.Build(rows, inputs.Details, inputs.SourcesEnabled, inputs.Decisions, null, inputs.Now).Ready.Count;
+        UpdatesPagePresentation updates = UpdatesPagePresenter.Build(rows, inputs.Details, inputs.SourcesEnabled, inputs.Decisions, null, inputs.Now);
+        int ready = updates.Ready.Count;
         Dictionary<string, string> installed = rows.GroupBy(row => row.StableProductKey, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.First().Version, StringComparer.Ordinal);
         UpdateJobRecord[] latest = [.. UpdateJobHistory.LatestPerProduct(inputs.Jobs).Values.OrderByDescending(job => job.EndedAt)];
         UpdateJobRecord[] attention = latest.Where(job => UpdateJobHistory.NeedsAttention(job, installed.GetValueOrDefault(job.StableProductKey), inputs.LastScanAt)).ToArray();
@@ -279,7 +321,7 @@ public static class HomePresenter
                 EvidenceFreshness.Cached => new("", freshness.Sentence, StatusTone.Neutral),
                 _ => new("", freshness.Sentence, StatusTone.Attention)
             };
-            facts = [evidence, scanned];
+            facts = [evidence, scanned, new("\uE71D", $"{DisplayFormat.Plural(rows.Count, "app")} on this PC", StatusTone.Neutral)];
             if (ready == 0)
             {
                 primary = checkForUpdates;
@@ -287,7 +329,7 @@ public static class HomePresenter
             }
             else
             {
-                primary = new(HomeActionKind.ReviewUpdates, "See updates", $"See updates: {DisplayFormat.Plural(ready, "update")} ready", ReviewUpdatesHelp);
+                primary = new(HomeActionKind.UpdateAll, updates.ReviewAllLabel, $"{updates.ReviewAllLabel} (opens one review before anything is installed)", UpdateAllHelp);
                 secondary = checkForUpdates;
             }
         }
@@ -312,91 +354,61 @@ public static class HomePresenter
                 StatusTone.Information, "Details", RestartDetailsLinkName, ActivityFilter.Updates));
         }
 
+        // UI review 2026-11-13 (item 15): a line appears only when it has something to say. What needs the owner is in the info bars
+        // above; Installed apps, Activity and Decisions are in the navigation pane.
         List<HomeRow> glance = [];
         if (hasInventory)
         {
-            HomeRow review = NeedsReviewRow(counts);
-            HomeRow apps = InstalledAppsRow(counts);
-            HomeRow restarts = RestartsAndChecksRow(attention.Length, restart.Length);
-            HomeRow decisions = DecisionsRow(counts);
-            HomeRow activity = RecentActivityRow(inputs.Activity, inputs.Now, culture, zone);
-            if (!inputs.SourcesEnabled)
-            {
-                HomeRow updates = new(HomeRowKind.Updates, "Updates", "Not checked. Turn on update checks to look for updates.", "", StatusTone.Neutral, new(ShellPage.Updates));
-                glance.AddRange([apps, updates, review, restarts, decisions, activity]);
-            }
-            else
-            {
-                // With sources on, the status sentence carries the ready count, so there is no separate Updates row.
-                glance.AddRange([review, apps, decisions, restarts, activity]);
-            }
-            // Something that needs the owner comes first.
-            if (attention.Length != 0) { glance.Remove(restarts); glance.Insert(0, restarts); }
+            // With update checks off the status sentence already says why nothing can update, so these two lines stay away.
+            if (inputs.SourcesEnabled && MatchesRow(updates.CheckTheMatch) is { } matches) glance.Add(matches);
+            if (inputs.SourcesEnabled && CantUpdateYetRow(updates.CantUpdateYet) is { } blocked) glance.Add(blocked);
+            if (DecisionsRow(counts) is { } decisions) glance.Add(decisions);
         }
+        HomeReadyUpdate[] readyUpdates = [.. updates.Ready.Take(MaximumReadyUpdates).Select(row => new HomeReadyUpdate(row.StableProductKey, row.Name, row.VersionText, row.NewVersion ?? string.Empty))];
+        HomeRecentLine[] recent = hasInventory
+            ? [.. inputs.Activity.Take(MaximumRecentLines).Select(entry => new HomeRecentLine($"{entry.Title}: {entry.OutcomeLabel}", DisplayFormat.Relative(entry.OccurredAt, inputs.Now, culture, zone), entry.Glyph, entry.Tone == StatusTone.Success ? StatusTone.Success : StatusTone.Neutral))]
+            : [];
 
-        return new(hasInventory, hero, heroGlyph, heroTone, facts, freshness, primary, secondary, counts, glance, notices, items);
+        return new(hasInventory, hero, heroGlyph, heroTone, facts, freshness, primary, secondary, counts, glance, notices, items, readyUpdates, updates.ReadyKeys, recent);
     }
 
-    private static HomeRow NeedsReviewRow(HomeCounts counts)
+    /// <summary>
+    /// "Check the match": the apps the Updates page asks about, by name. It counts exactly the rows of that group on Updates, which
+    /// is where the line leads.
+    /// </summary>
+    private static HomeRow? MatchesRow(IReadOnlyList<UpdateRowPresentation> matches)
     {
-        // UI review 2026-11-13 (item 5): the row carries the state's one name and counts only that state, the same rows its link
-        // opens. An app whose source couldn't be reached is counted on the Installed apps row instead.
-        int review = counts.ReviewRequired;
-        string description = review == 0
-            ? "No matches to check."
-            : $"{DisplayFormat.Plural(review, "possible match", "possible matches")} {(review == 1 ? "needs" : "need")} a look before {(review == 1 ? "it" : "they")} can update.";
-        return new(HomeRowKind.NeedsReview, StatusVocabulary.For(nameof(UpdateIntelligenceStatus.ReviewRequired)).Label, description, "", StatusTone.Neutral,
-            new(ShellPage.InstalledApps, AppsFilter: InstalledAppsFilter.NeedsReview));
+        if (matches.Count == 0) return null;
+        StatusChipPresentation chip = StatusVocabulary.For(nameof(UpdateIntelligenceStatus.ReviewRequired));
+        string description = matches.Count == 1
+            ? $"{matches[0].Name} has a possible match. Confirm it is the same app and its update can be offered."
+            : $"{DisplayFormat.Plural(matches.Count, "app")} have a possible match to confirm: {Names(matches.Take(MaximumNamedApps).Select(match => match.Name), matches.Count)}.";
+        return new(HomeRowKind.NeedsReview, chip.Label, description, chip.Glyph, chip.Tone, new(ShellPage.Updates));
     }
 
-    private static HomeRow InstalledAppsRow(HomeCounts counts)
+    /// <summary>"Can't update yet": something newer is on offer but PC Steward can't update the app yet. Updates says why.</summary>
+    private static HomeRow? CantUpdateYetRow(IReadOnlyList<UpdateRowPresentation> blocked)
     {
-        // UI polish phase 2: the old unmanaged tile is merged into this row, and the status reads "No update source" on screen.
-        // "No update source" counts the same rows as the Installed apps filter of that name; rows whose source hasn't been checked
-        // yet only count towards "none has an update source yet".
-        string apps = DisplayFormat.Plural(counts.Installed, "app");
-        string current = counts.Current.ToString("N0", CultureInfo.CurrentCulture);
-        string description = counts.Installed == 0 ? "No apps found in the last scan."
-            : counts.Unmanaged + counts.NotChecked == counts.Installed ? (counts.Installed == 1 ? $"{apps}. It has no update source yet." : $"{apps}. None has an update source yet.")
-            : counts.Unmanaged == 0 ? $"{apps}: {current} up to date."
-            : $"{apps}: {current} up to date, {counts.Unmanaged.ToString("N0", CultureInfo.CurrentCulture)} with no update source.";
-        if (counts.SourceUnavailable != 0 && counts.Installed != 0) description += $" {DisplayFormat.Plural(counts.SourceUnavailable, "app")} couldn't be checked.";
-        return new(HomeRowKind.InstalledApps, "Installed apps", description, "", StatusTone.Neutral, new(ShellPage.InstalledApps, AppsFilter: InstalledAppsFilter.All));
+        if (blocked.Count == 0) return null;
+        string description = blocked.Count == 1
+            ? $"{blocked[0].Name} can't be updated yet. Updates says why."
+            : $"{DisplayFormat.Plural(blocked.Count, "app")} can't be updated yet. Updates says why.";
+        return new(HomeRowKind.CantUpdateYet, UpdatesPagePresenter.CantUpdateYetTitle, description, AppDetailSummaryPresenter.CantUpdateYetGlyph, StatusTone.Neutral, new(ShellPage.Updates));
     }
 
-    private static HomeRow RestartsAndChecksRow(int attention, int restart)
-    {
-        if (attention == 0 && restart == 0)
-            return new(HomeRowKind.RestartsAndChecks, "Restarts and checks", "Nothing is waiting for a restart or a check.", "", StatusTone.Neutral,
-                new(ShellPage.Activity, ActivityFilter: ActivityFilter.Problems));
-        List<string> parts = [];
-        if (attention != 0) parts.Add($"{DisplayFormat.Plural(attention, "update")} {(attention == 1 ? "needs" : "need")} attention.");
-        if (restart != 0) parts.Add($"{DisplayFormat.Plural(restart, "update")} {(restart == 1 ? "is" : "are")} waiting for a restart.");
-        // Independent review L3: when a restart is counted, open an Activity filter that contains it (Updates includes problems).
-        return new(HomeRowKind.RestartsAndChecks, attention != 0 ? "Needs attention" : "Restart required", string.Join(" ", parts),
-            attention != 0 ? "" : "", attention != 0 ? StatusTone.Attention : StatusTone.Information,
-            new(ShellPage.Activity, ActivityFilter: restart != 0 ? ActivityFilter.Updates : ActivityFilter.Problems));
-    }
+    private const string DecisionsGlyph = "\uE718";
 
-    private static HomeRow DecisionsRow(HomeCounts counts)
+    /// <summary>The most app names a Home line lists before "and N more".</summary>
+    private const int MaximumNamedApps = 3;
+
+    private static HomeRow? DecisionsRow(HomeCounts counts)
     {
         List<string> parts = [];
         if (counts.Pinned != 0) parts.Add($"{counts.Pinned.ToString("N0", CultureInfo.CurrentCulture)} pinned");
         if (counts.Ignored != 0) parts.Add($"{counts.Ignored.ToString("N0", CultureInfo.CurrentCulture)} ignored");
         if (counts.Skipped != 0) parts.Add($"{counts.Skipped.ToString("N0", CultureInfo.CurrentCulture)} skipped");
-        string description = parts.Count == 0 ? "No apps pinned, ignored or skipped." : $"{JoinWithAnd(parts)}. You can undo any of them.";
-        return new(HomeRowKind.Decisions, "Decisions", description, "", StatusTone.Neutral, new(ShellPage.Decisions));
-    }
-
-    private static HomeRow RecentActivityRow(IReadOnlyList<ActivityEntry> activity, DateTimeOffset now, CultureInfo? culture, TimeZoneInfo? zone)
-    {
-        if (activity.Count == 0)
-            return new(HomeRowKind.RecentActivity, "Recent activity", "Nothing yet. Scans, updates and decisions are recorded on this PC.", "", StatusTone.Neutral,
-                new(ShellPage.Activity, ActivityFilter: ActivityFilter.All));
-        ActivityEntry latest = activity[0];
-        bool success = latest.Tone == StatusTone.Success;
-        return new(HomeRowKind.RecentActivity, "Recent activity", $"{latest.Title}: {latest.OutcomeLabel}, {DisplayFormat.Relative(latest.OccurredAt, now, culture, zone)}.",
-            success ? "" : "", success ? StatusTone.Success : StatusTone.Neutral, new(ShellPage.Activity, ActivityFilter: ActivityFilter.All));
+        if (parts.Count == 0) return null;
+        return new(HomeRowKind.Decisions, "Decisions", $"{JoinWithAnd(parts)}. You can undo any of them.", DecisionsGlyph, StatusTone.Neutral, new(ShellPage.Decisions));
     }
 
     /// <summary>"A", "A and B", "A, B and C", or "A, B and 3 more" when <paramref name="total"/> is larger than the names given.</summary>

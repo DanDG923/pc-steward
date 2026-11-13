@@ -27,6 +27,7 @@ public sealed partial class MainWindow
         scanPageStatusText = new TextBlock { Text = $"{viewModel.ScanPhase} · elapsed {viewModel.Elapsed:mm\\:ss}", Style = AppStyle("StewardSubtitleStyle") };
         StackPanel state = new() { Spacing = 8 };
         state.Children.Add(scanPageStatusText);
+        state.Children.Add(WorkProgressPanel());
         state.Children.Add(StewardVisuals.EvidenceRow("Last scan", viewModel.LastScanAt is null ? "No completed scan" : viewModel.LastScanCompletedLabel));
         state.Children.Add(StewardVisuals.EvidenceRow("This scan covers", viewModel.ScanModeLabel));
         state.Children.Add(StewardVisuals.EvidenceRow("Administrator access", "Not requested"));

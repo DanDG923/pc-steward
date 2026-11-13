@@ -362,6 +362,7 @@ public sealed partial class MainWindow : Window
         if (operationCancel is not null) operationCancel.Visibility = viewModel.IsScanning || scanCancellation is not null ? Visibility.Visible : Visibility.Collapsed;
         if (operationCancelReview is not null) operationCancelReview.Visibility = preparingReview && reviewPreparationCancellation is not null ? Visibility.Visible : Visibility.Collapsed;
         if (scanPageStatusText is not null) scanPageStatusText.Text = $"{viewModel.ScanPhase} · elapsed {viewModel.Elapsed:mm\\:ss}";
+        ShowWorkProgress();
         // Task 73 Phase 2: the job page's per-item state follows the same polled progress presentation; no page rebuild per frame.
         if (jobProgressStateText is not null && isExecuting) StewardVisuals.SetLiveText(jobProgressStateText, UpdateJobProgressText.LiveState(jobProgressLine ?? new(true, null), updateProgressPresentation), announce: true);
         if (operationViewJob is not null)

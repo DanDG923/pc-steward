@@ -52,7 +52,7 @@ public sealed partial class MainWindow
             foreach (DataActionPresentation action in card.Actions) actions.Children.Add(DataActionButton(action));
             body.Children.Add(actions);
             string? reason = card.Actions.Select(action => action.UnavailableReason).FirstOrDefault(text => text is not null);
-            if (reason is not null) body.Children.Add(new TextBlock { Text = reason, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+            if (reason is not null) body.Children.Add(new TextBlock { Text = reason, Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
             panel.Children.Add(StewardVisuals.SettingsCard(card.Glyph, card.Title, null, body));
         }
 
@@ -67,7 +67,7 @@ public sealed partial class MainWindow
         AutomationProperties.SetName(factoryReset, reset.AccessibleName);
         factoryReset.Click += async (_, _) => await ConfirmAndArmFactoryResetAsync(factoryReset);
         danger.Children.Add(factoryReset);
-        if (reset.UnavailableReason is { } resetReason) danger.Children.Add(new TextBlock { Text = resetReason, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+        if (reset.UnavailableReason is { } resetReason) danger.Children.Add(new TextBlock { Text = resetReason, Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
         Border dangerZone = StewardVisuals.SettingsCard("", reset.Heading, "Separate from routine cleanup. This cannot be undone.", danger, danger: true);
         dangerZone.Margin = new Thickness(0, StewardSpacing.XLarge, 0, 0);
         panel.Children.Add(dangerZone);

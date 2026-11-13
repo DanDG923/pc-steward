@@ -36,18 +36,26 @@ public sealed class UiReviewWordingPresentationTests
         Assert.IsTrue(InstalledAppsFilters.Matches(InstalledAppsFilter.All, "FailedUnavailable"), "it is still listed under All");
 
         HomePresentation home = HomePresenter.Build(new HomeInputs(rows, new Dictionary<string, UpdateDetail>(StringComparer.Ordinal), true, [], [], [], [], Now.AddHours(-1), Now), Culture, Utc);
-        HomeRow match = home.Rows.Single(row => row.Kind == HomeRowKind.NeedsReview);
+        // UI review 2026-11-13 (item 15): Home's line carries the same name, and appears only for a match the owner can confirm with
+        // something newer on offer; a possible match with nothing newer is not a question on Home.
+        Assert.IsFalse(home.Rows.Any(row => row.Kind == HomeRowKind.NeedsReview));
+        Dictionary<string, UpdateDetail> details = new(StringComparer.Ordinal)
+        {
+            ["b"] = new("b", "1.0", "2.0", "winget", "Contoso.Beta", "Low", "Name only.", "winget: live result from today.", "X64", null, "Confirm the match.", [], [], [], CanConfirmPackageIdentity: true)
+        };
+        HomePresentation asks = HomePresenter.Build(new HomeInputs(rows, details, true, [], [], [], [], Now.AddHours(-1), Now), Culture, Utc);
+        HomeRow match = asks.Rows.Single(row => row.Kind == HomeRowKind.NeedsReview);
         Assert.AreEqual("Check the match", match.Title);
-        Assert.AreEqual("1 possible match needs a look before it can update.", match.Description);
-        Assert.AreEqual("4 apps: 1 up to date. 1 app couldn't be checked.", home.Rows.Single(row => row.Kind == HomeRowKind.InstalledApps).Description);
+        Assert.AreEqual("Beta has a possible match. Confirm it is the same app and its update can be offered.", match.Description);
+        Assert.AreEqual(new HomeRowTarget(ShellPage.Updates), match.Target, "it opens the page that asks the question");
     }
 
     [TestMethod]
     [Description("FR-UI-01 (items 6 and 7): Home's button that opens Updates doesn't say Review, and Home's help says what happens without repeating the promise.")]
     public void ReviewNamesOnlyTheStepBeforeAnUpdate()
     {
-        Assert.AreEqual("Opens Updates, where you choose what to update.", HomePresenter.ReviewUpdatesHelp);
-        foreach (string help in new[] { HomePresenter.CheckForUpdatesHelp, HomePresenter.ScanAgainHelp, HomePresenter.TurnOnUpdateChecksHelp, HomePresenter.ReviewUpdatesHelp })
+        Assert.AreEqual("Opens one review of every ready update. Nothing is installed until you confirm there.", HomePresenter.UpdateAllHelp);
+        foreach (string help in new[] { HomePresenter.CheckForUpdatesHelp, HomePresenter.ScanAgainHelp, HomePresenter.TurnOnUpdateChecksHelp, HomePresenter.UpdateAllHelp })
         {
             Assert.IsFalse(help.Contains("administrator", StringComparison.OrdinalIgnoreCase), help);
             Assert.IsFalse(help.Contains("Review", StringComparison.Ordinal), help);
@@ -94,7 +102,7 @@ public sealed class UiReviewWordingPresentationTests
         [
             .. StatusVocabulary.All.Select(chip => chip.Label), .. StatusVocabulary.All.Select(chip => chip.Meaning),
             InstalledAppsFilters.PageDescription, InstalledAppsFilters.NoUpdateSourceNote,
-            HomePresenter.CheckForUpdatesHelp, HomePresenter.ScanAgainHelp, HomePresenter.ReviewUpdatesHelp,
+            HomePresenter.CheckForUpdatesHelp, HomePresenter.ScanAgainHelp, HomePresenter.UpdateAllHelp,
             SettingsPresenter.SourceSettingLabel, SettingsPresenter.SourceConsentNote, SettingsPresenter.SaveModelText, SettingsPresenter.SourceRowDescription(false, string.Empty),
             viewModel.ScanPhase, viewModel.ScanModeLabel, viewModel.FreshnessLabel, viewModel.UpdateFreshnessLabel,
             FreshnessPresenter.Describe(false, [], Now, Culture, Utc).Sentence, FreshnessPresenter.Describe(true, [], Now, Culture, Utc).Sentence

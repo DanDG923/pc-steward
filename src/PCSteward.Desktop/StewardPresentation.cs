@@ -408,9 +408,15 @@ internal static class StewardVisuals
     {
         (Brush foreground, Brush background) = ToneBrushes(tone);
         // UI polish Phase 1: a tinted pill (StewardStatusChipStyle); the glyph and label carry the meaning, never colour alone.
-        StackPanel content = new() { Orientation = Orientation.Horizontal, Spacing = 6 };
+        // UI review 2026-11-13 (item 18): the label is in a column that takes the width left over, so a long label wraps onto a
+        // second line when space is tight instead of being clipped (a side-by-side stack never wraps its text).
+        Grid content = new() { ColumnSpacing = 6 };
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 12, Foreground = foreground, VerticalAlignment = VerticalAlignment.Center });
-        content.Children.Add(new TextBlock { Text = label, Style = Style("StewardCaptionStyle"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = foreground, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center });
+        TextBlock text = new() { Text = label, Style = Style("StewardCaptionStyle"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = foreground, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(text, 1);
+        content.Children.Add(text);
         Border badge = new() { Style = Style("StewardStatusChipStyle"), Background = background, Child = content };
         AutomationProperties.SetName(badge, automationName ?? label);
         return badge;
@@ -456,7 +462,7 @@ internal static class StewardVisuals
     {
         StackPanel copy = new() { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
         copy.Children.Add(new TextBlock { Text = title, Style = Style("StewardRowTitleStyle") });
-        if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardCaptionStyle") });
+        if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardDescriptionStyle") });
         return copy;
     }
 
@@ -684,7 +690,7 @@ internal static class StewardVisuals
         Border badge = StatusBadge(status);
         badge.HorizontalAlignment = HorizontalAlignment.Left;
         content.Children.Add(badge);
-        content.Children.Add(new TextBlock { Text = detail, Style = Style("StewardCaptionStyle") });
+        content.Children.Add(new TextBlock { Text = detail, Style = Style("StewardDescriptionStyle") });
         Border card = new() { Style = Style("StewardCardStyle"), Child = content };
         AutomationProperties.SetName(card, $"{value.ToString("N0", System.Globalization.CultureInfo.CurrentCulture)} {label}. {detail}");
         return card;
@@ -723,7 +729,7 @@ internal static class StewardVisuals
         TextBlock heading = SectionHeading(title);
         if (danger) heading.Foreground = Brush("StewardDangerBrush");
         copy.Children.Add(heading);
-        if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+        if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
         Grid.SetColumn(copy, 1);
         header.Children.Add(copy);
         content.Children.Add(header);
@@ -743,7 +749,7 @@ internal static class StewardVisuals
         row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         StackPanel copy = new() { Spacing = StewardSpacing.XSmall, VerticalAlignment = VerticalAlignment.Center };
         copy.Children.Add(new TextBlock { Text = title, Foreground = Brush("StewardTextBrush"), TextWrapping = TextWrapping.Wrap });
-        if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+        if (!string.IsNullOrWhiteSpace(description)) copy.Children.Add(new TextBlock { Text = description, Style = Style("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
         row.Children.Add(copy);
         control.VerticalAlignment = VerticalAlignment.Center;
         control.HorizontalAlignment = HorizontalAlignment.Right;
@@ -761,7 +767,7 @@ internal static class StewardVisuals
         row.Children.Add(new FontIcon { Glyph = glyph, FontSize = 16, Foreground = Brush("StewardBrandBrush"), Margin = new Thickness(0, 2, 0, 0) });
         StackPanel copy = new() { Spacing = StewardSpacing.XSmall };
         copy.Children.Add(new TextBlock { Text = title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Brush("StewardTextBrush"), TextWrapping = TextWrapping.Wrap });
-        if (!string.IsNullOrWhiteSpace(detail)) copy.Children.Add(new TextBlock { Text = detail, Style = Style("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+        if (!string.IsNullOrWhiteSpace(detail)) copy.Children.Add(new TextBlock { Text = detail, Style = Style("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
         Grid.SetColumn(copy, 1);
         row.Children.Add(copy);
         TextBlock time = new() { Text = when, Style = Style("StewardCaptionStyle"), Margin = new Thickness(12, 1, 0, 0) };
@@ -815,12 +821,23 @@ internal static class StewardVisuals
         return content;
     }
 
-    /// <summary>A row of <see cref="FilterTab"/> buttons over a thin divider; it wraps instead of clipping at narrow widths.</summary>
+    /// <summary>
+    /// A row of <see cref="FilterTab"/> buttons over a thin divider; it wraps instead of clipping at narrow widths.
+    /// UI review 2026-11-13 (item 18): each one is announced as a tab with its place in the row ("tab, 2 of 5"), as the Windows
+    /// selector control would. They stay the app's own buttons because that control does not wrap at narrow widths or large text.
+    /// </summary>
     public static Border FilterBar(IEnumerable<Button> tabs, string accessibleName)
     {
         ArgumentNullException.ThrowIfNull(tabs);
         StewardWrapPanel row = new() { HorizontalSpacing = StewardSpacing.Large, VerticalSpacing = StewardSpacing.XSmall };
-        foreach (Button tab in tabs) row.Children.Add(tab);
+        Button[] all = [.. tabs];
+        for (int index = 0; index < all.Length; index++)
+        {
+            AutomationProperties.SetLocalizedControlType(all[index], "tab");
+            AutomationProperties.SetPositionInSet(all[index], index + 1);
+            AutomationProperties.SetSizeOfSet(all[index], all.Length);
+            row.Children.Add(all[index]);
+        }
         AutomationProperties.SetName(row, accessibleName);
         return new Border { BorderBrush = Brush("StewardBorderBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Child = row };
     }
@@ -831,7 +848,7 @@ internal static class StewardVisuals
     /// </summary>
     public static Grid FootNote(string glyph, string text)
     {
-        Grid line = IconLine(glyph, text, styleKey: "StewardCaptionStyle");
+        Grid line = IconLine(glyph, text, styleKey: "StewardDescriptionStyle");
         foreach (TextBlock copy in line.Children.OfType<TextBlock>()) copy.Foreground = Brush("StewardSecondaryTextBrush");
         return line;
     }

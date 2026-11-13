@@ -55,7 +55,7 @@ public sealed partial class MainWindow
         heading.Children.Add(avatar);
         StackPanel title = new() { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
         title.Children.Add(StewardVisuals.PageTitle(row.Name));
-        title.Children.Add(new TextBlock { Text = summary.Subtitle, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+        title.Children.Add(new TextBlock { Text = summary.Subtitle, Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
         Grid.SetColumn(title, 1); heading.Children.Add(title);
         panel.Children.Add(heading);
 
@@ -103,7 +103,7 @@ public sealed partial class MainWindow
         state.HorizontalAlignment = HorizontalAlignment.Left;
         lead.Children.Add(state);
         lead.Children.Add(new TextBlock { Text = summary.Sentence, Style = AppStyle("StewardBodyLargeStyle"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-        foreach (string note in summary.Notes) lead.Children.Add(StewardVisuals.IconLine("", note, styleKey: "StewardCaptionStyle"));
+        foreach (string note in summary.Notes) lead.Children.Add(StewardVisuals.IconLine("", note, styleKey: "StewardDescriptionStyle"));
         ComboBox? candidatePicker = null;
         if (summary.Action == AppDetailAction.ChooseMatch && detail is not null)
         {

@@ -82,6 +82,45 @@ public static class InstalledAppsFilters
     /// <summary>The button beside that line. It opens a dialog that names the apps before anything is saved.</summary>
     public const string ConfirmCurrentMatchesLabel = "Confirm these matches…";
 
+    /// <summary>
+    /// What the list can be sorted by (UI review 2026-11-13, item 18). Name, Status and Installed for are also column headings,
+    /// which sort when selected and turn the order round when selected again.
+    /// </summary>
+    public static IReadOnlyList<string> SortOptions { get; } = ["Name", "Status", "Installed for", "Source", "Publisher"];
+
+    /// <summary>The column headings above the list, in order. A heading that is also a sort option sorts the list.</summary>
+    public static IReadOnlyList<string> ColumnHeadings { get; } = ["Name", "Version", "Installed for", "Status"];
+
+    /// <summary>True when selecting the column heading sorts the list.</summary>
+    public static bool SortsWhenSelected(string heading) => SortOptions.Contains(heading, StringComparer.Ordinal);
+
+    /// <summary>The accessible name of a heading that sorts: "Sort by Status".</summary>
+    public static string SortHeadingName(string heading) => $"Sort by {heading}";
+
+    /// <summary>What a screen reader is told about a heading's sort state; empty when the list is not sorted by it.</summary>
+    public static string SortState(bool sortedByThis, bool descending) => !sortedByThis ? string.Empty : descending ? "Sorted descending" : "Sorted ascending";
+
+    /// <summary>
+    /// The rows in the chosen order. Status sorts by <see cref="StatusVocabulary.SortRank"/> and Installed for by the words the
+    /// column shows; rows that tie stay in name order whichever way the sort runs. An unknown field sorts by name.
+    /// </summary>
+    public static InventoryRow[] Sorted(IEnumerable<InventoryRow> rows, string? field, bool descending)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        StringComparer text = StringComparer.OrdinalIgnoreCase;
+        IOrderedEnumerable<InventoryRow> ordered = field switch
+        {
+            "Status" => descending ? rows.OrderByDescending(row => StatusVocabulary.SortRank(row.Status)) : rows.OrderBy(row => StatusVocabulary.SortRank(row.Status)),
+            "Installed for" => By(row => AppDetailSummaryPresenter.InstalledFor(row.Scope)),
+            "Source" => By(row => row.Provider),
+            "Publisher" => By(row => row.Publisher),
+            _ => By(row => row.Name)
+        };
+        return [.. ordered.ThenBy(row => row.Name, text)];
+
+        IOrderedEnumerable<InventoryRow> By(Func<InventoryRow, string> key) => descending ? rows.OrderByDescending(key, text) : rows.OrderBy(key, text);
+    }
+
     /// <summary>The dialog's confirming button.</summary>
     public static string ConfirmCurrentMatchesButton(int count) => count == 1 ? "Confirm match" : $"Confirm {count.ToString("N0", CultureInfo.CurrentCulture)} matches";
 

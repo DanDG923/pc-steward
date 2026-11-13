@@ -236,10 +236,18 @@ public sealed class ReviewedRouteViewModelTests
         Assert.AreEqual(ReviewedUpdateHistoryPresentation.TargetVerifiedText, list.Items[0].VerificationDetail);
         Assert.AreEqual(ReviewedUpdateHistoryListViewModel.MaximumRecords, loaded.RequestedMaximum);
         StringAssert.Contains(list.Summary, "1 reviewed update record");
+        // UI review 2026-11-13 (item 17, FR-HIS-01): the record sits closed on Activity and opens by itself only when it needs attention.
+        Assert.IsFalse(list.NeedsAttention, "a finished, verified record needs nothing");
+        ReviewedUpdateHistoryListViewModel blocking = await ReviewedUpdateHistoryListViewModel.LoadAsync(new Reader(_ => [record with { State = UpdateDispatchState.Uncertain }]), CancellationToken.None);
+        Assert.IsTrue(blocking.NeedsAttention, "a record that still blocks other updates is shown without being asked");
+        Assert.IsTrue(ReviewedUpdateHistoryListViewModel.Unavailable.NeedsAttention, "a record that could not be read says so");
+        Assert.AreEqual("Technical record of updates", ReviewedUpdateHistoryListViewModel.RecordTitle);
+        Assert.AreEqual("How each update was run and checked, as PC Steward recorded it.", ReviewedUpdateHistoryListViewModel.RecordDescription);
 
         ReviewedUpdateHistoryListViewModel empty = await ReviewedUpdateHistoryListViewModel.LoadAsync(new Reader(_ => []), CancellationToken.None);
         Assert.IsTrue(empty.IsAvailable);
         Assert.AreEqual(ReviewedUpdateHistoryListViewModel.EmptyText, empty.Summary);
+        Assert.IsFalse(empty.NeedsAttention);
 
         foreach (Reader failing in new[]
                  {

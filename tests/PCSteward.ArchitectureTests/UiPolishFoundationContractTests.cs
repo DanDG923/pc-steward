@@ -47,7 +47,8 @@ public sealed class UiPolishFoundationContractTests
         StringAssert.Contains(columns, "int maxColumns = 2");
         StringAssert.Contains(columns, "Math.Clamp(Math.Floor((width + spacing) / (minColumnWidth + spacing)), 1, maxColumns)");
         StringAssert.Contains(columns, "grid.ColumnDefinitions.Clear();");
-        StringAssert.Contains(Desktop("MainWindow.Home.cs"), "ResponsiveColumns([.. home.Rows.Select(HomeRowButton)], 380, StewardSpacing.XSmall, maxColumns: 3)");
+        // UI review 2026-11-13 (item 15): Home no longer has a grid of rows; a line appears only when it has something to say.
+        StringAssert.Contains(Desktop("MainWindow.Home.cs"), "foreach (HomeRow row in home.Rows) lines.Children.Add(HomeRowButton(row));");
         StringAssert.Contains(Desktop("MainWindow.Decisions.cs"), "ResponsiveColumns(cards, 380, StewardSpacing.XSmall, maxColumns: 4)");
     }
 

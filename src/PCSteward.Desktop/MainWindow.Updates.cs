@@ -73,7 +73,7 @@ public sealed partial class MainWindow
             applications.Click += (_, _) => NavigateTo(ShellPage.InstalledApps);
             panel.Children.Add(StewardVisuals.EmptyState("\uE896", header.EmptyTitle, header.EmptyMessage, applications));
             if (NothingOnOfferLink(page) is { } possibleMatches) panel.Children.Add(possibleMatches);
-            panel.Children.Add(StewardVisuals.IconLine("\uE946", header.Footer, styleKey: "StewardCaptionStyle"));
+            panel.Children.Add(StewardVisuals.IconLine("\uE946", header.Footer, styleKey: "StewardDescriptionStyle"));
             return panel;
         }
 
@@ -223,7 +223,7 @@ public sealed partial class MainWindow
             cantHeader.Children.Add(StewardVisuals.IconWell("\uE7BA"));
             StackPanel cantCopy = new() { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
             cantCopy.Children.Add(new TextBlock { Text = cantTitle, Style = AppStyle("StewardRowTitleStyle") });
-            cantCopy.Children.Add(new TextBlock { Text = UpdatesPagePresenter.CantUpdateYetDescription, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+            cantCopy.Children.Add(new TextBlock { Text = UpdatesPagePresenter.CantUpdateYetDescription, Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
             Grid.SetColumn(cantCopy, 1); cantHeader.Children.Add(cantCopy);
             Expander cantGroup = new() { Header = cantHeader, Content = StewardVisuals.ListCard(reasonRows), IsExpanded = cantUpdateGroupExpanded, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
             AutomationProperties.SetName(cantGroup, $"{cantTitle}. {UpdatesPagePresenter.CantUpdateYetDescription}");
@@ -259,7 +259,7 @@ public sealed partial class MainWindow
             ignoredHeader.Children.Add(StewardVisuals.IconWell("\uED1A"));
             StackPanel ignoredCopy = new() { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
             ignoredCopy.Children.Add(new TextBlock { Text = $"Ignored and skipped ({page.IgnoredAndSkipped.Count})", Style = AppStyle("StewardRowTitleStyle") });
-            ignoredCopy.Children.Add(new TextBlock { Text = "You can undo these at any time, here or on the Decisions page.", Style = AppStyle("StewardCaptionStyle") });
+            ignoredCopy.Children.Add(new TextBlock { Text = "You can undo these at any time, here or on the Decisions page.", Style = AppStyle("StewardDescriptionStyle") });
             Grid.SetColumn(ignoredCopy, 1); ignoredHeader.Children.Add(ignoredCopy);
             Expander ignoredGroup = new() { Header = ignoredHeader, Content = StewardVisuals.ListCard(ignoredRows), IsExpanded = ignoredGroupExpanded, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
             AutomationProperties.SetName(ignoredGroup, $"Ignored and skipped ({page.IgnoredAndSkipped.Count}). You can undo these at any time.");
@@ -268,7 +268,7 @@ public sealed partial class MainWindow
             panel.Children.Add(ignoredGroup);
         }
         if (NothingOnOfferLink(page) is { } moreMatches) panel.Children.Add(moreMatches);
-        panel.Children.Add(StewardVisuals.IconLine("\uEA18", header.Footer, styleKey: "StewardCaptionStyle"));
+        panel.Children.Add(StewardVisuals.IconLine("\uEA18", header.Footer, styleKey: "StewardDescriptionStyle"));
         return panel;
     }
 
@@ -326,7 +326,7 @@ public sealed partial class MainWindow
         StackPanel copy = new() { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
         copy.Children.Add(title);
         // A row with nothing to add under its title (a ready update from an unknown publisher) shows no empty second line.
-        TextBlock caption = new() { Text = summary, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap, Visibility = summary.Length == 0 ? Visibility.Collapsed : Visibility.Visible };
+        TextBlock caption = new() { Text = summary, Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap, Visibility = summary.Length == 0 ? Visibility.Collapsed : Visibility.Visible };
         copy.Children.Add(caption);
         Grid.SetColumn(copy, 2);
         line.Children.Add(copy);
@@ -338,7 +338,7 @@ public sealed partial class MainWindow
     {
         StackPanel section = new() { Spacing = StewardSpacing.Small };
         section.Children.Add(SectionHeading(heading));
-        if (description is not null) section.Children.Add(new TextBlock { Text = description, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.Wrap });
+        if (description is not null) section.Children.Add(new TextBlock { Text = description, Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
         if (link is not null) section.Children.Add(link);
         section.Children.Add(list);
         return section;

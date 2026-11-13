@@ -18,7 +18,7 @@ public sealed class SettingsDataResetPresentationTests
     private static readonly DateTimeOffset Cleared = new(2026, 10, 30, 9, 15, 0, TimeSpan.Zero);
     // UI polish phase 4 (approved target T-Settings): Decisions and About are in the navigation pane; Data & reset opens from Privacy & data.
     private static readonly string[] SettingsSections = ["Update checks", "Scan scope", "Schedule", "Privacy & data"];
-    private static readonly string[] Cadences = ["Manual only", "Daily", "Weekly"];
+    private static readonly string[] Cadences = ["Off", "Daily", "Weekly"];
     private static readonly string[] CardTitles = ["Scan data", "Downloaded update files", "Source metadata", "Logs and history", "Mappings, pins and ignores"];
     private static readonly string[] ActionLabels = ["Clear scan data", "Clear downloaded files", "Clear source metadata", "Clear logs", "Clear update history", "Clear mappings and policies"];
     private static readonly string[] ScanFacts = ["Size", "Items", "Last cleared"];
@@ -149,35 +149,65 @@ public sealed class SettingsDataResetPresentationTests
     }
 
     [TestMethod]
-    [Description("Audit P-M7; independent review fix 3: the requested schedule is the normalized record; Manual only always means not scheduled; no cadence or weekday selection fails closed (nothing to save).")]
+    [Description("Audit P-M7; independent review fix 3; UI review item 16: the requested schedule is the normalized record; Off always means not scheduled and Daily or Weekly means scheduled; no cadence or weekday selection fails closed (nothing to save).")]
     public void RequestedScheduleIsTheSameNormalizedRecord()
     {
         TimeSpan nine = new(9, 30, 0);
-        Assert.AreEqual(new ScheduledCheckSettings(ScheduleCadence.Manual, false, true, DayOfWeek.Monday, new TimeOnly(9, 30)), SettingsPresenter.RequestedSchedule(0, true, true, (int)DayOfWeek.Monday, nine));
-        Assert.AreEqual(new ScheduledCheckSettings(ScheduleCadence.Daily, true, false, DayOfWeek.Friday, new TimeOnly(9, 30)), SettingsPresenter.RequestedSchedule(1, true, false, (int)DayOfWeek.Friday, nine));
-        Assert.AreEqual(new ScheduledCheckSettings(ScheduleCadence.Weekly, false, false, DayOfWeek.Sunday, new TimeOnly(9, 30)), SettingsPresenter.RequestedSchedule(2, false, false, (int)DayOfWeek.Sunday, nine));
-        Assert.AreEqual(DayOfWeek.Saturday, SettingsPresenter.RequestedSchedule(2, true, false, 6, nine)!.WeeklyDay, "the weekday index is the DayOfWeek value");
+        Assert.AreEqual(new ScheduledCheckSettings(ScheduleCadence.Manual, false, true, DayOfWeek.Monday, new TimeOnly(9, 30)), SettingsPresenter.RequestedSchedule(0, true, (int)DayOfWeek.Monday, nine));
+        Assert.AreEqual(new ScheduledCheckSettings(ScheduleCadence.Daily, true, false, DayOfWeek.Friday, new TimeOnly(9, 30)), SettingsPresenter.RequestedSchedule(1, false, (int)DayOfWeek.Friday, nine));
+        Assert.AreEqual(new ScheduledCheckSettings(ScheduleCadence.Weekly, true, false, DayOfWeek.Sunday, new TimeOnly(9, 30)), SettingsPresenter.RequestedSchedule(2, false, (int)DayOfWeek.Sunday, nine));
+        Assert.AreEqual(DayOfWeek.Saturday, SettingsPresenter.RequestedSchedule(2, false, 6, nine)!.WeeklyDay, "the weekday index is the DayOfWeek value");
         foreach (ScheduleCadence cadence in Enum.GetValues<ScheduleCadence>())
             Assert.AreEqual(cadence, SettingsPresenter.CadenceAt(SettingsPresenter.CadenceIndex(cadence)));
 
-        // Fail closed: a missing selection never becomes Manual only or Monday.
-        Assert.IsNull(SettingsPresenter.RequestedSchedule(-1, true, true, (int)DayOfWeek.Monday, nine), "no cadence selection");
-        Assert.IsNull(SettingsPresenter.RequestedSchedule(3, true, true, (int)DayOfWeek.Monday, nine), "out-of-range cadence");
-        Assert.IsNull(SettingsPresenter.RequestedSchedule(2, true, true, -1, nine), "no weekday selection");
-        Assert.IsNull(SettingsPresenter.RequestedSchedule(1, true, true, 7, nine), "out-of-range weekday");
-        Assert.IsNull(SettingsPresenter.RequestedSchedule(1, true, true, 1, TimeSpan.FromHours(24)), "out-of-range time");
+        // Fail closed: a missing selection never becomes Off or Monday.
+        Assert.IsNull(SettingsPresenter.RequestedSchedule(-1, true, (int)DayOfWeek.Monday, nine), "no cadence selection");
+        Assert.IsNull(SettingsPresenter.RequestedSchedule(3, true, (int)DayOfWeek.Monday, nine), "out-of-range cadence");
+        Assert.IsNull(SettingsPresenter.RequestedSchedule(2, true, -1, nine), "no weekday selection");
+        Assert.IsNull(SettingsPresenter.RequestedSchedule(1, true, 7, nine), "out-of-range weekday");
+        Assert.IsNull(SettingsPresenter.RequestedSchedule(1, true, 1, TimeSpan.FromHours(24)), "out-of-range time");
         Assert.AreEqual("Choose a schedule before saving.", SettingsPresenter.ScheduleNotChosen);
     }
 
     [TestMethod]
-    [Description("Independent review fix 3: the controls available follow the selected cadence without saving; Manual only disables time, weekday and enable.")]
-    public void ScheduleControlAvailabilityFollowsTheSelectedCadence()
+    [Description("UI review item 16 (FR-UI-01/05): the time and the notifications choice show for Daily and Weekly, the day only for Weekly, and none of them for Off.")]
+    public void ScheduleControlsShownFollowTheChoice()
     {
-        Assert.AreEqual((false, false, false), SettingsPresenter.ScheduleControlAvailability(0, busy: false));
-        Assert.AreEqual((false, false, false), SettingsPresenter.ScheduleControlAvailability(-1, busy: false));
-        Assert.AreEqual((true, false, true), SettingsPresenter.ScheduleControlAvailability(1, busy: false));
-        Assert.AreEqual((true, true, true), SettingsPresenter.ScheduleControlAvailability(2, busy: false));
-        Assert.AreEqual((false, false, false), SettingsPresenter.ScheduleControlAvailability(2, busy: true));
+        Assert.AreEqual((false, false, false), SettingsPresenter.ScheduleControlsShown(0));
+        Assert.AreEqual((false, false, false), SettingsPresenter.ScheduleControlsShown(-1));
+        Assert.AreEqual((true, false, true), SettingsPresenter.ScheduleControlsShown(1));
+        Assert.AreEqual((true, true, true), SettingsPresenter.ScheduleControlsShown(2));
+    }
+
+    [TestMethod]
+    [Description("UI review item 16 (FR-UI-01/05, FR-DAT-01): Save schedule is offered only when what the controls ask for would change what runs.")]
+    public void SaveScheduleIsOfferedOnlyAfterAChange()
+    {
+        TimeSpan eight = new(8, 0, 0);
+        ScheduledCheckSettings daily = new(ScheduleCadence.Daily, true, false, DayOfWeek.Monday, new TimeOnly(8, 0));
+        ScheduledCheckSettings weekly = new(ScheduleCadence.Weekly, true, true, DayOfWeek.Thursday, new TimeOnly(8, 0));
+        ScheduledCheckSettings paused = daily with { IsEnabled = false };
+
+        // What is shown for the saved record asks for no change.
+        foreach (ScheduledCheckSettings saved in new[] { ScheduledCheckSettings.Manual, daily, weekly, paused })
+        {
+            ScheduleCardPresentation shown = SettingsPresenter.Schedule(saved, ScheduledCheckStatus.NotScheduled, false, Culture, Utc);
+            Assert.IsFalse(SettingsPresenter.HasScheduleChange(saved, SettingsPresenter.RequestedSchedule(shown.CadenceIndex, shown.NotificationsEnabled, (int)shown.WeeklyDay, shown.LocalStartTime.ToTimeSpan())), saved.ToString());
+        }
+        Assert.AreEqual(0, SettingsPresenter.ShownCadenceIndex(paused), "a check saved while paused reads as Off");
+
+        Assert.IsTrue(SettingsPresenter.HasScheduleChange(ScheduledCheckSettings.Manual, SettingsPresenter.RequestedSchedule(1, false, 1, eight)), "turning it on");
+        Assert.IsTrue(SettingsPresenter.HasScheduleChange(paused, SettingsPresenter.RequestedSchedule(1, false, 1, eight)), "turning a paused check on");
+        Assert.IsTrue(SettingsPresenter.HasScheduleChange(daily, SettingsPresenter.RequestedSchedule(0, false, 1, eight)), "turning it off");
+        Assert.IsTrue(SettingsPresenter.HasScheduleChange(daily, SettingsPresenter.RequestedSchedule(2, false, 1, eight)), "daily to weekly");
+        Assert.IsTrue(SettingsPresenter.HasScheduleChange(daily, SettingsPresenter.RequestedSchedule(1, false, 1, new TimeSpan(8, 1, 0))), "a new time");
+        Assert.IsTrue(SettingsPresenter.HasScheduleChange(daily, SettingsPresenter.RequestedSchedule(1, true, 1, eight)), "notifications");
+        Assert.IsTrue(SettingsPresenter.HasScheduleChange(weekly, SettingsPresenter.RequestedSchedule(2, true, (int)DayOfWeek.Friday, eight)), "a new day for a weekly check");
+        Assert.IsFalse(SettingsPresenter.HasScheduleChange(daily, SettingsPresenter.RequestedSchedule(1, false, (int)DayOfWeek.Friday, eight)), "the day does not count for a daily check");
+        Assert.IsFalse(SettingsPresenter.HasScheduleChange(ScheduledCheckSettings.Manual, SettingsPresenter.RequestedSchedule(0, true, 3, new TimeSpan(7, 0, 0))), "two schedules that are off are the same");
+        Assert.IsTrue(SettingsPresenter.HasScheduleChange(daily, null), "with nothing valid chosen the button is there to say what is missing");
+        Assert.AreEqual("Not saved yet. Select Save schedule to apply this change.", SettingsPresenter.ScheduleUnsavedText);
+        StringAssert.Contains(SettingsPresenter.ScheduleOutOfStepText, "Select Save schedule");
     }
 
     [TestMethod]
@@ -230,35 +260,42 @@ public sealed class SettingsDataResetPresentationTests
     }
 
     [TestMethod]
-    [Description("Audit P-M7: with Manual only the time, weekday and enable controls are unavailable; while saving every schedule control is unavailable.")]
-    public void ScheduleCardDisablesControlsThatDoNotApply()
+    [Description("Audit P-M7; UI review item 16: with Off the time, day and notifications are not shown; a check saved while paused reads as Off; while saving every schedule control is unavailable.")]
+    public void ScheduleCardShowsOnlyTheControlsThatApply()
     {
         ScheduledCheckStatus status = new(Cleared, "Completed", 0);
         ScheduleCardPresentation manual = SettingsPresenter.Schedule(ScheduledCheckSettings.Manual, status, false, Culture, Utc);
         Assert.AreEqual(0, manual.CadenceIndex);
-        Assert.IsFalse(manual.IsTimeEnabled);
-        Assert.IsFalse(manual.IsWeekdayEnabled);
-        Assert.IsFalse(manual.IsEnableToggleEnabled);
-        Assert.IsFalse(manual.IsEnabled);
-        Assert.IsTrue(manual.IsCadenceEnabled);
-        StringAssert.Contains(manual.Summary, "Not scheduled");
+        Assert.IsFalse(manual.ShowsTime || manual.ShowsWeekday || manual.ShowsNotifications);
+        Assert.IsFalse(manual.IsScheduled);
+        Assert.IsTrue(manual.AreControlsEnabled);
+        Assert.AreEqual("Off. PC Steward checks only when you start a scan.", manual.Summary);
         Assert.AreEqual(DisplayFormat.DateTime(Cleared, Culture, Utc), manual.Status[1].Value);
 
         // A stored manual cadence with the enable flag set still reads as not scheduled (Normalize).
-        Assert.IsFalse(SettingsPresenter.Schedule(ScheduledCheckSettings.Manual with { IsEnabled = true }, status, false, Culture, Utc).IsEnabled);
+        Assert.IsFalse(SettingsPresenter.Schedule(ScheduledCheckSettings.Manual with { IsEnabled = true }, status, false, Culture, Utc).IsScheduled);
 
         ScheduleCardPresentation daily = SettingsPresenter.Schedule(new(ScheduleCadence.Daily, true, true, DayOfWeek.Monday, new TimeOnly(8, 5)), status, false, Culture, Utc);
-        Assert.IsTrue(daily.IsTimeEnabled && daily.IsEnableToggleEnabled);
-        Assert.IsFalse(daily.IsWeekdayEnabled);
+        Assert.AreEqual(1, daily.CadenceIndex);
+        Assert.IsTrue(daily.ShowsTime && daily.ShowsNotifications && daily.IsScheduled);
+        Assert.IsFalse(daily.ShowsWeekday);
         Assert.AreEqual("Checks this PC every day at 08:05.", daily.Summary);
 
         ScheduleCardPresentation weekly = SettingsPresenter.Schedule(new(ScheduleCadence.Weekly, true, false, DayOfWeek.Thursday, new TimeOnly(18, 0)), status, false, Culture, Utc);
-        Assert.IsTrue(weekly.IsWeekdayEnabled);
+        Assert.AreEqual(2, weekly.CadenceIndex);
+        Assert.IsTrue(weekly.ShowsWeekday && weekly.ShowsTime);
         Assert.AreEqual("Checks this PC every Thursday at 18:00.", weekly.Summary);
-        StringAssert.Contains(SettingsPresenter.Schedule(new(ScheduleCadence.Weekly, false, false, DayOfWeek.Thursday, new TimeOnly(18, 0)), status, false, Culture, Utc).Summary, "Paused");
+
+        // A weekly check saved while paused reads as Off and keeps its day and time for when it is chosen again.
+        ScheduleCardPresentation paused = SettingsPresenter.Schedule(new(ScheduleCadence.Weekly, false, false, DayOfWeek.Thursday, new TimeOnly(18, 0)), status, false, Culture, Utc);
+        Assert.AreEqual(0, paused.CadenceIndex);
+        Assert.IsFalse(paused.IsScheduled || paused.ShowsTime || paused.ShowsWeekday || paused.ShowsNotifications);
+        StringAssert.StartsWith(paused.Summary, "Off.");
+        Assert.AreEqual(DayOfWeek.Thursday, paused.WeeklyDay);
+        Assert.AreEqual(new TimeOnly(18, 0), paused.LocalStartTime);
 
         ScheduleCardPresentation saving = SettingsPresenter.Schedule(new(ScheduleCadence.Weekly, true, false, DayOfWeek.Thursday, new TimeOnly(18, 0)), status, true, Culture, Utc);
-        Assert.IsFalse(saving.IsCadenceEnabled || saving.IsTimeEnabled || saving.IsWeekdayEnabled || saving.IsEnableToggleEnabled || saving.IsNotificationsToggleEnabled || saving.IsSaveEnabled);
+        Assert.IsFalse(saving.AreControlsEnabled || saving.IsSaveEnabled);
 
         // Save schedule is available when idle and unavailable during other active work (independent review fix 6).
         Assert.IsTrue(weekly.IsSaveEnabled);

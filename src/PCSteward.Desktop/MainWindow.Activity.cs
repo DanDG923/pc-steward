@@ -30,9 +30,7 @@ public sealed partial class MainWindow
     private StackPanel BuildActivityPage()
     {
         StackPanel panel = CreatePagePanel();
-        Button privacy = StewardVisuals.ActionButton("Data & reset", "(view and clear local data)");
-        privacy.Click += (_, _) => NavigateTo(ShellPage.Privacy);
-        panel.Children.Add(StewardVisuals.PageHeader("Activity", "Scans, updates and decisions recorded on this PC.", null, privacy));
+        panel.Children.Add(StewardVisuals.PageHeader("Activity", ActivityPresenter.PageDescription));
         if (activityHistoryUnavailable)
             panel.Children.Add(StewardVisuals.InformationBanner("Recorded history unavailable", "PC Steward couldn't read its recorded update and scan history just now. Nothing was changed; try again later.", "neutral"));
 
@@ -61,7 +59,7 @@ public sealed partial class MainWindow
             }
             // Activity has filters rather than a search box; Ctrl+F focuses the selected filter.
             panel.Children.Add(StewardVisuals.FilterBar(filters, "Activity filters"));
-            TextBlock summary = new() { Text = page.Summary, Style = AppStyle("StewardCaptionStyle") };
+            TextBlock summary = new() { Text = page.Summary, Style = AppStyle("StewardDescriptionStyle") };
             AutomationProperties.SetLiveSetting(summary, AutomationLiveSetting.Polite);
             panel.Children.Add(summary);
             if (page.MatchingCount == 0)
@@ -75,10 +73,14 @@ public sealed partial class MainWindow
                 daySection.Children.Add(dayEntries);
                 panel.Children.Add(daySection);
             }
-            panel.Children.Add(StewardVisuals.FootNote("\uE946", "Expand a record to see its times and technical details. A day's scans share one row."));
+            panel.Children.Add(StewardVisuals.FootNote("\uE946", ActivityPresenter.ExpandHint));
         }
         AddReviewedUpdateOutcomesSection(panel);
-        panel.Children.Add(StewardVisuals.FootNote("\uE753", $"Update sources: {viewModel.UpdateFreshnessLabel}"));
+        // UI review 2026-11-13 (item 17): clearing data is not what this page is for, so its link is last and quiet.
+        HyperlinkButton data = new() { Content = ActivityPresenter.DataLinkLabel, Padding = new Thickness(0) };
+        StewardVisuals.Named(data, ActivityPresenter.DataLinkLabel, "(opens Data & reset)");
+        data.Click += (_, _) => NavigateTo(ShellPage.Privacy);
+        panel.Children.Add(data);
         return panel;
     }
 
@@ -110,23 +112,34 @@ public sealed partial class MainWindow
         return expander;
     }
 
-    /// <summary>Admission obligation 5: the read-only reviewed-update outcomes (route, verification, lingering processes, helper report).</summary>
+    /// <summary>
+    /// Admission obligation 5: the read-only reviewed-update outcomes (route, verification, lingering processes, helper report).
+    /// UI review 2026-11-13 (item 17): each update's own row already says what happened, so this record sits closed under the list
+    /// as "Technical record of updates". Every record and every line is still rendered, and it opens by itself when it could not be
+    /// read or a record still blocks other updates.
+    /// </summary>
     private void AddReviewedUpdateOutcomesSection(StackPanel panel)
     {
-        panel.Children.Add(SectionHeading(ReviewedUpdateHistoryListViewModel.Heading));
         StackPanel outcomes = new() { Spacing = 8 };
         AutomationProperties.SetName(outcomes, ReviewedUpdateHistoryListViewModel.Heading);
         outcomes.Children.Add(PageCopy(ReviewedUpdateHistoryListViewModel.LoadingText));
-        panel.Children.Add(outcomes);
+        Grid header = StewardVisuals.ListRow(StewardVisuals.IconWell("\uE9F9"), ReviewedUpdateHistoryListViewModel.RecordTitle, ReviewedUpdateHistoryListViewModel.RecordDescription);
+        header.Padding = new Thickness(0, StewardSpacing.Small, 0, StewardSpacing.Small);
+        Expander record = new() { Header = header, Content = outcomes, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        AutomationProperties.SetName(record, ReviewedUpdateHistoryListViewModel.RecordTitle);
+        AutomationProperties.SetHelpText(record, ReviewedUpdateHistoryListViewModel.RecordDescription);
+        panel.Children.Add(record);
         bool loaded = false;
-        outcomes.Loaded += async (_, _) =>
+        record.Loaded += async (_, _) =>
         {
             if (loaded) return;
             loaded = true;
             ReviewedUpdateHistoryListViewModel history;
             try { history = await DataOperationLease.RunReadAsync(token => ReviewedUpdateHistoryListViewModel.LoadAsync(reviewedHistory, token), CancellationToken.None); }
             catch (Exception) { history = ReviewedUpdateHistoryListViewModel.Unavailable; }
-            if (!windowClosed) ReviewedRouteSurfaces.RenderHistory(outcomes, history);
+            if (windowClosed) return;
+            ReviewedRouteSurfaces.RenderHistory(outcomes, history);
+            if (history.NeedsAttention) record.IsExpanded = true;
         };
     }
 }
