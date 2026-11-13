@@ -233,7 +233,7 @@ internal static class StartupNotice
     public static UIElement Build(Window window, string glyph, string heading, string message, string? details)
     {
         ArgumentNullException.ThrowIfNull(window);
-        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(720, details is null ? 420 : 560));
+        WindowDisplay.ResizeEffective(window, 720, details is null ? 420 : 560);
         StackPanel content = new() { Spacing = StewardSpacing.Medium };
         StackPanel title = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Medium };
         title.Children.Add(new FontIcon { Glyph = glyph, FontSize = 24, Foreground = StewardVisuals.Brush("StewardBrandBrush"), VerticalAlignment = VerticalAlignment.Center });
