@@ -323,6 +323,35 @@ internal static class StewardVisuals
     public static StewardWrapPanel ActionRow(double spacing = StewardSpacing.Small) => new() { HorizontalSpacing = spacing, VerticalSpacing = spacing, LevelLines = true };
 
     /// <summary>
+    /// A title line that holds a status badge: a name, then what belongs beside it; it wraps at narrow widths. Owner report
+    /// 2026-11-13: a badge sat lower than the title beside it, because the badge is taller than a line of text and both hung
+    /// from the top of the line. Everything on a line now shares the line's height and centres itself in it; the text beside
+    /// the badge goes in through <see cref="CapCentred"/>, so its letters, not its text box, are what is centred.
+    /// </summary>
+    public static StewardWrapPanel TitleRow() => new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.XSmall, LevelLines = true };
+
+    /// <summary>The height of one line of body text; a title beside a badge keeps at least this height when it is alone on a line.</summary>
+    public const double TitleLineHeight = 20;
+
+    /// <summary>
+    /// Text for a <see cref="TitleRow"/>. A text box leaves room under the letters for descenders, so letters centred by their
+    /// box sit high. Here the box is the capital letters' height (<see cref="TextLineBounds.Tight"/>), centred in a holder that
+    /// is still one text line tall, so the letters themselves line up with the middle of a badge on the same line. A style's
+    /// fixed line height keeps the box at that height whatever the bounds (measured on a Windows build: a 12-size label with a
+    /// line height of 16 stayed 16 high), so the line height goes back to the font's own.
+    /// </summary>
+    public static Grid CapCentred(TextBlock text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        text.TextLineBounds = TextLineBounds.Tight;
+        text.LineHeight = 0;
+        text.VerticalAlignment = VerticalAlignment.Center;
+        Grid holder = new() { MinHeight = TitleLineHeight, VerticalAlignment = VerticalAlignment.Center };
+        holder.Children.Add(text);
+        return holder;
+    }
+
+    /// <summary>
     /// AC-UX-09 (research §2 item 10): raises a UIA notification with <paramref name="message"/> from <paramref name="source"/>, so
     /// Narrator announces a finished scan, update job, review or save/clear without moving focus.
     /// </summary>
@@ -407,6 +436,8 @@ internal static class StewardVisuals
         return new SolidColorBrush(surface) { Opacity = 0.6 };
     }
 
+    public const string BadgeLabelAutomationId = "StatusBadgeLabel";
+
     public static Border Badge(string label, string glyph, string tone = "neutral", string? automationName = null)
     {
         (Brush foreground, Brush background) = ToneBrushes(tone);
@@ -417,7 +448,11 @@ internal static class StewardVisuals
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 12, Foreground = foreground, VerticalAlignment = VerticalAlignment.Center });
-        TextBlock text = new() { Text = label, Style = Style("StewardCaptionStyle"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = foreground, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        // Owner report 2026-11-13: the label's box is the capital letters' height, so the letters sit at the pill's middle, level
+        // with the glyph, instead of high in it. The style's fixed line height would keep the box a full line high, so the line
+        // height goes back to the font's own. The automation id lets the Windows launch check measure that box.
+        TextBlock text = new() { Text = label, Style = Style("StewardCaptionStyle"), TextLineBounds = TextLineBounds.Tight, LineHeight = 0, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = foreground, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        AutomationProperties.SetAutomationId(text, BadgeLabelAutomationId);
         Grid.SetColumn(text, 1);
         content.Children.Add(text);
         Border badge = new() { Style = Style("StewardStatusChipStyle"), Background = background, Child = content };
