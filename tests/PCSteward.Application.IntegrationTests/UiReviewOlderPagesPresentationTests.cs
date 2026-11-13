@@ -88,13 +88,19 @@ public sealed class UiReviewOlderPagesPresentationTests
     {
         Assert.AreEqual("1 of these apps is already on the version its match lists. Confirm the match and PC Steward will offer its updates when they appear.", InstalledAppsFilters.ConfirmCurrentMatchesText(1));
         Assert.AreEqual("3 of these apps are already on the version their match lists. Confirm the matches and PC Steward will offer their updates when they appear.", InstalledAppsFilters.ConfirmCurrentMatchesText(3));
-        Assert.AreEqual("Confirm this match", InstalledAppsFilters.ConfirmCurrentMatchesLabel(1));
-        Assert.AreEqual("Confirm all 3 matches", InstalledAppsFilters.ConfirmCurrentMatchesLabel(3));
+        Assert.AreEqual("Confirm these matches…", InstalledAppsFilters.ConfirmCurrentMatchesLabel);
+        Assert.AreEqual("Confirm match", InstalledAppsFilters.ConfirmCurrentMatchesButton(1));
+        Assert.AreEqual("Confirm 3 matches", InstalledAppsFilters.ConfirmCurrentMatchesButton(3));
+        // The dialog names the apps, so what is confirmed is what was shown (review finding on part 3c).
+        Assert.AreEqual("This confirms the match for Alpha.", InstalledAppsFilters.ConfirmCurrentMatchesNames(["Alpha"]));
+        Assert.AreEqual("This confirms the matches for Alpha, Beta and Gamma.", InstalledAppsFilters.ConfirmCurrentMatchesNames(["Alpha", "Beta", "Gamma"]));
+        string many = InstalledAppsFilters.ConfirmCurrentMatchesNames([.. Enumerable.Range(1, 15).Select(index => $"App {index}")]);
+        StringAssert.EndsWith(many, "App 12 and 3 more.");
         Assert.AreEqual("Update checks are off", InstalledAppsFilters.ChecksOffTitle);
         Assert.AreEqual("PC Steward can't tell which apps have an update source until update checks are on. You can turn them on in Settings.", InstalledAppsFilters.ChecksOffMessage);
         StringAssert.Contains(InstalledAppsFilters.ConfirmCurrentMatchesExplanation, "You can undo each one on the Decisions page.");
         StringAssert.Contains(InstalledAppsFilters.ConfirmCurrentMatchesExplanation, "It does not approve or start an update.");
-        foreach (string text in new[] { InstalledAppsFilters.ConfirmCurrentMatchesText(3), InstalledAppsFilters.ConfirmCurrentMatchesLabel(3), InstalledAppsFilters.ConfirmCurrentMatchesTitle, InstalledAppsFilters.ConfirmCurrentMatchesExplanation, InstalledAppsFilters.HasUpdateSourceLabel })
+        foreach (string text in new[] { InstalledAppsFilters.ConfirmCurrentMatchesText(3), InstalledAppsFilters.ConfirmCurrentMatchesLabel, InstalledAppsFilters.ConfirmCurrentMatchesButton(3), InstalledAppsFilters.ConfirmCurrentMatchesTitle, InstalledAppsFilters.ConfirmCurrentMatchesExplanation, InstalledAppsFilters.HasUpdateSourceLabel })
             foreach (string word in InternalWords)
                 Assert.IsFalse(text.Contains(word, StringComparison.OrdinalIgnoreCase), $"'{word}' in: {text}");
     }

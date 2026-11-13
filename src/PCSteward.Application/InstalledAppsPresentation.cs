@@ -73,17 +73,33 @@ public static class InstalledAppsFilters
 
     /// <summary>
     /// Said under "Check the match" when some of those apps are already on the version their match lists, so confirming them
-    /// only records the match (FR-POL-03/05). The button beside it confirms them together after one dialog.
+    /// only records the match (FR-POL-03/05). It counts the apps the list shows now, so a search or filter narrows it.
     /// </summary>
     public static string ConfirmCurrentMatchesText(int count) => count == 1
         ? "1 of these apps is already on the version its match lists. Confirm the match and PC Steward will offer its updates when they appear."
         : $"{count.ToString("N0", CultureInfo.CurrentCulture)} of these apps are already on the version their match lists. Confirm the matches and PC Steward will offer their updates when they appear.";
 
-    /// <summary>The button that confirms those matches together.</summary>
-    public static string ConfirmCurrentMatchesLabel(int count) => count == 1 ? "Confirm this match" : $"Confirm all {count.ToString("N0", CultureInfo.CurrentCulture)} matches";
+    /// <summary>The button beside that line. It opens a dialog that names the apps before anything is saved.</summary>
+    public const string ConfirmCurrentMatchesLabel = "Confirm these matches…";
+
+    /// <summary>The dialog's confirming button.</summary>
+    public static string ConfirmCurrentMatchesButton(int count) => count == 1 ? "Confirm match" : $"Confirm {count.ToString("N0", CultureInfo.CurrentCulture)} matches";
+
+    /// <summary>The most app names the dialog lists before "and N more".</summary>
+    public const int MaximumConfirmNames = 12;
+
+    /// <summary>The dialog's first line: the apps whose matches would be confirmed, by name.</summary>
+    public static string ConfirmCurrentMatchesNames(IReadOnlyList<string> names)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        List<string> shown = [.. names.Take(MaximumConfirmNames)];
+        if (names.Count > shown.Count) shown.Add($"{(names.Count - shown.Count).ToString("N0", CultureInfo.CurrentCulture)} more");
+        string list = shown.Count <= 1 ? string.Concat(shown) : $"{string.Join(", ", shown.Take(shown.Count - 1))} and {shown[^1]}";
+        return names.Count == 1 ? $"This confirms the match for {list}." : $"This confirms the matches for {list}.";
+    }
 
     public const string ConfirmCurrentMatchesTitle = "Confirm these matches?";
-    public const string ConfirmCurrentMatchesExplanation = "This records the match only for apps that are already on the version their update source lists. A match with a newer version, or one that can't be checked, is left for you to answer on its own. You can undo each one on the Decisions page. It does not approve or start an update.";
+    public const string ConfirmCurrentMatchesExplanation = "Each of these apps is already on the version its update source lists. A match with a newer version, or one that can't be checked, is left for you to answer on its own. You can undo each one on the Decisions page. It does not approve or start an update.";
 
     /// <summary>What "Has an update source" says in place of an empty list while update checks are off.</summary>
     public const string ChecksOffTitle = "Update checks are off";

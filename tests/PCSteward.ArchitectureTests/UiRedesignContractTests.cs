@@ -303,10 +303,14 @@ public sealed class UiRedesignContractTests
             Assert.IsFalse(source.Contains(retired, StringComparison.Ordinal), retired);
         Assert.IsFalse(apps.Contains("ReviewAndExecuteAsync", StringComparison.Ordinal), "Installed apps never starts an update");
         // Matches that only need a yes are confirmed together from Installed apps, under "Check the match", through one dialog.
-        StringAssert.Contains(apps, "viewModel.SavedFilter != InstalledAppsFilter.NeedsReview || !viewModel.IsUpdateSourceEnabled ? []");
+        // It confirms only the apps the list shows now (review finding): the candidates are rebuilt from the visible rows each time
+        // the search or a filter changes, and the dialog names them.
+        StringAssert.Contains(apps, "currentMatches = viewModel.SavedFilter != InstalledAppsFilter.NeedsReview || !viewModel.IsUpdateSourceEnabled ? [] : [.. viewModel.VisibleRows");
+        StringAssert.Contains(apps, "confirmRow.Visibility = currentMatches.Length > 0 ? Visibility.Visible : Visibility.Collapsed;");
         StringAssert.Contains(apps, "detail.CanConfirmAsCurrent)];");
         StringAssert.Contains(apps, "confirmAll.Click += async (_, _) => await ConfirmCurrentMatchesAsync(currentMatches);");
         string confirmTogether = Between(source, "private async Task ConfirmCurrentMatchesAsync(InventoryRow[] candidates)", DesktopWindowSource.EndOf("MainWindow.Review.cs"));
+        StringAssert.Contains(confirmTogether, "InstalledAppsFilters.ConfirmCurrentMatchesNames([.. candidates.Select(row => row.Name)])");
         StringAssert.Contains(confirmTogether, "DefaultButton = ContentDialogButton.Close");
         StringAssert.Contains(confirmTogether, "if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;");
         StringAssert.Contains(confirmTogether, "workflow.ConfirmCurrentRepositoryIdentitiesAsync(confirmations, viewModel.IsUpdateSourceEnabled,");

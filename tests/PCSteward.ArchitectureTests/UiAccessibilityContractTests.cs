@@ -359,7 +359,7 @@ public sealed partial class UiAccessibilityContractTests
         string window = DesktopSource("MainWindow.cs");
         foreach (string legacy in new[] { "Approved updates", "Install approved update", "Verify all", "Review available actions", "Open evidence", "Review evidence", "Review details", "External release is blocked", "Do not treat an unsigned archive" })
             Assert.IsFalse(window.Contains(legacy, StringComparison.Ordinal), legacy);
-        StringAssert.Contains(window, "InstalledAppsFilters.ConfirmCurrentMatchesLabel(currentMatches.Length)");
+        StringAssert.Contains(window, "InstalledAppsFilters.ConfirmCurrentMatchesLabel");
     }
 
     private static Dictionary<string, Dictionary<string, string>> ThemeColors()

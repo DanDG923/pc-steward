@@ -109,17 +109,20 @@ public sealed partial class MainWindow
         panel.Children.Add(toolbar);
         panel.Children.Add(moreFilters);
         // UI review 2026-11-13 (item 14): matches that only need a yes can be confirmed together, here under "Check the match".
-        // The confirmation dialog, the validation of each match and Undo on Decisions are unchanged; nothing is updated.
-        InventoryRow[] currentMatches = viewModel.SavedFilter != InstalledAppsFilter.NeedsReview || !viewModel.IsUpdateSourceEnabled ? [] : [.. viewModel.ListedRows
-            .Where(row => row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired))
-            .Where(row => viewModel.UpdateDetails.TryGetValue(row.StableProductKey, out UpdateDetail? detail) && detail.CanConfirmAsCurrent)];
-        if (currentMatches.Length > 0)
-        {
-            Button confirmAll = StewardVisuals.ActionButton(InstalledAppsFilters.ConfirmCurrentMatchesLabel(currentMatches.Length), "that are already on the version their match lists");
-            confirmAll.IsEnabled = !HasActiveOperation;
-            confirmAll.Click += async (_, _) => await ConfirmCurrentMatchesAsync(currentMatches);
-            panel.Children.Add(StewardVisuals.SettingsRow(InstalledAppsFilters.ConfirmCurrentMatchesText(currentMatches.Length), null, confirmAll));
-        }
+        // The line counts the apps the list shows now, so a search or filter narrows what would be confirmed, and the dialog
+        // names them. The confirmation dialog, the validation of each match and Undo on Decisions are unchanged; nothing is updated.
+        InventoryRow[] currentMatches = [];
+        TextBlock confirmText = new() { Foreground = StewardVisuals.Brush("StewardTextBrush"), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        Button confirmAll = StewardVisuals.ActionButton(InstalledAppsFilters.ConfirmCurrentMatchesLabel, "(the listed apps that are already on the version their match lists)");
+        confirmAll.IsEnabled = !HasActiveOperation;
+        confirmAll.Click += async (_, _) => await ConfirmCurrentMatchesAsync(currentMatches);
+        Grid.SetColumn(confirmAll, 1);
+        Grid confirmRow = new() { ColumnSpacing = StewardSpacing.Large, Visibility = Visibility.Collapsed };
+        confirmRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        confirmRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        confirmRow.Children.Add(confirmText);
+        confirmRow.Children.Add(confirmAll);
+        panel.Children.Add(confirmRow);
 
         // Bounded height keeps the list virtualized inside the page's own scroll host (wheel scrolling chains to the page at the ends).
         // Phase 5: the bound follows the window, so the card reaches the bottom of a tall window (never shorter than MinimumListHeight).
@@ -155,6 +158,11 @@ public sealed partial class MainWindow
         {
             viewModel.SetFilters(search.Text, StatusVocabulary.FilterKeyForLabel(status.SelectedItem?.ToString()), publisher.SelectedItem?.ToString(), FilterRawFor(source.SelectedItem?.ToString(), sourceOptions, "All sources"), FilterRawFor(scope.SelectedItem?.ToString(), scopeOptions, "All scopes"), sort.SelectedItem?.ToString());
             RenderInventory(list);
+            currentMatches = viewModel.SavedFilter != InstalledAppsFilter.NeedsReview || !viewModel.IsUpdateSourceEnabled ? [] : [.. viewModel.VisibleRows
+                .Where(row => row.Status == nameof(PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired))
+                .Where(row => viewModel.UpdateDetails.TryGetValue(row.StableProductKey, out UpdateDetail? detail) && detail.CanConfirmAsCurrent)];
+            confirmText.Text = InstalledAppsFilters.ConfirmCurrentMatchesText(currentMatches.Length);
+            confirmRow.Visibility = currentMatches.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             matching.Text = InstalledAppsFilters.CountText(viewModel.VisibleRows.Count, viewModel.ListedRows.Count);
             bool none = viewModel.VisibleRows.Count == 0;
             listCard.Visibility = none ? Visibility.Collapsed : Visibility.Visible;

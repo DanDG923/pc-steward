@@ -231,12 +231,17 @@ public sealed partial class MainWindow
     /// </summary>
     private async Task ConfirmCurrentMatchesAsync(InventoryRow[] candidates)
     {
+        if (candidates.Length == 0) return;
+        // The dialog names the apps, so what is confirmed is what the owner was shown.
+        StackPanel content = new() { Spacing = StewardSpacing.Medium };
+        content.Children.Add(PageCopy(InstalledAppsFilters.ConfirmCurrentMatchesNames([.. candidates.Select(row => row.Name)])));
+        content.Children.Add(PageCopy(InstalledAppsFilters.ConfirmCurrentMatchesExplanation));
         ContentDialog confirmation = new()
         {
             XamlRoot = Content.XamlRoot,
             Title = InstalledAppsFilters.ConfirmCurrentMatchesTitle,
-            Content = InstalledAppsFilters.ConfirmCurrentMatchesExplanation,
-            PrimaryButtonText = InstalledAppsFilters.ConfirmCurrentMatchesLabel(candidates.Length),
+            Content = content,
+            PrimaryButtonText = InstalledAppsFilters.ConfirmCurrentMatchesButton(candidates.Length),
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
         };

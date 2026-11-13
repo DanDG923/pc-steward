@@ -297,7 +297,7 @@ public sealed class ReferenceBoundaryTests
         // details, and those that only need a yes are confirmed together from Installed apps.
         Assert.IsFalse(source.Contains("BuildReviewPage", StringComparison.Ordinal));
         StringAssert.Contains(source, "AppDetailSummaryPresenter.SameAppLabel");
-        StringAssert.Contains(source, "InstalledAppsFilters.ConfirmCurrentMatchesLabel(currentMatches.Length)");
+        StringAssert.Contains(source, "InstalledAppsFilters.ConfirmCurrentMatchesLabel");
     }
 
     [TestMethod]
