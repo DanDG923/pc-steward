@@ -111,7 +111,10 @@ public sealed class InventoryExperienceViewModel
     {
         ArgumentNullException.ThrowIfNull(summary); UpdateStatusCounts = summary.Counts; AttentionNeeded = summary.AttentionNeeded; Sources = summary.Sources.ToArray();
         Dictionary<string, UpdateIntelligenceItem> items = summary.Items.ToDictionary(item => item.StableProductKey, StringComparer.Ordinal);
-        for (int index = 0; index < allRows.Count; index++) if (items.TryGetValue(allRows[index].StableProductKey, out UpdateIntelligenceItem? item)) allRows[index] = allRows[index] with { Status = item.Status.ToString() };
+        // A row the new summary has no item for (WinGet's own record of an app another row already carries) goes back to plain
+        // "Installed", so a status from an earlier assessment can't keep it on the Updates page.
+        for (int index = 0; index < allRows.Count; index++)
+            allRows[index] = allRows[index] with { Status = items.TryGetValue(allRows[index].StableProductKey, out UpdateIntelligenceItem? item) ? item.Status.ToString() : "Installed" };
         Dictionary<string, SourceSnapshot> sources = summary.Sources.ToDictionary(snapshot => snapshot.SourceId, StringComparer.OrdinalIgnoreCase);
         SourceFreshnessLabels = summary.Sources.OrderBy(snapshot => snapshot.SourceId, StringComparer.Ordinal).Select(DescribeSource).ToArray();
         UpdateFreshnessLabel = SourceFreshnessLabels.Count == 0 ? "Local-only — no enabled update source has been checked." : string.Join(" ", SourceFreshnessLabels);

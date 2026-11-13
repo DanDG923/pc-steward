@@ -69,6 +69,24 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.HasCount(0, result.Records); CollectionAssert.Contains(result.Warnings.ToArray(), "winget:invalid-update-row"); Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => new WingetUpdateSourceConnector(new FakeProcess(new WingetProcessResult(0, "", "", false)), "arbitrary"));
     }
     [TestMethod]
+    public void TheNoLinkedPackageLineAloneMeansNoUpdates()
+    {
+        // Real WinGet 1.29.380 `upgrade --source msstore` output (owner's PC, 2026-11-13) when no Store app has an update; exit 0.
+        WingetAvailableUpdateResult result = WingetUpdateSourceConnector.Classify(new WingetProcessResult(0, "No installed package found matching input criteria.\r\n", "", false), "v1.29.380", "msstore");
+
+        Assert.HasCount(0, result.Records);
+        Assert.HasCount(0, result.Warnings);
+    }
+    [TestMethod]
+    public void TheNoLinkedPackageLineIsNotAcceptedWithOtherOutputOrAFailingExit()
+    {
+        WingetAvailableUpdateResult extra = WingetUpdateSourceConnector.ParseAvailableTable("Something else\nNo installed package found matching input criteria.", "v1", "msstore");
+        WingetAvailableUpdateResult failed = WingetUpdateSourceConnector.Classify(new WingetProcessResult(-1978335212, "No installed package found matching input criteria.", "", false), "v1", "msstore");
+
+        CollectionAssert.Contains(extra.Warnings.ToArray(), "winget:unrecognized-output");
+        CollectionAssert.Contains(failed.Warnings.ToArray(), "winget:exit--1978335212");
+    }
+    [TestMethod]
     public void SourceQualifiedQueryAcceptsRowsWhenWingetOmitsTheSourceColumn()
     {
         WingetAvailableUpdateResult result = WingetUpdateSourceConnector.ParseAvailableTable("Name                        Id              Version Available\n-------------------------------------------------------------\nMozilla Firefox (x64 en-US) Mozilla.Firefox 152.0.6 153.0.1\n1 upgrades available.", "v1", "winget");

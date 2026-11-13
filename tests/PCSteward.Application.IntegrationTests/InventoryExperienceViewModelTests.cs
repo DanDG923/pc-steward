@@ -152,6 +152,24 @@ public sealed class InventoryExperienceViewModelTests
     }
 
     [TestMethod]
+    public void ARowTheNewSummaryNoLongerAssessesLosesItsEarlierUpdateStatus()
+    {
+        InventoryExperienceViewModel viewModel = new(); Guid entry = Guid.NewGuid(); Guid record = Guid.NewGuid();
+        viewModel.LoadInventory(
+            [new CanonicalProduct(entry, "registry:chat", "Chat"), new CanonicalProduct(record, "winget:winget:contoso.chat", "Chat")],
+            [new InstallationInstance(Guid.NewGuid(), entry, "registry", "chat", "1.0", "User", "x64", "Contoso"), new InstallationInstance(Guid.NewGuid(), record, "winget", "Contoso.Chat", "1.0", "Unknown", "Unknown", null, SourceId: "winget")]);
+        Dictionary<UpdateIntelligenceStatus, int> counts = Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, _ => 0);
+        viewModel.LoadUpdateIntelligence(new UpdateIntelligenceSummary([new UpdateIntelligenceItem("registry:chat", UpdateIntelligenceStatus.ReviewRequired, null, "Review."), new UpdateIntelligenceItem("winget:winget:contoso.chat", UpdateIntelligenceStatus.ReviewRequired, null, "Review.")], counts, []));
+
+        // WinGet's own record is no longer assessed once the entry's row carries its package.
+        viewModel.LoadUpdateIntelligence(new UpdateIntelligenceSummary([new UpdateIntelligenceItem("registry:chat", UpdateIntelligenceStatus.Current, null, "Current.")], counts, []));
+
+        Assert.AreEqual("Current", viewModel.AllRows.Single(row => row.StableProductKey == "registry:chat").Status);
+        Assert.AreEqual("Installed", viewModel.AllRows.Single(row => row.StableProductKey == "winget:winget:contoso.chat").Status);
+        Assert.IsEmpty(UpdatesPagePresenter.Build(viewModel.AllRows, viewModel.UpdateDetails, true, [], null, DateTimeOffset.UnixEpoch).NeedsReview);
+    }
+
+    [TestMethod]
     public void UpdateDetailsExposeSafetyEvidenceAndOnlyOfferReviewedExecution()
     {
         InventoryExperienceViewModel viewModel = new(); Guid id = Guid.NewGuid(); viewModel.LoadInventory([new CanonicalProduct(id, "product:widget", "Widget")], [new InstallationInstance(Guid.NewGuid(), id, "registry", "widget", "1.0", "Machine", "x64", "Contoso", Channel: "Stable")]);

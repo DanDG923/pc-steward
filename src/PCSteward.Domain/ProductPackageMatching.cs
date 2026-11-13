@@ -56,7 +56,9 @@ public sealed record ProductMatchProfile(
     IReadOnlyCollection<string>? ProductAliases = null,
     IReadOnlyCollection<string>? PublisherAliases = null,
     string? InstalledSourceId = null,
-    bool HasConflictingTargetInstances = false);
+    bool HasConflictingTargetInstances = false,
+    // False only for a product known solely from WinGet's own installed list (no uninstall entry or MSIX package of its own).
+    bool HasConcreteLocalEvidence = true);
 
 public sealed record PackageMatchCandidate(
     string SourceId,
