@@ -102,7 +102,7 @@ internal static class WingetCandidateCompatibilityRules
     /// The registry product key (<see cref="InventoryNormalization.ProductFingerprint"/> of provider <c>registry</c> and the uninstall
     /// key name) for WinGet's single installed product code. None, several or an unbounded code give no key.
     /// </summary>
-    private static string? RegistryProductKey(IReadOnlyList<string>? productCodes)
+    internal static string? RegistryProductKey(IReadOnlyList<string>? productCodes)
     {
         if (productCodes is null || productCodes.Any(code => BoundedText(code) is null)) return null;
         string[] codes = productCodes.Select(code => code.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();

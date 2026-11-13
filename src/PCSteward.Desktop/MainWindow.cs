@@ -141,10 +141,11 @@ public sealed partial class MainWindow : Window
         AppWindow.Closing += (_, args) => { if (activeChocolateyClientUpdate?.IsRunning == true || activeChocolateyPackageUpdate?.IsRunning == true) args.Cancel = true; };
         Title = AppIdentity.DisplayName;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "pc-steward.ico"));
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 820));
+        // Sharp text fix: the app is DPI aware, so the 1280x820 first size is in effective pixels, scaled to the display.
+        WindowDisplay.ResizeEffective(this, 1280, 820);
         // Audit P-M9: a minimum window size, so pages reflow (wrapping action rows, stacked headers) instead of clipping. It is set
-        // at 100% now and rescaled to the window's display scale once the content has a XamlRoot (see ApplyMinimumWindowSize).
-        ApplyMinimumWindowSize(1.0);
+        // at the window's display scale now and rescaled once the content has a XamlRoot (see ApplyMinimumWindowSize).
+        ApplyMinimumWindowSize(WindowDisplay.Scale(this));
         navigation = new ShellNavigation(showPostResetOnboarding ? ShellPage.Onboarding : ShellPage.Home);
         // Leaving the update job's Review step cancels that review: navigation never approves anything (FR-UPD-01).
         navigation.PropertyChanged += (_, _) => { SyncNavigationChrome(); if (navigation.Current != ShellPage.UpdateJob) CancelPendingReview(); else jobResultPending = false; };

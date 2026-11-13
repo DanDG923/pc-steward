@@ -5,6 +5,8 @@ namespace PCSteward.Application.IntegrationTests;
 [TestClass]
 public sealed class RegistryInventoryProviderTests
 {
+    private static readonly string[] VisibleKeys = ["{VISIBLE-ZERO}", "{TEXT-FLAG}", "{BUNDLE}"];
+
     [TestMethod]
     public void PreservesViewsBoundsFieldsAndContinuesAfterMalformedEntries()
     {
@@ -20,6 +22,24 @@ public sealed class RegistryInventoryProviderTests
         Assert.AreEqual("x86", result.Records.Single(record => record.KeyName == "widget" && record.DisplayName == "Widget 32").Architecture);
         Assert.AreEqual("User", result.Records.Single(record => record.KeyName == "user").Scope);
         Assert.AreEqual(1024, result.Records.Single(record => record.KeyName == "large").DisplayName?.Length);
+    }
+
+    [TestMethod]
+    public void SkipsEntriesWindowsHidesAsSystemComponents()
+    {
+        // Owner's PC, 2026-11-13: each .NET Desktop Runtime bundle has a hidden MSI entry with the same name and an internal version.
+        FakeRegistry registry = new();
+        registry.Entries[RegistryViewKind.Machine64] =
+        [
+            Entry("{HIDDEN}", "Microsoft Windows Desktop Runtime - 8.0.33 (x64)", "64.132.61678", "Microsoft Corporation", systemComponent: 1),
+            Entry("{VISIBLE-ZERO}", "Tool", "1.0", "Contoso", systemComponent: 0),
+            Entry("{TEXT-FLAG}", "Other", "1.0", "Contoso", systemComponent: "1")
+        ];
+        registry.Entries[RegistryViewKind.Machine32] = [Entry("{BUNDLE}", "Microsoft Windows Desktop Runtime - 8.0.33 (x64)", "8.0.33.36622", "Microsoft Corporation")];
+
+        RegistryInventoryResult result = new RegistryInventoryProvider(registry).ReadAll();
+
+        CollectionAssert.AreEquivalent(VisibleKeys, result.Records.Select(record => record.KeyName).ToArray());
     }
 
     [TestMethod]
@@ -95,7 +115,12 @@ public sealed class RegistryInventoryProviderTests
         Assert.AreEqual(10, produced);
     }
 
-    private static RegistryUninstallEntry Entry(string key, string? name, string? version, string? publisher) => new(key, new Dictionary<string, object?> { ["DisplayName"] = name, ["DisplayVersion"] = version, ["Publisher"] = publisher, ["InstallDate"] = "20260101" });
+    private static RegistryUninstallEntry Entry(string key, string? name, string? version, string? publisher, object? systemComponent = null)
+    {
+        Dictionary<string, object?> values = new() { ["DisplayName"] = name, ["DisplayVersion"] = version, ["Publisher"] = publisher, ["InstallDate"] = "20260101" };
+        if (systemComponent is not null) values["SystemComponent"] = systemComponent;
+        return new(key, values);
+    }
 
     private sealed class FakeRegistry : IUninstallRegistry
     {

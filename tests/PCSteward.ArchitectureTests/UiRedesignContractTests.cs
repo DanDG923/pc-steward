@@ -72,7 +72,7 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(chrome, "titleBarBack.Click += (_, _) => GoBack();");
         StringAssert.Contains(chrome, "Windows.System.VirtualKey.Left, Modifiers = Windows.System.VirtualKeyModifiers.Menu");
         StringAssert.Contains(source, "titleBarBack.IsEnabled = navigationView is not null && navigation.CanGoBack;");
-        StringAssert.Contains(Between(source, "private void ApplyBackdrop()", "private void ShowBarePage"), "new MicaBackdrop { Kind = MicaKind.BaseAlt }");
+        StringAssert.Contains(Between(source, "private void ApplyBackdrop()", "private void ShowBarePage"), "new SteadyMicaAltBackdrop()");
         StringAssert.Contains(Between(source, "private void ApplyBackdrop()", "private void ShowBarePage"), "highContrast ? null");
     }
 
