@@ -422,6 +422,40 @@ public sealed class InventoryWorkflowUpdateSourceTests
         Assert.IsFalse((await wrongExport.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
     }
 
+    /// <summary>
+    /// Owner's PC, 2026-11-13 (0.1.6): GitHub CLI's MSI upgrade replaced its uninstall entry with a new one under a new product
+    /// code, so the reviewed product was gone and the check said Inconclusive. The entry WinGet itself links to the package after
+    /// the update now counts, and only when it is the one exact match and the reviewed entry is gone.
+    /// </summary>
+    [TestMethod]
+    public async Task ReInventoryAcceptsTheEntryWinGetLinksAfterAnUpgradeReplacedTheReviewedOne()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        string reviewedKey = InventoryNormalization.ProductFingerprint(new RawInstallEvidence("registry", "{OLD-CODE}", "Contoso Cli", "Contoso", "1.0.0", "Machine", "x64", "Stable", "Application", "fixture"));
+        string linkedKey = InventoryNormalization.ProductFingerprint(new RawInstallEvidence("registry", "{NEW-CODE}", "{NEW-CODE}", null, null, "Unknown", "Unknown", null, "Application", "winget-com"));
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection(reviewedKey, UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Cli", "1.0.0", "1.1.0", UpdateScope.Machine, UpdateArchitecture.X64, UpdateChannel.Stable, "fixture")).Confirm(DateTimeOffset.UtcNow);
+        CanonicalProduct oldProduct = new(Guid.NewGuid(), "ignored", "Contoso Cli");
+        CanonicalProduct newProduct = new(Guid.NewGuid(), "ignored", "Contoso Cli");
+        InstallationInstance oldEntry = new(Guid.NewGuid(), oldProduct.Id, "registry", "{OLD-CODE}", "1.0.0", "Machine", "x64", "Contoso", Channel: "Stable");
+        InstallationInstance newEntry = new(Guid.NewGuid(), newProduct.Id, "registry", "{NEW-CODE}", "1.1.0", "Machine", "x64", "Contoso", Channel: "Stable");
+        InventoryWorkflow Workflow(ProviderScanResult scan, string? link) =>
+            new(database.Store, database.Store, database.Store, [new FixedProvider(scan)], postUpdatePackageInventory: new PostUpdatePackageInventory(true, link));
+
+        using InventoryWorkflow replaced = Workflow(new([newProduct], [newEntry], [], []), linkedKey);
+        using InventoryWorkflow notLinked = Workflow(new([newProduct], [newEntry], [], []), null);
+        using InventoryWorkflow linkedElsewhere = Workflow(new([newProduct], [newEntry], [], []), reviewedKey);
+        using InventoryWorkflow oldStillPresent = Workflow(new([oldProduct, newProduct], [oldEntry, newEntry], [], []), linkedKey);
+        using InventoryWorkflow wrongArchitecture = Workflow(new([newProduct], [newEntry with { Architecture = "x86" }], [], []), linkedKey);
+        using InventoryWorkflow wrongVersion = Workflow(new([newProduct], [newEntry with { Version = "1.0.9" }], [], []), linkedKey);
+
+        Assert.IsTrue((await replaced.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
+        Assert.IsFalse((await notLinked.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
+        Assert.IsFalse((await linkedElsewhere.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
+        Assert.IsFalse((await oldStillPresent.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
+        Assert.IsFalse((await wrongArchitecture.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
+        Assert.IsFalse((await wrongVersion.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected);
+    }
+
     [TestMethod]
     public async Task CurrentLocalInventoryChangeStopsPreparationBeforeAJobCanBeCreated()
     {
@@ -571,9 +605,10 @@ public sealed class InventoryWorkflowUpdateSourceTests
         public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) => Task.FromResult(results.Dequeue());
     }
 
-    private sealed class PostUpdatePackageInventory(bool expected) : IPostUpdatePackageInventory
+    private sealed class PostUpdatePackageInventory(bool expected, string? linkedKey = null) : IPostUpdatePackageInventory
     {
         public Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => Task.FromResult(expected);
+        public Task<string?> GetLinkedProductKeyAfterUpdateAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => Task.FromResult(linkedKey);
     }
 
     private sealed class StructuredCandidateAuthority(StructuredUpdateCandidateEvidence? evidence) : IStructuredUpdateCandidateAuthority
