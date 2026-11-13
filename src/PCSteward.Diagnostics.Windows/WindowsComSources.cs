@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using PCSteward.Application;
@@ -6,56 +5,70 @@ using PCSteward.Application;
 namespace PCSteward.Diagnostics.Windows;
 
 /// <summary>
-/// FR-DIA-01: Reliability records through the WMI scripting API, unelevated, in <c>root\cimv2</c> on this PC only. One
-/// forward-only semisynchronous WQL query from <see cref="ReliabilityDiagnosticCatalog.BuildQuery"/>; enumeration stops after
-/// the requested number of records plus one. No other class, namespace, method call or remote connection is used.
+/// FR-DIA-01 (ADR-027 Q1): Reliability records through WMI's own COM interfaces, unelevated, in <c>root\cimv2</c> on this PC only.
+/// One forward-only, return-immediately WQL query per window from <see cref="ReliabilityDiagnosticCatalog.BuildQuery"/>; results
+/// are taken one at a time with a <see cref="NextTimeoutMilliseconds"/> wait, so cancellation is checked at least that often and
+/// a stalled provider can never hold the reader. Enumeration stops after the requested number of records plus one. Only the six
+/// catalog properties are read; no other class, namespace, method, write or remote connection is used.
 /// </summary>
 public sealed class WmiReliabilityRecordSource : IReliabilityRecordSource
 {
-    private const string LocatorProgId = "WbemScripting.SWbemLocator";
+    public const int NextTimeoutMilliseconds = 250;
     private const string Namespace = @"root\cimv2";
+    private static readonly Guid WbemLocatorClass = new("4590f811-1d3a-11d0-891f-00aa004b2e24");
     private const int ForwardOnlyReturnImmediately = 0x20 | 0x10;
+    private const int Completed = 0, NoMore = 1, TimedOut = 0x40004;
 
-    public ReliabilityQueryAnswer Query(string wql, int maximumRecords, CancellationToken cancellationToken)
+    public ReliabilityQueryAnswer Query(DateTimeOffset fromUtc, DateTimeOffset toUtc, int maximumRecords, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrEmpty(wql);
         ArgumentOutOfRangeException.ThrowIfNegative(maximumRecords);
-        if (!wql.StartsWith("SELECT ", StringComparison.Ordinal) || !wql.Contains(" FROM " + ReliabilityDiagnosticCatalog.WmiClass + " WHERE ", StringComparison.Ordinal))
-            throw new ArgumentException("Only the catalog's Reliability query is accepted.", nameof(wql));
-        Type? locatorType = Type.GetTypeFromProgID(LocatorProgId, throwOnError: false);
+        string wql = ReliabilityDiagnosticCatalog.BuildQuery(fromUtc, toUtc);
+        Type? locatorType = Type.GetTypeFromCLSID(WbemLocatorClass, throwOnError: false);
         if (locatorType is null) return new(DiagnosticReaderStatus.Unsupported, [], false);
 
-        object? locator = null, services = null, results = null;
+        IWbemLocator? locator = null;
+        IWbemServices? services = null;
+        IEnumWbemClassObject? results = null;
         try
         {
-            locator = Activator.CreateInstance(locatorType);
-            services = ((dynamic)locator!).ConnectServer(".", Namespace);
-            results = ((dynamic)services!).ExecQuery(wql, "WQL", ForwardOnlyReturnImmediately);
+            locator = (IWbemLocator)Activator.CreateInstance(locatorType)!;
+            int status = locator.ConnectServer(Namespace, null, null, null, 0, null, IntPtr.Zero, out services);
+            if (status != Completed || services is null) return Fault(status);
+            Impersonate(services);
+            status = services.ExecQuery("WQL", wql, ForwardOnlyReturnImmediately, IntPtr.Zero, out results);
+            if (status != Completed || results is null) return Fault(status);
+            Impersonate(results);
+
             List<ReliabilityRawRecord> records = [];
-            foreach (object item in (IEnumerable)results!)
+            while (records.Count <= maximumRecords)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                status = results.Next(NextTimeoutMilliseconds, 1, out IWbemClassObject? item, out uint returned);
+                if (status == TimedOut && returned == 0) continue;
+                if (returned == 0 || item is null)
+                {
+                    if (status is Completed or NoMore) break;
+                    return Fault(status);
+                }
+
                 try
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (records.Count > maximumRecords) break;
                     records.Add(Read(item));
                 }
                 finally
                 {
                     ComRelease.Release(item);
                 }
+
+                if (status == NoMore) break;
             }
 
             bool more = records.Count > maximumRecords;
             return new(DiagnosticReaderStatus.Completed, more ? records.GetRange(0, maximumRecords) : records, more);
         }
-        catch (COMException exception) when (ComRelease.IsAccessDenied(exception.HResult))
+        catch (COMException exception)
         {
-            return new(DiagnosticReaderStatus.Denied, [], false);
-        }
-        catch (COMException exception) when (exception.HResult is WbemInvalidClass or WbemInvalidNamespace or WbemNotSupported)
-        {
-            return new(DiagnosticReaderStatus.Unsupported, [], false);
+            return Fault(exception.HResult);
         }
         finally
         {
@@ -65,40 +78,102 @@ public sealed class WmiReliabilityRecordSource : IReliabilityRecordSource
         }
     }
 
+    private static ReliabilityQueryAnswer Fault(int status) => new(
+        ComRelease.IsAccessDenied(status) ? DiagnosticReaderStatus.Denied
+            : status is WbemInvalidClass or WbemInvalidNamespace or WbemNotSupported or WbemInvalidQuery ? DiagnosticReaderStatus.Unsupported
+            : DiagnosticReaderStatus.Failed, [], false);
+
     private const int WbemInvalidNamespace = unchecked((int)0x8004100E);
     private const int WbemInvalidClass = unchecked((int)0x80041010);
     private const int WbemNotSupported = unchecked((int)0x8004100C);
+    private const int WbemInvalidQuery = unchecked((int)0x80041017);
 
-    private static ReliabilityRawRecord Read(object item)
+    /// <summary>WMI needs the impersonation level on each proxy; the scripting API did this itself.</summary>
+    private static void Impersonate(object proxy)
     {
-        object? properties = ((dynamic)item).Properties_;
+        IntPtr unknown = Marshal.GetIUnknownForObject(proxy);
         try
         {
-            return new(
-                ComRelease.Text(Value(properties, "LogFile")),
-                ComRelease.Integer(Value(properties, "RecordNumber")),
-                ComRelease.Text(Value(properties, "SourceName")),
-                ComRelease.Integer(Value(properties, "EventIdentifier")),
-                ComRelease.Text(Value(properties, "TimeGenerated")),
-                ComRelease.Text(Value(properties, "ProductName")));
+            _ = CoSetProxyBlanket(unknown, AuthenticationWindows, AuthorizationNone, IntPtr.Zero, AuthenticationLevelCall, ImpersonationLevelImpersonate, IntPtr.Zero, CapabilitiesNone);
         }
         finally
         {
-            ComRelease.Release(properties);
+            Marshal.Release(unknown);
         }
     }
 
-    private static object? Value(object? properties, string name)
+    private const uint AuthenticationWindows = 10, AuthorizationNone = 0, AuthenticationLevelCall = 3, ImpersonationLevelImpersonate = 3, CapabilitiesNone = 0;
+
+    [DllImport("ole32.dll", ExactSpelling = true)]
+    private static extern int CoSetProxyBlanket(IntPtr proxy, uint authenticationService, uint authorizationService, IntPtr serverPrincipalName, uint authenticationLevel, uint impersonationLevel, IntPtr authenticationInfo, uint capabilities);
+
+    private static ReliabilityRawRecord Read(IWbemClassObject item) => new(
+        ComRelease.Text(Value(item, "LogFile")),
+        ComRelease.Integer(Value(item, "RecordNumber")),
+        ComRelease.Text(Value(item, "SourceName")),
+        ComRelease.Integer(Value(item, "EventIdentifier")),
+        ComRelease.Text(Value(item, "TimeGenerated")),
+        ComRelease.Text(Value(item, "ProductName")));
+
+    /// <summary>Reads one catalog property; only <see cref="ReliabilityDiagnosticCatalog.SelectedProperties"/> are ever named.</summary>
+    private static object? Value(IWbemClassObject item, string name)
     {
-        object? property = ((dynamic)properties!).Item(name);
-        try
-        {
-            return ((dynamic)property!).Value;
-        }
-        finally
-        {
-            ComRelease.Release(property);
-        }
+        if (!ReliabilityDiagnosticCatalog.SelectedProperties.Contains(name)) throw new ArgumentOutOfRangeException(nameof(name));
+        return item.ReadProperty(name, 0, out object? value, IntPtr.Zero, IntPtr.Zero) == Completed ? value : null;
+    }
+
+    [ComImport, Guid("dc12a687-737f-11cf-884d-00aa004b2e24"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IWbemLocator
+    {
+        [PreserveSig]
+        int ConnectServer([MarshalAs(UnmanagedType.BStr)] string networkResource, [MarshalAs(UnmanagedType.BStr)] string? user, [MarshalAs(UnmanagedType.BStr)] string? password,
+            [MarshalAs(UnmanagedType.BStr)] string? locale, int securityFlags, [MarshalAs(UnmanagedType.BStr)] string? authority, IntPtr context, out IWbemServices? services);
+    }
+
+    /// <summary>Only <c>ExecQuery</c> is called. The 17 slots before it are named by position and never called.</summary>
+    [ComImport, Guid("9556dc99-828c-11cf-a37e-00aa003240c7"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IWbemServices
+    {
+        [PreserveSig] int Slot01();
+        [PreserveSig] int Slot02();
+        [PreserveSig] int Slot03();
+        [PreserveSig] int Slot04();
+        [PreserveSig] int Slot05();
+        [PreserveSig] int Slot06();
+        [PreserveSig] int Slot07();
+        [PreserveSig] int Slot08();
+        [PreserveSig] int Slot09();
+        [PreserveSig] int Slot10();
+        [PreserveSig] int Slot11();
+        [PreserveSig] int Slot12();
+        [PreserveSig] int Slot13();
+        [PreserveSig] int Slot14();
+        [PreserveSig] int Slot15();
+        [PreserveSig] int Slot16();
+        [PreserveSig] int Slot17();
+
+        [PreserveSig]
+        int ExecQuery([MarshalAs(UnmanagedType.BStr)] string queryLanguage, [MarshalAs(UnmanagedType.BStr)] string query, int flags, IntPtr context, out IEnumWbemClassObject? results);
+    }
+
+    /// <summary>Only <c>Next</c> is called, with a bounded wait.</summary>
+    [ComImport, Guid("027947e1-d731-11ce-a357-000000000001"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IEnumWbemClassObject
+    {
+        [PreserveSig] int Slot01();
+
+        [PreserveSig]
+        int Next(int timeoutMilliseconds, uint count, out IWbemClassObject? item, out uint returned);
+    }
+
+    /// <summary>Only the property read (<c>IWbemClassObject::Get</c>, the second slot) is called.</summary>
+    [ComImport, Guid("dc12a681-737f-11cf-884d-00aa004b2e24"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IWbemClassObject
+    {
+        [PreserveSig] int Slot01();
+
+        [PreserveSig]
+        int ReadProperty([MarshalAs(UnmanagedType.LPWStr)] string name, int flags, out object? value, IntPtr type, IntPtr flavor);
     }
 }
 

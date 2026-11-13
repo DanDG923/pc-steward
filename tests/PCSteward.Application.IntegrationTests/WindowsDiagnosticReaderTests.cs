@@ -15,6 +15,7 @@ public sealed class WindowsDiagnosticReaderTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 13, 12, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset From = Now.AddDays(-7);
+    private static readonly string[] NewestFive = ["Application:39", "Application:38", "Application:37", "Application:36", "Application:35"];
 
     [TestMethod]
     [TestCategory("FR-DIA-01")]
@@ -116,18 +117,18 @@ public sealed class WindowsDiagnosticReaderTests
     {
         FakeReliability wmi = new()
         {
-            Answer = new(DiagnosticReaderStatus.Completed,
+            Records =
             [
                 new("Application", 10, "Application Error", 1000, "20261110080000.000000+000", "Contoso Widget"),
                 new("Application", 11, "MsiInstaller", 11707, "20261112080000.000000+000", "Contoso Suite"),
                 new("Bad Log", 12, "MsiInstaller", 11724, "20261111080000.000000+000", "Fabrikam Tool"),
                 new("Application", 13, "Unknown Source", 1, "20261112090000.000000+000", "Anything")
-            ], false)
+            ]
         };
         DiagnosticReaderResult result = await new ReliabilityDiagnosticReader(wmi).ReadAsync(new(DiagnosticSourceKind.Reliability, From, Now, 3), CancellationToken.None);
 
-        Assert.AreEqual(ReliabilityDiagnosticCatalog.BuildQuery(From, Now), wmi.Wql);
-        Assert.IsTrue(result.MoreMatchingRecordsExist, "four returned for three slots");
+        Assert.AreEqual(ReliabilityDiagnosticCatalog.BuildQuery(From, Now), wmi.Queries[0], "the first query is the whole window");
+        Assert.IsTrue(result.MoreMatchingRecordsExist, "four matched for three slots");
         Assert.HasCount(3, result.Records);
         Assert.AreEqual("Application:11", result.Records[0].SourceRecordId);
         Assert.AreEqual(DiagnosticEventKind.SoftwareInstalled, result.Records[0].Kind);
@@ -135,8 +136,58 @@ public sealed class WindowsDiagnosticReaderTests
         Assert.AreEqual("Contoso Suite", result.Records[0].Subject);
         Assert.IsNull(result.Records[1].SourceRecordId, "an unexpected log name gives no source identity");
         Assert.AreEqual(DiagnosticEventKind.SoftwareRemoved, result.Records[1].Kind);
-        Assert.AreEqual(DiagnosticEventKind.ApplicationCrash, result.Records[2].Kind);
-        Assert.IsFalse(result.Records.Any(record => record.Subject == "Anything"));
+        Assert.IsFalse(result.Records.Any(record => record.Subject is "Anything" or "Contoso Widget"), "the oldest record gives way; an unknown record is kept only as unreadable");
+        Assert.AreEqual(-1, result.Records[2].EventId, "the newest record is an unexpected source, kept as unreadable so it is counted");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-DIA-01")]
+    [DataRow(true, DisplayName = "WMI enumerates oldest first")]
+    [DataRow(false, DisplayName = "WMI enumerates newest first")]
+    public async Task ReliabilityKeepsTheNewestRecordsWhateverOrderWmiReturns(bool oldestFirst)
+    {
+        DateTimeOffset start = Now.AddDays(-6);
+        ReliabilityRawRecord[] records = [.. Enumerable.Range(0, 40).Select(index =>
+            new ReliabilityRawRecord("Application", index, "Application Error", 1000, ReliabilityDiagnosticCatalog.ToDmtf(start.AddMinutes(index * 137)), "Contoso"))];
+        FakeReliability wmi = new() { Records = oldestFirst ? records : [.. records.Reverse()] };
+
+        DiagnosticReaderResult result = await new ReliabilityDiagnosticReader(wmi).ReadAsync(new(DiagnosticSourceKind.Reliability, From, Now, 5), CancellationToken.None);
+
+        CollectionAssert.AreEqual(NewestFive, result.Records.Select(record => record.SourceRecordId).ToArray());
+        Assert.IsTrue(result.MoreMatchingRecordsExist);
+        Assert.IsTrue(wmi.Queries.Count <= ReliabilityDiagnosticReader.MaximumQueries);
+        Assert.IsTrue(wmi.Limits.All(limit => limit is >= 0 and <= 5), "no query asks for more than the slots left");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-DIA-01")]
+    public async Task ReliabilityStopsAtItsQueryLimitWithoutKeepingAnOlderRecordInPlaceOfANewerOne()
+    {
+        // Every record shares one instant, so no split can separate them: the reader keeps nothing it cannot prove is newest.
+        string at = ReliabilityDiagnosticCatalog.ToDmtf(Now.AddHours(-2));
+        FakeReliability wmi = new() { Records = [.. Enumerable.Range(0, 10).Select(index => new ReliabilityRawRecord("Application", index, "Application Error", 1000, at, "Contoso"))] };
+
+        DiagnosticReaderResult result = await new ReliabilityDiagnosticReader(wmi).ReadAsync(new(DiagnosticSourceKind.Reliability, From, Now, 3), CancellationToken.None);
+
+        Assert.IsTrue(result.MoreMatchingRecordsExist);
+        Assert.HasCount(0, result.Records);
+        Assert.IsTrue(wmi.Queries.Count <= ReliabilityDiagnosticReader.MaximumQueries);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-DIA-01")]
+    public async Task ReliabilityWithRoomForEverythingIsOneQueryAndAFailureKeepsNothing()
+    {
+        FakeReliability wmi = new() { Records = [new("Application", 1, "Application Hang", 1002, ReliabilityDiagnosticCatalog.ToDmtf(Now.AddHours(-1)), "Contoso")] };
+        DiagnosticReaderResult result = await new ReliabilityDiagnosticReader(wmi).ReadAsync(new(DiagnosticSourceKind.Reliability, From, Now, 5), CancellationToken.None);
+        Assert.HasCount(1, wmi.Queries);
+        Assert.HasCount(1, result.Records);
+        Assert.IsFalse(result.MoreMatchingRecordsExist);
+
+        FakeReliability denied = new() { Status = DiagnosticReaderStatus.Denied };
+        DiagnosticReaderResult refused = await new ReliabilityDiagnosticReader(denied).ReadAsync(new(DiagnosticSourceKind.Reliability, From, Now, 5), CancellationToken.None);
+        Assert.AreEqual(DiagnosticReaderStatus.Denied, refused.Status);
+        Assert.HasCount(0, refused.Records);
     }
 
     [TestMethod]
@@ -209,7 +260,7 @@ public sealed class WindowsDiagnosticReaderTests
         DateTime at = Now.UtcDateTime.AddHours(-3);
         FakeEventLog log = new() { Answer = new(DiagnosticReaderStatus.Completed, [new("System", "Microsoft-Windows-Kernel-Power", 41, 9, at, 0)], false) };
         FakeEventLog application = new() { Answer = new(DiagnosticReaderStatus.Completed, [new("Application", "Application Hang", 1002, 4, at, null)], false) };
-        FakeReliability wmi = new() { Answer = new(DiagnosticReaderStatus.Completed, [new("Application", 1, "Application Error", 1000, ReliabilityDiagnosticCatalog.ToDmtf(at), @"Contoso at C:\Users\someone\a.exe")], false) };
+        FakeReliability wmi = new() { Records = [new("Application", 1, "Application Error", 1000, ReliabilityDiagnosticCatalog.ToDmtf(at), @"Contoso at C:\Users\someone\a.exe")] };
         FakeWindowsUpdate update = new() { Answer = new(DiagnosticReaderStatus.Completed, [Entry(at)], false) };
         IDiagnosticSourceReader[] readers =
         [
@@ -244,6 +295,25 @@ public sealed class WindowsDiagnosticReaderTests
         }
     }
 
+    [TestMethod]
+    [TestCategory("FR-DIA-01")]
+    public void WindowsAnswersTheReliabilityQueryWithBoundedWaits()
+    {
+        if (!OperatingSystem.IsWindows()) Assert.Inconclusive("Windows only.");
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        ReliabilityQueryAnswer answer = new WmiReliabilityRecordSource().Query(now.AddDays(-7), now, 5, CancellationToken.None);
+        // Reliability Monitor is off by default on Windows Server, so a CI runner may answer that the class is unsupported.
+        Assert.IsTrue(answer.Status is DiagnosticReaderStatus.Completed or DiagnosticReaderStatus.Unsupported, answer.Status.ToString());
+        Assert.IsLessThanOrEqualTo(5, answer.Records.Count);
+        Assert.IsTrue(answer.Records.All(item => ReliabilityDiagnosticCatalog.Project(item, now) is not null), "every returned record is allowlisted");
+        using CancellationTokenSource cancelled = new();
+        cancelled.Cancel();
+        ReliabilityQueryAnswer? stopped = null;
+        try { stopped = new WmiReliabilityRecordSource().Query(now.AddDays(-7), now, 5, cancelled.Token); }
+        catch (OperationCanceledException) { }
+        Assert.IsTrue(stopped is null || stopped.Status != DiagnosticReaderStatus.Completed, "a cancelled query never reports a completed read");
+    }
+
     private static WindowsUpdateRawEntry Entry(DateTime at) => new(at, 1, 2, 0, "Security Intelligence Update", Guid.NewGuid().ToString(), 1);
 
     private sealed class FakeEventLog : IEventLogQueryRunner
@@ -260,16 +330,25 @@ public sealed class WindowsDiagnosticReaderTests
         }
     }
 
+    /// <summary>Answers each window from a fixed record list in the order given, as WMI would: any matching records, unordered.</summary>
     private sealed class FakeReliability : IReliabilityRecordSource
     {
-        public ReliabilityQueryAnswer Answer { get; set; } = new(DiagnosticReaderStatus.Completed, [], false);
-        public string? Wql { get; private set; }
+        public IReadOnlyList<ReliabilityRawRecord> Records { get; set; } = [];
+        public DiagnosticReaderStatus Status { get; set; } = DiagnosticReaderStatus.Completed;
+        public List<string> Queries { get; } = [];
+        public List<int> Limits { get; } = [];
 
-        public ReliabilityQueryAnswer Query(string wql, int maximumRecords, CancellationToken cancellationToken)
+        public ReliabilityQueryAnswer Query(DateTimeOffset fromUtc, DateTimeOffset toUtc, int maximumRecords, CancellationToken cancellationToken)
         {
-            Wql = wql;
-            return Answer;
+            Queries.Add(ReliabilityDiagnosticCatalog.BuildQuery(fromUtc, toUtc));
+            Limits.Add(maximumRecords);
+            if (Status != DiagnosticReaderStatus.Completed) return new(Status, [], false);
+            DateTimeOffset from = Truncate(fromUtc), to = Truncate(toUtc);
+            ReliabilityRawRecord[] matching = [.. Records.Where(record => ReliabilityDiagnosticCatalog.FromDmtf(record.TimeGenerated) is { } at && at >= from && at <= to)];
+            return new(DiagnosticReaderStatus.Completed, [.. matching.Take(maximumRecords)], matching.Length > maximumRecords);
         }
+
+        private static DateTimeOffset Truncate(DateTimeOffset value) => new(value.UtcTicks - (value.UtcTicks % 10), TimeSpan.Zero);
     }
 
     private sealed class FakeWindowsUpdate : IWindowsUpdateHistorySource
