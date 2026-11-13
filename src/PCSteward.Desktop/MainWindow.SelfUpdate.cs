@@ -11,7 +11,8 @@ namespace PCSteward.Desktop;
 /// <summary>
 /// ADR-032 revision 2 §1, §5, §6 and §8: the "PC Steward updates" card on About. Everything starts from the owner's own
 /// click: Check for updates (four anonymous GitHub reads), Download and check (the installer and the desktop's first check),
-/// Install (one Windows prompt; PC Steward then closes so the protected helper copy can install). When PC Steward opens, a
+/// Install (one Windows prompt; PC Steward then closes so the protected helper copy can install, and that copy, started
+/// unelevated, opens PC Steward again once the install has finished). When PC Steward opens, a
 /// recorded update is decided once and shown here and on Home. Nothing runs in the background or on a schedule.
 /// </summary>
 public sealed partial class MainWindow
@@ -203,7 +204,7 @@ public sealed partial class MainWindow
         {
             XamlRoot = Content.XamlRoot,
             Title = "Install PC Steward " + release.Version.Text + "?",
-            Content = PageCopy("Windows will ask for permission once. PC Steward's administrator step checks the installer again, confirms the release with GitHub, and then PC Steward closes while Windows installs the update. Open PC Steward again in a few minutes."),
+            Content = PageCopy("Windows will ask for permission once. PC Steward's administrator step checks the installer again, confirms the release with GitHub, and then PC Steward closes while Windows installs the update. It opens again by itself when the install has finished."),
             PrimaryButtonText = "Install",
             CloseButtonText = "Not now",
             DefaultButton = ContentDialogButton.Close,

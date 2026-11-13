@@ -31,7 +31,9 @@ public enum PcStewardInstallOutcome
 
 /// <param name="Outcome">How it ended.</param>
 /// <param name="RefusalCode">For <see cref="PcStewardInstallOutcome.Refused"/>, the helper's fixed code (for example <c>msi-not-pinned</c>).</param>
-public sealed record PcStewardInstallResult(PcStewardInstallOutcome Outcome, string? RefusalCode);
+/// <param name="ReopensWhenDone">For a ready install, the unelevated reopen watcher started, so PC Steward opens again by itself
+/// once the install has finished (reopen amendment).</param>
+public sealed record PcStewardInstallResult(PcStewardInstallOutcome Outcome, string? RefusalCode, bool ReopensWhenDone = false);
 
 /// <summary>Where the recorded update stands (ADR-032 revision 2 §8).</summary>
 public enum PcStewardUpdateState
@@ -143,8 +145,8 @@ public sealed class PcStewardSelfUpdate
     }
 
     /// <summary>
-    /// §6: one Windows prompt for the elevated session with a new job id and nonce. On Ready the job is recorded; the caller
-    /// then closes PC Steward so the finish copy can install.
+    /// §6: one Windows prompt for the elevated session with a new job id and nonce. On Ready the job is recorded and the
+    /// unelevated reopen watcher is started; the caller then closes PC Steward so the finish copy can install.
     /// </summary>
     public async Task<PcStewardInstallResult> InstallAsync(PcStewardApprovedUpdate update, DateTimeOffset approvedAt, CancellationToken cancellationToken)
     {
@@ -160,7 +162,10 @@ public sealed class PcStewardSelfUpdate
             case SelfUpdateLaunchOutcome.Ready when launched.Response is { WorkFolder: { } folder, ManifestSha256: { } manifest }:
                 SelfUpdateDesktopJob job = new(request.JobId, update.FromVersion, update.ToVersion, update.RunId, update.SourceCommit,
                     update.CheckZipSha256, update.MsiSha256, approvedAt, folder, manifest);
-                return new(files.WriteJob(job) ? PcStewardInstallOutcome.Ready : PcStewardInstallOutcome.ReadyJobNotSaved, null);
+                bool saved = files.WriteJob(job);
+                // Reopen amendment: the job's protected helper copy, started unelevated, opens PC Steward again after the install.
+                bool reopens = files.StartReopenWatcher(folder);
+                return new(saved ? PcStewardInstallOutcome.Ready : PcStewardInstallOutcome.ReadyJobNotSaved, null, reopens);
             case SelfUpdateLaunchOutcome.Refused when launched.Response?.Reason is { } reason:
                 return new(PcStewardInstallOutcome.Refused, SelfUpdateHelperProtocol.Code(reason));
             case SelfUpdateLaunchOutcome.ElevationDeclined:

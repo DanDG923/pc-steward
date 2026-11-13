@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$StandardUser, [ValidateSet('Build', 'Check', 'SelfUpdateDecide')][string]$Step, [string]$WorkRoot)
+param([switch]$StandardUser, [ValidateSet('Build', 'Check', 'SelfUpdateDecide', 'SelfUpdateReopen')][string]$Step, [string]$WorkRoot)
 
 # ADR-034 §5 Windows CI evidence (FR-UPD-04/15, FR-DAT-12, TM-04/13): build the MSI exactly as a release would be built, but
 # signed with a throwaway self-signed key whose pin is written into this job's own checkout only (never committed, never in a
@@ -41,6 +41,23 @@ if ($StandardUser) {
         $leaf = ([IO.File]::ReadAllText((Join-Path $WorkRoot 'self-update-leaf.txt'))).Trim()
         & (Join-Path $WorkRoot 'installcheck\PCSteward.InstallCheck.exe') --self-update-decide $leaf '0.1.1'
         exit $LASTEXITCODE
+    }
+    if ($Step -eq 'SelfUpdateReopen') {
+        # ADR-032 revision 2, reopen amendment: the job's helper copy, started unelevated as the desktop starts it, finds the
+        # finish copy's result and opens the installed desktop as this standard user. The desktop it opened is then closed.
+        $leaf = ([IO.File]::ReadAllText((Join-Path $WorkRoot 'self-update-leaf.txt'))).Trim()
+        $programFilesHere = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
+        $desktopImage = Join-Path $programFilesHere 'PC Steward\PCSteward.Desktop.exe'
+        $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $programFilesHere "$leaf\bin\PCSteward.ElevatedHelper.exe"))
+        $start.UseShellExecute = $false; $start.CreateNoWindow = $true; $start.WorkingDirectory = [Environment]::SystemDirectory
+        $start.ArgumentList.Add('--reopen-after-self-update'); $start.ArgumentList.Add($leaf)
+        foreach ($key in @($start.Environment.Keys)) { if ($key -match '^(DOTNET_|COMPlus_|CORECLR_|COR_|APPDOMAIN_MANAGER_)') { $null = $start.Environment.Remove($key) } }
+        $watcher = [Diagnostics.Process]::Start($start)
+        if (!$watcher.WaitForExit(120000)) { $watcher.Kill($true); throw 'The reopen watcher did not finish within two minutes.' }
+        $opened = @(Get-Process -Name 'PCSteward.Desktop' -ErrorAction SilentlyContinue | Where-Object { $_.Path -and ($_.Path -ieq $desktopImage) })
+        foreach ($process in $opened) { try { $process.Kill($true) } catch { } }
+        [pscustomobject]@{ exit = $watcher.ExitCode; seen = $opened.Count } | ConvertTo-Json -Compress
+        exit 0
     }
     # Step Build: the candidate builder refuses an elevated token. Same per-user environment as Test-OwnerOnlyCandidateBuilderCI.ps1.
     Set-Location -LiteralPath $repository
@@ -454,6 +471,23 @@ try {
     $decide = @(Invoke-SelfUpdateDecide $leaf 'self-update-match-decide')[-1]
     Set-Check 'self-update-private-folder-hidden-from-standard-users' (($decide.ExitCode -eq 0) -and ($decide.Verdict.privateHidden -ceq 'true')) "privateHidden $($decide.Verdict.privateHidden)"
     Set-Check 'self-update-desktop-reads-the-installed-job-as-updated' (($decide.ExitCode -eq 0) -and ($decide.Verdict.state -ceq 'Updated') -and ($decide.Verdict.code -ceq 'installed') -and ($decide.Verdict.running -ceq '0.1.2')) "exit $($decide.ExitCode); $($decide.Verdict.state) $($decide.Verdict.code) running $($decide.Verdict.running)"
+    # Reopen amendment: the same helper copy, started with the reopen line, refuses to run elevated and opens nothing; started
+    # unelevated as the standard user, it reads this job's verified result and opens the installed 0.1.2 desktop.
+    $elevatedReopen = [Diagnostics.ProcessStartInfo]::new((& $selfUpdateHelper $leaf))
+    $elevatedReopen.UseShellExecute = $false; $elevatedReopen.CreateNoWindow = $true; $elevatedReopen.WorkingDirectory = [Environment]::SystemDirectory
+    $elevatedReopen.ArgumentList.Add('--reopen-after-self-update'); $elevatedReopen.ArgumentList.Add($leaf)
+    foreach ($key in @($elevatedReopen.Environment.Keys)) { if ($key -match '^(DOTNET_|COMPlus_|CORECLR_|COR_|APPDOMAIN_MANAGER_)') { $null = $elevatedReopen.Environment.Remove($key) } }
+    $refusedReopen = [Diagnostics.Process]::Start($elevatedReopen)
+    if (!$refusedReopen.WaitForExit(60000)) { $refusedReopen.Kill($true); throw 'The elevated reopen watcher did not exit within a minute.' }
+    $openedElevated = @(Get-Process -Name 'PCSteward.Desktop' -ErrorAction SilentlyContinue)
+    Set-Check 'self-update-reopen-refuses-to-run-elevated' (($refusedReopen.ExitCode -eq 20) -and ($openedElevated.Count -eq 0)) "exit $($refusedReopen.ExitCode); desktops $($openedElevated.Count)"
+    [IO.File]::WriteAllText((Join-Path $work 'self-update-leaf.txt'), $leaf)
+    $reopen = Invoke-AsStandardUser 'SelfUpdateReopen' $name $password
+    Write-Output "self-update-reopen exit $($reopen.ExitCode): $($reopen.Output.Trim())"
+    $reopenLine = @($reopen.Output -split "`r?`n" | Where-Object { $_ -match '^\{' })[-1]
+    $reopened = if ($reopenLine) { $reopenLine | ConvertFrom-Json } else { $null }
+    Set-Check 'self-update-reopen-opens-the-installed-desktop-unelevated' (($reopen.ExitCode -eq 0) -and ($null -ne $reopened) -and ($reopened.exit -eq 0)) "exit $($reopen.ExitCode); watcher $($reopened.exit); seen $($reopened.seen)"
+    foreach ($process in @(Get-Process -Name 'PCSteward.Desktop' -ErrorAction SilentlyContinue)) { try { $process.Kill($true); $process.WaitForExit(10000) } catch { } }
     foreach ($product in @(Get-InstalledProducts)) { $null = Invoke-Msi @('/x', $product.ProductCode) 'self-update-uninstall.log' }
     Set-Check 'self-update-uninstalls-cleanly' (Test-NothingInstalled)
 

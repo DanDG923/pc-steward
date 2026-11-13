@@ -166,6 +166,16 @@ The owner chose to publish releases with one paste instead of editing the draft 
 - **Residual.** A program running as the owner can decrypt the token (as it could read the owner's browser session). The token expires (90 days recommended) and can be revoked on GitHub at any time; the script reports its expiry on every run.
 - **Tests.** `ReleasePublishBoundaryTests` pins the host check, the token handling, the commit checks, the check-before-sign order and the digest-before-publish order.
 
+## 5b. Reopening PC Steward after the install (2026-11-13)
+
+ADR-032 section 7a adds an unelevated reopen watcher: the job's protected helper copy, started by the desktop with its own token and `--reopen-after-self-update <leaf>`. What was checked:
+
+- **Nothing elevated starts the desktop.** The finish copy is unchanged and still launches nothing. The watcher refuses an elevated token (exit 20) before it reads anything, in the entry point and again in `SelfUpdateReopen`. `StartDesktop` has one caller, the watcher. Both new starts use `CreateProcessW` with the caller's own token and environment, no shell, no `runas` and no inherited handles.
+- **Only the fixed, pinned images run.** The desktop starts the watcher only from `%ProgramFiles%\<work folder>\bin` when that folder and the work folder carry the protected descriptor and the copy has the installed desktop's release pin. The watcher checks its own path and both folders again, and starts only `%ProgramFiles%\PC Steward\PCSteward.Desktop.exe` with no arguments, and only when it carries the same release pin as the watcher.
+- **No new input.** The watcher reads one file, the protected work folder's `result.json`, through the existing bounded reader, accepts only the canonical form naming its own job, and writes nothing. The reopened desktop decides the job through section 8 as before.
+- **Same-user misuse.** A program running as the owner can start the watcher itself. The most it gets is PC Steward opened as the owner, which it could do directly. On the owner's rule this needs no further control.
+- **Install unaffected.** The watcher's image is outside the install root, so the finish copy's close wait does not count it, and it exits as soon as it has decided.
+
 ## 6. Evidence
 
 - **Fixture tests:** `SelfUpdateHelperSessionTests` now covers the two `version-not-newer` refusals and the finish copy's refusal of a job with a result, and `SelfUpdateInstallPolicyTests` covers `IsNewerVersion`.

@@ -61,7 +61,7 @@ Budgets: the existing 11-minute execution budget covers steps 3–13 (GitHub 30 
    On any difference it runs `msiexec /x <ProductCode> /qn /norestart` and records why.
 6. **Exit 3010 or 1641:** it records `restart-needed` and the boot time (UTC, from `GetTickCount64`), then skips step 5.
 7. **Any other exit:** it records `install-failed` with the code. The MSI has rolled back.
-8. **Result:** it writes `result.json` (job id, outcome, exit code, versions, boot time, manifest SHA-256) and exits. Nothing is launched.
+8. **Result:** it writes `result.json` (job id, outcome, exit code, versions, boot time, manifest SHA-256) and exits. Nothing is launched. *(Reopen amendment, 2026-11-13: the desktop also starts this copy unelevated as a reopen watcher, which opens PC Steward again after the result; see [ADR-032 section 7a](../adr/ADR-032-IN-APP-SELF-UPDATE-FROM-GITHUB-RELEASES.md#7a-reopening-pc-steward-amendment-2026-11-13).)*
 
 ## Part 3: desktop (ADR-032 §5 and §8)
 

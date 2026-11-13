@@ -75,7 +75,8 @@ internal sealed record SelfUpdateResultFile(Guid JobId, SelfUpdateFinishOutcome 
 /// <list type="bullet">
 /// <item>Command lines: the session line <c>--kind pcsteward-self-update --protocol 2 --desktop-pid &lt;n&gt; --pipe
 /// &lt;name&gt; --nonce &lt;64 uppercase hex&gt;</c> (ten arguments, this order only) and the finish line
-/// <c>--finish-self-update &lt;work folder leaf&gt;</c> (two arguments).</item>
+/// <c>--finish-self-update &lt;work folder leaf&gt;</c> (two arguments), and the unelevated reopen line
+/// <c>--reopen-after-self-update &lt;work folder leaf&gt;</c> (two arguments).</item>
 /// <item>The response frame, <c>job.json</c> and <c>result.json</c>: canonical ASCII JSON, read back only in the exact bytes
 /// their writer makes.</item>
 /// </list>
@@ -86,6 +87,7 @@ internal static partial class SelfUpdateHelperProtocol
     internal const string Kind = "pcsteward-self-update";
     internal const string KindKey = "--kind";
     internal const string FinishKey = "--finish-self-update";
+    internal const string ReopenKey = "--reopen-after-self-update";
     internal const string JobFileName = "job.json";
     internal const string ResultFileName = "result.json";
     internal const string HelperCopyFolder = "bin";
@@ -139,6 +141,10 @@ internal static partial class SelfUpdateHelperProtocol
     internal static bool SelectsFinish(string[]? arguments) =>
         arguments is { Length: 2 } && string.Equals(arguments[0], FinishKey, StringComparison.Ordinal);
 
+    /// <summary>Dispatch: exactly two arguments, the first the reopen key. The full parse decides afterwards.</summary>
+    internal static bool SelectsReopen(string[]? arguments) =>
+        arguments is { Length: 2 } && string.Equals(arguments[0], ReopenKey, StringComparison.Ordinal);
+
     internal static bool TryParseSession(string[]? arguments, out int desktopProcessId, out string pipeName, out string nonce)
     {
         desktopProcessId = 0;
@@ -168,13 +174,26 @@ internal static partial class SelfUpdateHelperProtocol
         return true;
     }
 
+    internal static bool TryParseReopen(string[]? arguments, out string workFolderLeaf)
+    {
+        workFolderLeaf = string.Empty;
+        if (!SelectsReopen(arguments) || arguments![1] is not { } leaf || !SelfUpdateInstallPolicy.IsWorkFolderName(leaf)) return false;
+        workFolderLeaf = leaf;
+        return true;
+    }
+
     /// <summary>The finish copy's command line, quoted for <c>CreateProcessW</c>; the leaf has no character that needs escaping.</summary>
-    internal static string FinishCommandLine(string helperCopyPath, string workFolderLeaf)
+    internal static string FinishCommandLine(string helperCopyPath, string workFolderLeaf) => CopyCommandLine(helperCopyPath, FinishKey, workFolderLeaf);
+
+    /// <summary>The unelevated reopen line for the same helper copy, quoted the same way.</summary>
+    internal static string ReopenCommandLine(string helperCopyPath, string workFolderLeaf) => CopyCommandLine(helperCopyPath, ReopenKey, workFolderLeaf);
+
+    private static string CopyCommandLine(string helperCopyPath, string key, string workFolderLeaf)
     {
         if (string.IsNullOrEmpty(helperCopyPath) || helperCopyPath.Contains('"', StringComparison.Ordinal) || !Path.IsPathFullyQualified(helperCopyPath) ||
             !SelfUpdateInstallPolicy.IsWorkFolderName(workFolderLeaf))
-            throw new ArgumentException("The finish copy needs a fully qualified path and a work folder leaf.");
-        return "\"" + helperCopyPath + "\" " + FinishKey + " \"" + workFolderLeaf + "\"";
+            throw new ArgumentException("The helper copy needs a fully qualified path and a work folder leaf.");
+        return "\"" + helperCopyPath + "\" " + key + " \"" + workFolderLeaf + "\"";
     }
 
     // ---- Response ----

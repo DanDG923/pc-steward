@@ -51,6 +51,12 @@ internal sealed class SelfUpdateDesktopFiles
     internal string InstallLogPath(SelfUpdateDesktopJob job) =>
         Path.Combine(machine.ProgramFiles, job.WorkFolder, SelfUpdateHelperProtocol.PrivateFolder, SelfUpdateHelperProtocol.InstallLogName);
 
+    /// <summary>
+    /// Reopen amendment: starts the job's protected helper copy unelevated as the reopen watcher, which opens PC Steward again
+    /// once the finish copy has written its result. False when it could not be started.
+    /// </summary>
+    internal bool StartReopenWatcher(string workFolderLeaf) => machine.StartReopenWatcher(workFolderLeaf);
+
     // ---- Downloads (§5) ----
 
     /// <summary>A new partial file for a download; the caller writes to it and then calls <see cref="CommitDownload"/> or <see cref="Discard"/>.</summary>
