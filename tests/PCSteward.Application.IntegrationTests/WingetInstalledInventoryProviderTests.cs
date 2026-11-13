@@ -77,6 +77,7 @@ public sealed class WingetInstalledInventoryProviderTests
     }
     // Shape of real WinGet 1.29.380 `upgrade --source winget` output (owner's PC, 2026-11-13; package names replaced): a count
     // line, an explicit-targeting table and an unknown-version notice follow the main table.
+    private static readonly string[] ExpectedFooterRecordIds = ["Contoso.Widget", "Contoso.DesktopRuntime.8", "Fabrikam.Chat"];
     private const string UpgradeOutputWithNotices =
         "Name                                             Id                                     Version     Available\n" +
         "---------------------------------------------------------------------------------------------------------------\n" +
@@ -95,7 +96,7 @@ public sealed class WingetInstalledInventoryProviderTests
     {
         WingetAvailableUpdateResult result = WingetUpdateSourceConnector.ParseAvailableTable(UpgradeOutputWithNotices, "v1.29.380", "winget");
 
-        CollectionAssert.AreEqual(new[] { "Contoso.Widget", "Contoso.DesktopRuntime.8", "Fabrikam.Chat" }, result.Records.Select(record => record.Id).ToArray());
+        CollectionAssert.AreEqual(ExpectedFooterRecordIds, result.Records.Select(record => record.Id).ToArray());
         Assert.AreEqual("1.0.9268", result.Records.Single(record => record.Id == "Fabrikam.Chat").AvailableVersion);
         Assert.HasCount(0, result.Warnings);
     }

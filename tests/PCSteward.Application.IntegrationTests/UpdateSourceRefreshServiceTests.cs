@@ -30,6 +30,9 @@ public sealed class UpdateSourceRefreshServiceTests
         Assert.IsTrue(result.All(snapshot => snapshot.State == SourceSnapshotState.Unavailable)); Assert.IsTrue(FakeConnector.MaximumActive <= 2);
     }
 
+    private static readonly string[] ExpectedCodedWarnings = ["source:unavailable", "winget:malformed-update-row", "winget:exit-1"];
+    private static readonly string[] ExpectedTextWarnings = ["source:unavailable"];
+
     [TestMethod]
     public async Task AFailedRefreshShowsTheConnectorsReasonCodesButNeverFreeText()
     {
@@ -37,8 +40,8 @@ public sealed class UpdateSourceRefreshServiceTests
         SourceSnapshot coded = (await service.RefreshAsync([new FakeConnector("winget", null, failure: new InvalidOperationException("winget:malformed-update-row,winget:exit-1"))], true, CancellationToken.None)).Single();
         SourceSnapshot text = (await service.RefreshAsync([new FakeConnector("msstore", null, failure: new InvalidOperationException(@"Could not open C:\Users\someone\file"))], true, CancellationToken.None)).Single();
 
-        CollectionAssert.AreEqual(new[] { "source:unavailable", "winget:malformed-update-row", "winget:exit-1" }, coded.Warnings.ToArray());
-        CollectionAssert.AreEqual(new[] { "source:unavailable" }, text.Warnings.ToArray());
+        CollectionAssert.AreEqual(ExpectedCodedWarnings, coded.Warnings.ToArray());
+        CollectionAssert.AreEqual(ExpectedTextWarnings, text.Warnings.ToArray());
         CollectionAssert.AreEqual(Array.Empty<string>(), UpdateSourceRefreshService.ConnectorReasons(new InvalidOperationException("winget:a,winget:b,winget:c,winget:d,winget:e")));
         CollectionAssert.AreEqual(Array.Empty<string>(), UpdateSourceRefreshService.ConnectorReasons(new InvalidOperationException("source:unavailable")));
     }
