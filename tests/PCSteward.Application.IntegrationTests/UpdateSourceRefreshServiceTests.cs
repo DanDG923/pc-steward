@@ -31,6 +31,19 @@ public sealed class UpdateSourceRefreshServiceTests
     }
 
     [TestMethod]
+    public async Task AFailedRefreshShowsTheConnectorsReasonCodesButNeverFreeText()
+    {
+        MemoryCache cache = new(); UpdateSourceRefreshService service = new(cache);
+        SourceSnapshot coded = (await service.RefreshAsync([new FakeConnector("winget", null, failure: new InvalidOperationException("winget:malformed-update-row,winget:exit-1"))], true, CancellationToken.None)).Single();
+        SourceSnapshot text = (await service.RefreshAsync([new FakeConnector("msstore", null, failure: new InvalidOperationException(@"Could not open C:\Users\someone\file"))], true, CancellationToken.None)).Single();
+
+        CollectionAssert.AreEqual(new[] { "source:unavailable", "winget:malformed-update-row", "winget:exit-1" }, coded.Warnings.ToArray());
+        CollectionAssert.AreEqual(new[] { "source:unavailable" }, text.Warnings.ToArray());
+        CollectionAssert.AreEqual(Array.Empty<string>(), UpdateSourceRefreshService.ConnectorReasons(new InvalidOperationException("winget:a,winget:b,winget:c,winget:d,winget:e")));
+        CollectionAssert.AreEqual(Array.Empty<string>(), UpdateSourceRefreshService.ConnectorReasons(new InvalidOperationException("source:unavailable")));
+    }
+
+    [TestMethod]
     public async Task RetentionPrunesExpiredSourceCacheBeforeAnOfflineRefresh()
     {
         MemoryCache cache = new();
@@ -52,9 +65,9 @@ public sealed class UpdateSourceRefreshServiceTests
         public int PruneCalls { get; private set; }
         public Task PruneSourceSnapshotsAsync(DateTimeOffset olderThan, CancellationToken cancellationToken) { PruneCalls++; foreach (string id in snapshots.Where(pair => pair.Value.LastSuccessAt < olderThan).Select(pair => pair.Key).ToArray()) snapshots.Remove(id); return Task.CompletedTask; }
     }
-    private sealed class FakeConnector(string sourceId, SourceSnapshot? result, TimeSpan? delay = null, bool fail = false) : IUpdateSourceConnector
+    private sealed class FakeConnector(string sourceId, SourceSnapshot? result, TimeSpan? delay = null, bool fail = false, Exception? failure = null) : IUpdateSourceConnector
     {
         private static int active; public static int MaximumActive { get; private set; } public string SourceId { get; } = sourceId; public TimeSpan Timeout => TimeSpan.FromSeconds(1); public int Calls { get; private set; }
-        public async Task<SourceSnapshot> RefreshAsync(CancellationToken cancellationToken) { Calls++; int now = Interlocked.Increment(ref active); MaximumActive = Math.Max(MaximumActive, now); try { if (delay is not null) await Task.Delay(delay.Value, cancellationToken); if (fail) throw new TimeoutException(); return result!; } finally { Interlocked.Decrement(ref active); } }
+        public async Task<SourceSnapshot> RefreshAsync(CancellationToken cancellationToken) { Calls++; int now = Interlocked.Increment(ref active); MaximumActive = Math.Max(MaximumActive, now); try { if (delay is not null) await Task.Delay(delay.Value, cancellationToken); if (failure is not null) throw failure; if (fail) throw new TimeoutException(); return result!; } finally { Interlocked.Decrement(ref active); } }
     }
 }

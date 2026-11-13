@@ -75,6 +75,63 @@ public sealed class WingetInstalledInventoryProviderTests
 
         Assert.HasCount(1, result.Records); Assert.AreEqual("Mozilla.Firefox", result.Records.Single().Id); Assert.AreEqual("winget", result.Records.Single().Source);
     }
+    // Shape of real WinGet 1.29.380 `upgrade --source winget` output (owner's PC, 2026-11-13; package names replaced): a count
+    // line, an explicit-targeting table and an unknown-version notice follow the main table.
+    private const string UpgradeOutputWithNotices =
+        "Name                                             Id                                     Version     Available\n" +
+        "---------------------------------------------------------------------------------------------------------------\n" +
+        "Contoso Widget                                   Contoso.Widget                         2.103.3     2.104.0\n" +
+        "Contoso Desktop Runtime - 8.0.33 (x64)           Contoso.DesktopRuntime.8               8.0.33      8.0.34\n" +
+        "2 upgrades available.\n" +
+        "The following packages have an upgrade available, but require explicit targeting for upgrade:\n" +
+        "Name     Id            Version  Available\n" +
+        "-----------------------------------------\n" +
+        "Fabrikam Fabrikam.Chat 1.0.9267 1.0.9268\n" +
+        "1 package(s) have version numbers that cannot be determined. Use --include-unknown to see all results.\n" +
+        "1 package(s) have pins that prevent upgrade. Use the 'winget pin' command to view and edit pins. Using the --include-pinned argument may show more results.";
+
+    [TestMethod]
+    public void UpgradeCountExplicitTargetingTableAndNoticesAreReadNotRejected()
+    {
+        WingetAvailableUpdateResult result = WingetUpdateSourceConnector.ParseAvailableTable(UpgradeOutputWithNotices, "v1.29.380", "winget");
+
+        CollectionAssert.AreEqual(new[] { "Contoso.Widget", "Contoso.DesktopRuntime.8", "Fabrikam.Chat" }, result.Records.Select(record => record.Id).ToArray());
+        Assert.AreEqual("1.0.9268", result.Records.Single(record => record.Id == "Fabrikam.Chat").AvailableVersion);
+        Assert.HasCount(0, result.Warnings);
+    }
+
+    [TestMethod]
+    public void AnyOtherLineAfterTheUpgradeTableIsStillMalformed()
+    {
+        foreach (string extra in new[] { "2 upgrades available. Run now", "Something else happened.", "The following packages have an upgrade available:" })
+        {
+            WingetAvailableUpdateResult result = WingetUpdateSourceConnector.ParseAvailableTable(
+                "Name            Id              Version  Available\n--------------------------------------------------\nContoso Widget  Contoso.Widget  1.0.0    1.1.0\n" + extra, "v1", "winget");
+            Assert.AreEqual("Contoso.Widget", result.Records.Single().Id, extra);
+            CollectionAssert.Contains(result.Warnings.ToArray(), "winget:malformed-update-row", extra);
+        }
+    }
+
+    [TestMethod]
+    public async Task RealUpgradeOutputWithACountLineKeepsTheSourceLive()
+    {
+        SequencedProcess process = new(new WingetProcessResult[]
+        {
+            new(0, "v1.29.380", "", false),
+            new(0, InstalledTableWithAvailable(
+                ("Contoso Widget", "Contoso.Widget", "2.103.3", "2.104.0", "winget"),
+                ("Fabrikam Chat", "Fabrikam.Chat", "1.0.9267", "1.0.9268", "winget"),
+                ("Northwind Tool", "Northwind.Tool", "3.0.0", "", "winget")), "", false),
+            new(0, UpgradeOutputWithNotices, "", false)
+        });
+
+        SourceSnapshot snapshot = await new WingetUpdateSourceConnector(process, "winget").RefreshAsync(CancellationToken.None);
+
+        Assert.AreEqual(SourceSnapshotState.Live, snapshot.State);
+        Assert.AreEqual("2.104.0", snapshot.Packages.Single(package => package.PackageId == "Contoso.Widget").AvailableVersion);
+        Assert.AreEqual("1.0.9268", snapshot.Packages.Single(package => package.PackageId == "Fabrikam.Chat").AvailableVersion);
+        Assert.AreEqual("3.0.0", snapshot.Packages.Single(package => package.PackageId == "Northwind.Tool").AvailableVersion);
+    }
     [TestMethod]
     public async Task ExactPostUpdateQueryRequiresOneExpectedPackageAndVersion()
     {
