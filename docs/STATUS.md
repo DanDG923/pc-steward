@@ -1,3 +1,8 @@
+**Security review of the 2026-11-13 changes (2026-11-13; review and one wording change; rides the next release).** Report: [SECURITY_REVIEW_2026-11-13.md](review/SECURITY_REVIEW_2026-11-13.md). Nothing critical or high; no supply-chain input changed and nothing new reaches the elevated helper.
+
+- **M1, owner's choice: a publisher check.** A per-user installer that asks for administrator permission waits in the account's own Temp folder until Windows asks, so a program already running as the owner could swap it. Such updates stay offered (Q1-B); `WingetUserInstallerText.ElevationWarning` now tells the owner to choose Yes only when Windows names the app's publisher as the verified publisher, and No for "Unknown publisher" or another name.
+- **Accepted.** "Close it for me" picks processes by name (owner's click, window-close only, own session); the icon reader's check-then-open gap (already accepted in ADR-035); deleted timelines may stay in the database's free space (owner's own profile, already sanitized).
+
 **Release 0.1.16 (2026-11-13; version number only).** VersionPrefix 0.1.16 for the release that carries the Diagnostics page and the diagnostic timeline's Windows readers (#105) and UI review follow-up 3 (#106). No code change here.
 
 **Diagnostic timeline, Task 64 stage 4: the Diagnostics page (2026-11-13; code and tests; no host action).** Requirements: `FR-DIA-01–05`, `FR-UI-01`. ([plan](review/TASK_64_DIAGNOSTIC_TIMELINE_PLAN.md)).
