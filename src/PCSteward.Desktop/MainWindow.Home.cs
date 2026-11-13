@@ -217,8 +217,9 @@ public sealed partial class MainWindow
         if (scanAction)
         {
             StackPanel withIcon = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
-            withIcon.Children.Add(new FontIcon { Glyph = "\uE72C", FontSize = 16 });
-            withIcon.Children.Add(new TextBlock { Text = label });
+            // Centred on each other, so the label sits where a label with no icon beside it would.
+            withIcon.Children.Add(new FontIcon { Glyph = "\uE72C", FontSize = 16, VerticalAlignment = VerticalAlignment.Center });
+            withIcon.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
             content = withIcon;
         }
         Button button = new() { Content = content, AccessKey = AccessKeyFor(action.Label) };

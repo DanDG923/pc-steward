@@ -55,30 +55,35 @@ public static class WrapLayout
 
     /// <summary>
     /// Places <paramref name="items"/> on the lines <see cref="Measure"/> chose. <paramref name="finalWidth"/> only caps an item
-    /// that is wider than the whole row; it never moves an item to another line.
+    /// that is wider than the whole row; it never moves an item to another line. With <paramref name="levelLines"/>, every item
+    /// on a line is given that line's height, the tallest item's (owner report 2026-11-13: a button with an icon is a little
+    /// taller than one without, and on Home "Check for updates" sat lower than "Update all N…" beside it). A button fills the
+    /// height it is given, so the buttons on a line come out the same height with their edges level; an item that centres
+    /// itself is centred on the line. Without it each item keeps its own height at the top of its line, which is what a line
+    /// of text and chips wants.
     /// </summary>
-    public static IReadOnlyList<Slot> Arrange(IReadOnlyList<Item> items, IReadOnlyList<int> lines, double finalWidth, double horizontalSpacing, double verticalSpacing)
+    public static IReadOnlyList<Slot> Arrange(IReadOnlyList<Item> items, IReadOnlyList<int> lines, double finalWidth, double horizontalSpacing, double verticalSpacing, bool levelLines = false)
     {
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(lines);
         if (lines.Count != items.Count) throw new ArgumentException("Each item needs the line it was measured on.", nameof(lines));
         Slot[] slots = new Slot[items.Count];
-        double x = 0, y = 0, lineHeight = 0;
-        int line = 0;
-        for (int index = 0; index < items.Count; index++)
+        double x = 0, y = 0;
+        int start = 0;
+        while (start < items.Count)
         {
-            Item item = items[index];
-            if (lines[index] != line)
+            int end = start;
+            double lineHeight = 0;
+            while (end < items.Count && lines[end] == lines[start]) lineHeight = Math.Max(lineHeight, items[end++].Height);
+            for (int index = start; index < end; index++)
             {
-                line = lines[index];
-                x = 0;
-                y += lineHeight + verticalSpacing;
-                lineHeight = 0;
+                double itemWidth = Math.Min(items[index].Width, finalWidth);
+                slots[index] = new Slot(x, y, itemWidth, levelLines ? lineHeight : items[index].Height);
+                x += itemWidth + horizontalSpacing;
             }
-            double itemWidth = Math.Min(item.Width, finalWidth);
-            slots[index] = new Slot(x, y, itemWidth, item.Height);
-            x += itemWidth + horizontalSpacing;
-            lineHeight = Math.Max(lineHeight, item.Height);
+            x = 0;
+            y += lineHeight + verticalSpacing;
+            start = end;
         }
         return slots;
     }

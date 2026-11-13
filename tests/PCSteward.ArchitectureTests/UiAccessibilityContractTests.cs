@@ -300,8 +300,12 @@ public sealed partial class UiAccessibilityContractTests
         // UI review 2026-11-13 (fault 2): the lines are decided once, when the row is measured, and arranging reuses them.
         string wrap = presentation[presentation.IndexOf("public sealed class StewardWrapPanel : Panel", StringComparison.Ordinal)..];
         StringAssert.Contains(wrap, "measuredLines = measured.Lines;");
-        StringAssert.Contains(wrap, "WrapLayout.Arrange(items, lines, finalSize.Width, HorizontalSpacing, VerticalSpacing)");
+        StringAssert.Contains(wrap, "WrapLayout.Arrange(items, lines, finalSize.Width, HorizontalSpacing, VerticalSpacing, LevelLines)");
         Assert.IsFalse(wrap.Contains("> finalSize.Width", StringComparison.Ordinal), "arranging never decides a line break by comparing widths again");
+        // Owner report 2026-11-13 (release 0.1.14): a row of controls gives everything on one line the line's height, so Home's
+        // "Check for updates" (with an icon) is level with "Update all N…" beside it. Rows of text and chips do not.
+        StringAssert.Contains(presentation, "ActionRow(double spacing = StewardSpacing.Small) => new() { HorizontalSpacing = spacing, VerticalSpacing = spacing, LevelLines = true };");
+        Assert.AreEqual(1, Count(presentation, "LevelLines = true"));
         StringAssert.Contains(presentation, "PlaceBesideOrBelow(grid, action, NarrowHeaderWidth, StewardSpacing.XLarge);");
         StringAssert.Contains(presentation, "PlaceBesideOrBelow(row, control, NarrowRowWidth, StewardSpacing.Large);");
         string source = DesktopSource("MainWindow.cs");
