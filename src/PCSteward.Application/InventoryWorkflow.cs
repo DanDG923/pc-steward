@@ -95,6 +95,8 @@ public sealed class CompositeStructuredUpdateCandidateAuthority(IEnumerable<IStr
 /// <summary>Application use case for inventory and non-executable update intelligence. It owns no adapter implementation or UI type.</summary>
 public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
 {
+    /// <summary>The design note's refusal when a 32-bit-registered app's architecture can't be proven at review (§3.3).</summary>
+    public const string ArchitectureNotConfirmedMessage = "PC Steward couldn't confirm this app's architecture, so it can't be updated here. Nothing was started.";
     private readonly IInventorySnapshotStore snapshots;
     private readonly IScanDataStore scanData;
     private readonly IConnectorSettingsStore connectorSettings;
@@ -280,6 +282,11 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         {
             return new(null, "This standalone PC Steward package supports user-scope updates only. Machine-scope updates require a separately reviewed protected installation and are not actionable here.");
         }
+        // Stage 1 of the 32-bit-registered apps design: offered, but the review proof (§3.3) is not built yet, so it always refuses here.
+        if (item.Mapping.ReviewReasons.Contains(MappingReviewReason.ArchitectureCheckedAtReview))
+        {
+            return new(null, ArchitectureNotConfirmedMessage);
+        }
         StructuredUpdateCandidateEvidence? candidate = structuredUpdateCandidates is null
             ? null
             : await structuredUpdateCandidates.ResolveAsync(item.Mapping.SourceId, item.Mapping.PackageId, cancellationToken).ConfigureAwait(false);
@@ -451,7 +458,8 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
             // cover the same uninstall key name in several registry views; differing installed targets are ambiguous, never picked.
             bool conflictingTargets = wingetInstances.Select(instance => (instance.ProviderIdentity, instance.SourceId, instance.Version, instance.Scope, instance.Architecture, instance.Channel)).Distinct().Skip(1).Any() ||
                 (winget is null && productInstances.Where(IsConcreteLocalEvidence).Select(instance => (Scope: instance.Scope.ToUpperInvariant(), Architecture: instance.Architecture.ToUpperInvariant(), instance.Version)).Distinct().Skip(1).Any());
-            return new ProductMatchProfile(product.StableKey, product.DisplayName, winget?.ProviderIdentity, msix is null ? null : product.StableKey, null, preferred?.Publisher, winget?.Version ?? executionEvidence?.Version, executionEvidence?.Scope ?? "Unknown", executionEvidence?.Architecture ?? "Unknown", preferred?.Channel, InstalledSourceId: winget?.SourceId, HasConflictingTargetInstances: conflictingTargets, HasConcreteLocalEvidence: productInstances.Length == 0 || productInstances.Any(instance => !string.Equals(instance.Provider, "winget", StringComparison.OrdinalIgnoreCase)));
+            return new ProductMatchProfile(product.StableKey, product.DisplayName, winget?.ProviderIdentity, msix is null ? null : product.StableKey, null, preferred?.Publisher, winget?.Version ?? executionEvidence?.Version, executionEvidence?.Scope ?? "Unknown", executionEvidence?.Architecture ?? "Unknown", preferred?.Channel, InstalledSourceId: winget?.SourceId, HasConflictingTargetInstances: conflictingTargets, HasConcreteLocalEvidence: productInstances.Length == 0 || productInstances.Any(instance => !string.Equals(instance.Provider, "winget", StringComparison.OrdinalIgnoreCase)),
+                RegisteredIn32BitView: winget is null && executionEvidence is not null && IsMachine32Registration(executionEvidence));
         }).ToArray();
     }
 
@@ -467,6 +475,12 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
             ? null
             : candidates.OrderBy(ProviderPriority).ThenBy(instance => instance.ProviderIdentity, StringComparer.Ordinal).FirstOrDefault();
     }
+
+    // RegistryInventoryProvider records the 32-bit machine view, and only that view, as Machine + x86.
+    private static bool IsMachine32Registration(InstallationInstance instance) =>
+        string.Equals(instance.Provider, "registry", StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(instance.Scope, "Machine", StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(instance.Architecture, "x86", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsConcreteLocalEvidence(InstallationInstance instance) => string.Equals(instance.Provider, "registry", StringComparison.OrdinalIgnoreCase) || string.Equals(instance.Provider, "msix", StringComparison.OrdinalIgnoreCase);
 

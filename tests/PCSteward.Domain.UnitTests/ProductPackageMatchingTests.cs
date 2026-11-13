@@ -177,6 +177,54 @@ public sealed class ProductPackageMatchingTests
         Assert.IsFalse(result.Mapping.IsActionable);
     }
 
+    [TestMethod]
+    public void A32BitViewMachineEntryLinkedByProductCodeToAnX64PackageIsOfferedWithTheArchitectureCheckedAtReview()
+    {
+        PackageMapping mapping = ProductPackageMatching.Resolve(Registered32(), [Linked()]).Mapping!;
+
+        Assert.AreEqual(MappingOrigin.ProviderSupplied, mapping.Origin);
+        Assert.IsTrue(mapping.IsActionable);
+        CollectionAssert.AreEqual(new[] { MappingReviewReason.ArchitectureCheckedAtReview }, mapping.ReviewReasons.ToArray());
+    }
+
+    [TestMethod]
+    public void EveryOtherArchitectureDifferenceStaysAConflict()
+    {
+        // Name and publisher only (no product-code link).
+        PackageMatchCandidate byName = Linked() with { ProviderSuppliedStableProductKey = null, DisplayName = "Contoso Desktop Runtime - 8.0.33 (x64)", PublisherAliases = ["Contoso Ltd"] };
+        // An x86 entry that was not read from the 32-bit machine view.
+        ProductMatchProfile notRegistered32 = Registered32() with { RegisteredIn32BitView = false };
+        // A per-user entry.
+        ProductMatchProfile perUser = Registered32() with { Scope = "User" };
+        // A package for another architecture than x64.
+        PackageMatchCandidate arm64 = Linked() with { Architecture = "arm64" };
+
+        foreach ((ProductMatchProfile product, PackageMatchCandidate candidate) in new[] { (Registered32(), byName), (notRegistered32, Linked()), (perUser, Linked() with { Scope = "User" }), (Registered32(), arm64) })
+        {
+            PackageMapping mapping = ProductPackageMatching.Resolve(product, [candidate]).Mapping!;
+            Assert.IsFalse(mapping.IsActionable);
+            CollectionAssert.Contains(mapping.ReviewReasons.ToArray(), MappingReviewReason.ArchitectureConflict);
+            CollectionAssert.DoesNotContain(mapping.ReviewReasons.ToArray(), MappingReviewReason.ArchitectureCheckedAtReview);
+        }
+    }
+
+    [TestMethod]
+    public void TheArchitectureCheckedAtReviewCaseStillNeedsEveryOtherCheck()
+    {
+        PackageMapping userScope = ProductPackageMatching.Resolve(Registered32(), [Linked() with { Scope = "User" }]).Mapping!;
+        PackageMapping noChannel = ProductPackageMatching.Resolve(Registered32(), [Linked() with { Channel = null }]).Mapping!;
+        PackageMapping sameVersion = ProductPackageMatching.Resolve(Registered32(), [Linked() with { CandidateVersion = "8.0.33.36622" }]).Mapping!;
+
+        Assert.IsFalse(userScope.IsActionable);
+        CollectionAssert.Contains(userScope.ReviewReasons.ToArray(), MappingReviewReason.ScopeConflict);
+        Assert.IsFalse(noChannel.IsActionable);
+        CollectionAssert.Contains(noChannel.ReviewReasons.ToArray(), MappingReviewReason.MissingChannelEvidence);
+        Assert.IsFalse(sameVersion.IsActionable);
+    }
+
+    private static ProductMatchProfile Registered32() => new("registry:{4d0027d4-962f-4f65-a01b-f8764a5f4220}", "Contoso Desktop Runtime - 8.0.33 (x64)", null, null, null, "Contoso Ltd", "8.0.33.36622", "Machine", "x86", null, RegisteredIn32BitView: true);
+    private static PackageMatchCandidate Linked() => new("winget", "Contoso.DesktopRuntime.8", "Contoso Desktop Runtime 8", null, null, "Contoso Ltd", "8.0.34", "Machine", "x64", "Stable", true, ProviderSuppliedStableProductKey: "registry:{4d0027d4-962f-4f65-a01b-f8764a5f4220}");
+
     private static ProductMatchProfile Product(string? providerPackageId = "Contoso.Widget", IReadOnlyCollection<string>? aliases = null, string? sourceId = "winget") => new("product:contoso-widget", "Contoso Widget", providerPackageId, null, null, "Contoso Ltd", "1.0.0", "Machine", "x64", "Stable", aliases, ["Contoso Ltd"], sourceId);
     private static PackageMatchCandidate Candidate(string packageId = "Contoso.Widget", string displayName = "Contoso Widget", string? publisher = "Contoso Ltd", string version = "1.2.0", string scope = "Machine", string architecture = "x64", string channel = "Stable", bool trusted = true, IReadOnlyCollection<string>? aliases = null, string sourceId = "winget") => new(sourceId, packageId, displayName, null, null, publisher, version, scope, architecture, channel, trusted, ProductAliases: aliases, PublisherAliases: publisher is null ? null : [publisher]);
 }

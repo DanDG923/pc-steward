@@ -103,7 +103,8 @@ public static class ReviewReasonText
         [nameof(MappingReviewReason.SourceDisagreement)] = "Package sources disagree about this app.",
         [nameof(MappingReviewReason.MissingScopeEvidence)] = "The install scope isn't known.",
         [nameof(MappingReviewReason.MissingArchitectureEvidence)] = "The app's architecture isn't known.",
-        [nameof(MappingReviewReason.MissingChannelEvidence)] = "The release channel isn't known."
+        [nameof(MappingReviewReason.MissingChannelEvidence)] = "The release channel isn't known.",
+        [nameof(MappingReviewReason.ArchitectureCheckedAtReview)] = "Windows lists this app as 32-bit, as its installer registers it. PC Steward checks it is the 64-bit build when you review the update."
     };
 
     /// <summary>Words for one recorded review reason. <c>None</c> has no words; an unrecognised reason gets a generic sentence.</summary>
@@ -217,6 +218,7 @@ public sealed record UpdateRowPresentation(
                     parts.Add(Publisher);
                     if (MatchText.Length > 0) parts.Add(MatchText);
                     if (Badge is { Jump: VersionJump.Major }) parts.Add("bigger changes are possible");
+                    parts.AddRange(Reasons);
                     break;
                 case UpdateGroup.NeedsReview:
                     parts.Add($"Installed {InstalledVersion}");
@@ -326,7 +328,7 @@ public static class UpdatesPagePresenter
             {
                 case nameof(UpdateIntelligenceStatus.VerifiedUpdate):
                     if (sourcesEnabled && detail is { CandidateVersion: not null, PackageId: not null, SourceId: not null })
-                        ready.Add(Row(row, detail, UpdateGroup.Ready, [], WithSkip([Ignore, Pin, Details], detail)));
+                        ready.Add(Row(row, detail, UpdateGroup.Ready, ReadyReasons(detail), WithSkip([Ignore, Pin, Details], detail)));
                     else
                         review.Add(Row(row, detail, UpdateGroup.NeedsReview,
                             [sourcesEnabled ? "The update evidence is incomplete, so it can't be reviewed." : "Package sources are off, so this update can't be reviewed."],
@@ -465,6 +467,14 @@ public static class UpdatesPagePresenter
     }
 
     /// <summary>Reasons in words for a review-required row; never empty.</summary>
+    /// <summary>A ready update has no reasons, except the one note that its architecture is checked when the owner reviews it.</summary>
+    public static IReadOnlyList<string> ReadyReasons(UpdateDetail? detail) =>
+        detail?.ReviewReasons.Contains(nameof(MappingReviewReason.ArchitectureCheckedAtReview), StringComparer.Ordinal) == true
+            ? [ArchitectureCheckedAtReviewNote]
+            : [];
+
+    public const string ArchitectureCheckedAtReviewNote = "architecture is checked when you review";
+
     public static IReadOnlyList<string> NeedsReviewReasons(UpdateDetail? detail)
     {
         if (detail is null) return ["The evidence for this app needs your review."];

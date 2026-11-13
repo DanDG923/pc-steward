@@ -225,6 +225,29 @@ public sealed class InventoryWorkflowUpdateSourceTests
     }
 
     [TestMethod]
+    public async Task A32BitRegisteredAppLinkedToAnX64PackageIsOfferedButReviewRefusesUntilTheProofIsBuilt()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        CanonicalProduct product = new(Guid.NewGuid(), "registry:{4d0027d4-962f-4f65-a01b-f8764a5f4220}", "Contoso Desktop Runtime - 8.0.33 (x64)");
+        // The registry provider records the 32-bit machine view as Machine + x86 (a Burn bundle registers there for an x64 product).
+        InstallationInstance instance = new(Guid.NewGuid(), product.Id, "registry", "{4d0027d4-962f-4f65-a01b-f8764a5f4220}", "8.0.33.36622", "Machine", "x86", "Contoso");
+        await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [product], [instance], [], [], CancellationToken.None);
+        await EnableTrustedSourcesAsync(database);
+        SourcePackageRecord package = new("winget", "Contoso.DesktopRuntime.8", "Contoso Desktop Runtime 8", "Contoso", "8.0.33", "8.0.34", "Machine", "x64", "Stable", ProviderSuppliedStableProductKey: product.StableKey);
+        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, [], decisions: database.Store, sourceCache: database.Store,
+            updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))],
+            structuredUpdateCandidates: new NeverReachedStructuredAuthority());
+
+        UpdateIntelligenceItem item = (await workflow.RefreshUpdateIntelligenceAsync(true, CancellationToken.None)).Items.Single();
+        UpdateSelectionPreparation preparation = await workflow.PrepareApprovedUpdateSelectionAsync(product.StableKey, CancellationToken.None);
+
+        Assert.AreEqual(UpdateIntelligenceStatus.VerifiedUpdate, item.Status);
+        CollectionAssert.AreEqual(new[] { MappingReviewReason.ArchitectureCheckedAtReview }, item.Mapping!.ReviewReasons.ToArray());
+        Assert.IsNull(preparation.Selection);
+        Assert.AreEqual(InventoryWorkflow.ArchitectureNotConfirmedMessage, preparation.Message);
+    }
+
+    [TestMethod]
     public async Task StandaloneDeploymentRejectsMachineScopeBeforeStructuredExecutionAuthority()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();
