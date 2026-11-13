@@ -64,10 +64,10 @@ public sealed class UpdatesAndJobPresentationTests
         CollectionAssert.AreEquivalent(IgnoredKeys, page.IgnoredAndSkipped.Select(row => row.StableProductKey).ToArray());
         Assert.IsEmpty(page.SelectedKeys, "nothing is preselected");
         Assert.IsFalse(page.CanReview);
-        Assert.AreEqual("Review selected updates", page.ReviewButtonLabel);
+        Assert.AreEqual("Update selected…", page.ReviewButtonLabel);
         Assert.IsTrue(page.CanReviewAll);
         // UI polish phase 3 (approved target T-Updates-Ready): the review-all button names the one ready app, or counts them.
-        Assert.AreEqual("Review update for App ready", page.ReviewAllLabel);
+        Assert.AreEqual("Update App ready…", page.ReviewAllLabel);
         CollectionAssert.AreEqual(ReadyKeys, page.ReadyKeys.ToArray(), "Review all ready chooses exactly the Ready group");
         Assert.IsTrue(page.HasAnyRow);
         Assert.AreEqual(decisions[0].Id, page.IgnoredAndSkipped.Single(row => row.StableProductKey == "ignored").DecisionId);
@@ -78,7 +78,7 @@ public sealed class UpdatesAndJobPresentationTests
         UpdatesPagePresentation selected = UpdatesPagePresenter.Build(rows, details, true, decisions, ["ready"], Now);
         Assert.IsTrue(selected.CanReview);
         Assert.IsTrue(selected.AllReadySelected);
-        Assert.AreEqual("Review update for App ready", selected.ReviewButtonLabel);
+        Assert.AreEqual("Update App ready…", selected.ReviewButtonLabel);
         Assert.IsEmpty(UpdatesPagePresenter.Build(rows, details, true, decisions, ["review"], Now).SelectedKeys, "a needs-review row can never be selected");
         Assert.IsEmpty(UpdatesPagePresenter.Build(rows, details, true, decisions, ["ignored"], Now).SelectedKeys);
         CollectionAssert.AreEqual(ReadyKeys, UpdatesPagePresenter.Build(rows, details, true, decisions, ["unmanaged", "ready", "pinned", "current", "unavailable"], Now).SelectedKeys.ToArray(),
@@ -591,9 +591,11 @@ public sealed class UpdatesAndJobPresentationTests
         Assert.IsTrue(header.ShowsCheckForUpdates);
         Assert.AreEqual(UpdatesPagePresenter.ReviewFooter, header.Footer);
         Assert.AreEqual("1 of 2 ready updates selected", page.SelectionText);
-        Assert.AreEqual("Review update for App ready", page.ReviewButtonLabel);
-        Assert.AreEqual("Review all 2 updates", page.ReviewAllLabel);
-        Assert.AreEqual("2 updates are ready. Select the ones to review, or review all of them.", UpdatesPagePresenter.Build(rows, details, true, [], null, Now).SelectionText);
+        Assert.AreEqual("Update App ready…", page.ReviewButtonLabel);
+        Assert.AreEqual("Update all 2…", page.ReviewAllLabel);
+        Assert.AreEqual("Update 2 selected…", UpdatesPagePresenter.Build(rows, details, true, [], page.ReadyKeys, Now).ReviewButtonLabel,
+            "choosing several apps counts them; the ellipsis says a review opens first");
+        Assert.AreEqual("2 updates are ready. Update all of them or choose some. You'll see one review before anything changes.", UpdatesPagePresenter.Build(rows, details, true, [], null, Now).SelectionText);
 
         SourceSnapshot stale = new("winget", "1.9", Now.AddDays(-1), SourceSnapshotState.Cached, [], []);
         UpdatesPageHeader cached = UpdatesPagePresenter.Header(page, true, [stale], Now, System.Globalization.CultureInfo.InvariantCulture, TimeZoneInfo.Utc);

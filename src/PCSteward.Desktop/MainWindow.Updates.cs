@@ -75,7 +75,7 @@ public sealed partial class MainWindow
             return panel;
         }
 
-        // Ready: the only group that can be selected. Checkboxes start empty; "Select all ready" and "Review all" choose exactly the
+        // Ready: the only group that can be selected. Checkboxes start empty; "Select all ready" and "Update all" choose exactly the
         // Ready group (Task 73 Phase 6, SPEC §9.13 G4). Choosing never starts anything: the review sheet comes first.
         if (page.Ready.Count > 0)
         {
@@ -86,7 +86,7 @@ public sealed partial class MainWindow
             Button reviewAll = StewardVisuals.PrimaryButton(preparingReview ? PreparingReviewLabel : page.ReviewAllLabel);
             reviewAll.AccessKey = "R";
             reviewAll.IsEnabled = page.CanReviewAll && !HasActiveOperation && reviewDecision is null && viewModel.IsUpdateSourceEnabled;
-            AutomationProperties.SetHelpText(reviewAll, "Selects every ready update and opens one review. Nothing is updated until you confirm on the review page.");
+            AutomationProperties.SetHelpText(reviewAll, "Selects every ready update and opens one review. Only high-confidence matches are included. Nothing is updated until you confirm on the review page.");
             reviewAll.Click += async (_, _) => { selectedReadyKeys.Clear(); selectedReadyKeys.UnionWith(page.ReadyKeys); await ReviewAndExecuteAsync(RowsFor(page.ReadyKeys)); };
             string reviewLabel = preparingReview ? PreparingReviewLabel : page.ReviewButtonLabel;
             Button review = StewardVisuals.PrimaryButton(reviewLabel);

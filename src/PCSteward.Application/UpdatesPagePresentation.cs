@@ -249,7 +249,7 @@ public sealed record UpdatesPagePresentation(
     /// <summary>The chosen Ready rows, in Ready order.</summary>
     public IReadOnlyList<UpdateRowPresentation> Selected => [.. Ready.Where(row => SelectedKeys.Contains(row.StableProductKey, StringComparer.Ordinal))];
 
-    /// <summary>Every Ready key, in order: what "Select all ready" and "Review all N updates" choose — exactly the Ready group.</summary>
+    /// <summary>Every Ready key, in order: what "Select all ready" and "Update all N…" choose — exactly the Ready group.</summary>
     public IReadOnlyList<string> ReadyKeys => [.. Ready.Select(row => row.StableProductKey)];
 
     public bool IsSelected(string stableProductKey) => SelectedKeys.Contains(stableProductKey, StringComparer.Ordinal);
@@ -257,28 +257,31 @@ public sealed record UpdatesPagePresentation(
     /// <summary>The review button is enabled only once the user has chosen at least one Ready row.</summary>
     public bool CanReview => SelectedKeys.Count > 0;
 
-    /// <summary>"Review all N updates" is offered whenever something is ready. It opens the review; it never starts an update.</summary>
+    /// <summary>"Update all N…" is offered whenever something is ready. It opens the review; it never starts an update.</summary>
     public bool CanReviewAll => Ready.Count > 0;
 
     public bool AllReadySelected => Ready.Count > 0 && SelectedKeys.Count == Ready.Count;
 
-    /// <summary>A specific label: it names the chosen app, or counts the chosen apps. Opening the review never starts an update.</summary>
+    /// <summary>
+    /// A specific label: it names the chosen app, or counts the chosen apps. The trailing ellipsis says the button opens a page
+    /// first: it opens the one review, and nothing is updated until the owner confirms there (Update all, owner request 2026-11-13).
+    /// </summary>
     public string ReviewButtonLabel => Selected switch
     {
-        [] => "Review selected updates",
-        [var row] => $"Review update for {row.Name}",
-        var rows => $"Review {rows.Count.ToString(CultureInfo.CurrentCulture)} updates"
+        [] => "Update selected…",
+        [var row] => $"Update {row.Name}…",
+        var rows => $"Update {rows.Count.ToString(CultureInfo.CurrentCulture)} selected…"
     };
 
     /// <summary>
-    /// "Review all N updates" (or "Review update for X" when one is ready): reviews the whole Ready group. It opens the review only;
-    /// it never starts an update.
+    /// "Update all N…" (or "Update X…" when one is ready): reviews the whole Ready group — the verified, high-confidence matches only.
+    /// It opens the one review; it never starts an update.
     /// </summary>
-    public string ReviewAllLabel => Ready.Count == 1 ? $"Review update for {Ready[0].Name}" : $"Review all {Ready.Count.ToString(CultureInfo.CurrentCulture)} updates";
+    public string ReviewAllLabel => Ready.Count == 1 ? $"Update {Ready[0].Name}…" : $"Update all {Ready.Count.ToString(CultureInfo.CurrentCulture)}…";
 
     /// <summary>The selection bar's sentence (approved target T-Updates-Ready), for example "2 of 4 ready updates selected".</summary>
     public string SelectionText => SelectedKeys.Count == 0
-        ? Ready.Count == 1 ? "1 update is ready. Select it to review it, or review it now." : $"{Ready.Count.ToString(CultureInfo.CurrentCulture)} updates are ready. Select the ones to review, or review all of them."
+        ? Ready.Count == 1 ? "1 update is ready. You'll see a review before anything changes." : $"{Ready.Count.ToString(CultureInfo.CurrentCulture)} updates are ready. Update all of them or choose some. You'll see one review before anything changes."
         : $"{SelectedKeys.Count.ToString(CultureInfo.CurrentCulture)} of {DisplayFormat.Plural(Ready.Count, "ready update")} selected";
 
     public bool HasAnyRow => Ready.Count + NeedsReview.Count + IgnoredAndSkipped.Count > 0;
