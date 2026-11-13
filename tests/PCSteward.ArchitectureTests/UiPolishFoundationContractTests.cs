@@ -97,7 +97,7 @@ public sealed class UiPolishFoundationContractTests
         StringAssert.Contains(backdrop, "new SystemBackdropConfiguration { IsInputActive = true }");
         StringAssert.Contains(backdrop, "configuration.Theme = defaults.Theme;");
         StringAssert.Contains(backdrop, "configuration.IsHighContrast = defaults.IsHighContrast;");
-        Assert.AreEqual(2, System.Text.RegularExpressions.Regex.Matches(backdrop, "IsInputActive = true").Count, "focus never switches Mica to its inactive colour");
+        Assert.AreEqual(2, System.Text.RegularExpressions.Regex.Count(backdrop, "IsInputActive = true"), "focus never switches Mica to its inactive colour");
     }
 
     [TestMethod]
