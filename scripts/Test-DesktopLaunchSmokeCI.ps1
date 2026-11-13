@@ -199,6 +199,29 @@ if ($failures.Count -eq 0 -and !$process.HasExited) {
         Write-SameLine (Find-Named $window 'Scan again' ([Windows.Automation.ControlType]::Button)) (Find-Named $window 'More options' ([Windows.Automation.ControlType]::Button)) 'installed-header'
         Write-SameLine (Find-Named $window 'Sort by' ([Windows.Automation.ControlType]::Text)) (Find-Named $window 'Sort applications' ([Windows.Automation.ControlType]::ComboBox)) 'installed-sort'
         Save-Screenshot $handle '08-Installed-apps-after-scan'
+        # UI review 2026-11-13 (item 19): on this wide window an app opened from the list shows its details beside the list.
+        try {
+            $first = $list.FindFirst([Windows.Automation.TreeScope]::Children, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem))
+            if ($null -eq $first) { throw 'no row to open' }
+            ($first.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)).Invoke()
+            Start-Sleep -Seconds $PageSettleSeconds
+            $process.Refresh(); if ($process.HasExited) { throw 'the app exited after opening a row' }
+            $byPane = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, 'AppDetailsPane')
+            $pane = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, $byPane)
+            if ($null -eq $pane -or $pane.Current.IsOffscreen) { Write-Line 'LAYOUT-DETAILS-PANE not shown' }
+            else {
+                $p = $pane.Current.BoundingRectangle; $l = $list.Current.BoundingRectangle
+                Write-Line ('LAYOUT-DETAILS-PANE name="' + $pane.Current.Name + '" pane=' + [int]$p.Left + ',' + [int]$p.Top + ',' + [int]$p.Width + 'x' + [int]$p.Height + ' list=' + [int]$l.Left + ',' + [int]$l.Top + ',' + [int]$l.Width + 'x' + [int]$l.Height + ' beside=' + ($p.Left -ge $l.Right))
+                Save-Screenshot $handle '08b-Installed-apps-details-beside'
+                $unnamedTotal += Write-Tree $pane 'Details beside the list'
+                $close = Find-Named $pane 'Close details' ([Windows.Automation.ControlType]::Button)
+                if ($null -ne $close) {
+                    ($close.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)).Invoke(); Start-Sleep -Seconds 2
+                    $gone = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, $byPane)
+                    Write-Line ('LAYOUT-DETAILS-PANE closed=' + ($null -eq $gone -or $gone.Current.IsOffscreen))
+                }
+            }
+        } catch { Write-Line ('LAYOUT-DETAILS-PANE skipped: ' + $_.Exception.Message) }
         if (Open-Page $window 'Home') {
             Start-Sleep -Seconds $PageSettleSeconds
             $homeButtons = @($window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Button)) |
