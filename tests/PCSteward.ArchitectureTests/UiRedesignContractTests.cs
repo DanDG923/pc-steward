@@ -1191,7 +1191,7 @@ public sealed class UiRedesignContractTests
         string source = DesktopSource("MainWindow.cs");
         // Caption (12) is left only where the text is not what you read a row for.
         Assert.AreEqual(4, Count(presentation, "\"StewardCaptionStyle\""), "badge label, initials, evidence label and timestamp");
-        Assert.AreEqual(5, Count(source, "\"StewardCaptionStyle\""), "Activity and Diagnostics times, the two sets of column headings and the title bar");
+        Assert.AreEqual(6, Count(source, "\"StewardCaptionStyle\""), "Activity and Diagnostics times, the two sets of column headings, the title bar and the number in an update step's circle");
         StringAssert.Contains(presentation, "copy.Children.Add(new TextBlock { Text = description, Style = Style(\"StewardDescriptionStyle\") });");
         StringAssert.Contains(presentation, "Grid line = IconLine(glyph, text, styleKey: \"StewardDescriptionStyle\");");
 

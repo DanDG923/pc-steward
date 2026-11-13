@@ -335,8 +335,9 @@ public sealed class ReferenceBoundaryTests
         StringAssert.Contains(File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Application", "AppDetailSummaryPresentation.cs")), "if (string.Equals(row.Scope, \"Machine\", StringComparison.OrdinalIgnoreCase)) notes.Add(AdministratorNote);");
         string reviewStep = source[source.IndexOf("private void AddReviewStep(", StringComparison.Ordinal)..source.IndexOf("private void AddUpdateStep(", StringComparison.Ordinal)];
         StringAssert.Contains(reviewStep, "AutomationProperties.SetHelpText(confirm, sheet.AdministratorRequirement.Explanation);");
-        StringAssert.Contains(reviewStep, "if (sheet.ShowsAdministratorShield) primaryContent.Children.Add(new FontIcon");
-        Assert.AreEqual(1, reviewStep.Split("new FontIcon", StringSplitOptions.None).Length - 1, "the shield is the only icon and is gated on the requirement");
+        StringAssert.Contains(reviewStep, "object primaryContent = sheet.ShowsAdministratorShield ? StewardVisuals.IconLabel(\"\\uEA18\", sheet.PrimaryButtonLabel, 16) : sheet.PrimaryButtonLabel;");
+        Assert.AreEqual(0, reviewStep.Split("new FontIcon", StringSplitOptions.None).Length - 1, "the review step builds no icon of its own");
+        Assert.AreEqual(1, reviewStep.Split("StewardVisuals.IconLabel(", StringSplitOptions.None).Length - 1, "the shield is the only icon and is gated on the requirement");
         string application = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Application", "UpdateJobPresentation.cs"));
         StringAssert.Contains(application, "public bool ShowsAdministratorShield => AdministratorRequirement.Status == AdministratorRequirementStatus.Required;");
         StringAssert.Contains(application, "risks.Add(new(ReviewRiskKind.Administrator, administratorRequirement.Label, administratorRequirement.Explanation,");

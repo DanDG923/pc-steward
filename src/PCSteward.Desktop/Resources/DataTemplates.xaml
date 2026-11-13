@@ -92,14 +92,17 @@
                         FontSize="12"
                         Foreground="{Binding StatusForeground}"
                         Glyph="{Binding StatusGlyph}" />
-                    <!-- TextLineBounds Tight: the label's box is the capital letters' height, so the letters sit at the pill's middle. -->
+                    <!-- TextLineBounds Tight: the label's box is the capital letters' height, so the letters sit at the pill's middle.
+                         Owner report 2026-11-13 (release 0.1.15): that holds only for a font named by a style (the default font
+                         drew at the top of the box), so this is the same style and cleared line height as StewardVisuals.Badge. -->
                     <TextBlock
                         Grid.Column="1"
                         VerticalAlignment="Center"
                         AutomationProperties.AutomationId="StatusBadgeLabel"
-                        FontSize="12"
                         FontWeight="SemiBold"
                         Foreground="{Binding StatusForeground}"
+                        LineHeight="0"
+                        Style="{StaticResource StewardCaptionStyle}"
                         Text="{Binding StatusLabel}"
                         TextLineBounds="Tight"
                         TextWrapping="Wrap" />

@@ -311,15 +311,28 @@ public sealed record UpdatesPagePresentation(
     public string ReviewButtonLabel => Selected switch
     {
         [] => "Update selected…",
-        [var row] => $"Update {row.Name}…",
+        [var row] when NamesItsApp(row.Name) => $"Update {row.Name}…",
         var rows => $"Update {rows.Count.ToString(CultureInfo.CurrentCulture)} selected…"
     };
 
     /// <summary>
-    /// "Update all N…" (or "Update X…" when one is ready): reviews the whole Ready group — the verified, high-confidence matches only.
-    /// It opens the one review; it never starts an update.
+    /// Owner report 2026-11-13 (release 0.1.15): with one update ready, Home's button read "Update Microsoft Windows Desktop
+    /// Runtime 10.0.14 (x64)…" and was most of the card wide. A button names its one app only when the name is short; a longer
+    /// name is on the row beside or below the button, and the button counts instead.
     /// </summary>
-    public string ReviewAllLabel => Ready.Count == 1 ? $"Update {Ready[0].Name}…" : $"Update all {Ready.Count.ToString(CultureInfo.CurrentCulture)}…";
+    public const int LongestNameOnAButton = 24;
+
+    private static bool NamesItsApp(string name) => name.Length <= LongestNameOnAButton;
+
+    /// <summary>The one ready app's name when <see cref="ReviewAllLabel"/> counts it instead of naming it; otherwise null.</summary>
+    public string? ReviewAllUnnamedApp => Ready.Count == 1 && !NamesItsApp(Ready[0].Name) ? Ready[0].Name : null;
+
+    /// <summary>
+    /// "Update all N…" (or "Update X…" when one is ready, or "Update 1 app…" when its name is long): reviews the whole Ready
+    /// group — the verified, high-confidence matches only. It opens the one review; it never starts an update.
+    /// </summary>
+    public string ReviewAllLabel => Ready.Count != 1 ? $"Update all {Ready.Count.ToString(CultureInfo.CurrentCulture)}…"
+        : NamesItsApp(Ready[0].Name) ? $"Update {Ready[0].Name}…" : "Update 1 app…";
 
     /// <summary>The selection bar's sentence (approved target T-Updates-Ready), for example "2 of 4 ready updates selected".</summary>
     public string SelectionText => SelectedKeys.Count == 0

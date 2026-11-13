@@ -79,6 +79,19 @@ public sealed class UpdatesAndJobPresentationTests
         Assert.IsTrue(selected.CanReview);
         Assert.IsTrue(selected.AllReadySelected);
         Assert.AreEqual("Update App ready…", selected.ReviewButtonLabel);
+        Assert.IsNull(page.ReviewAllUnnamedApp, "a short name is on the button");
+
+        // Owner report 2026-11-13 (release 0.1.15): one ready app with a long name made Home's button most of the card wide.
+        // A name longer than 24 characters is not put on a button; the button counts instead and the row carries the name.
+        Assert.AreEqual(24, UpdatesPagePresentation.LongestNameOnAButton);
+        InventoryRow longNamed = Row("ready", "VerifiedUpdate", "10.0.14") with { Name = "Microsoft Windows Desktop Runtime 10.0.14 (x64)" };
+        UpdatesPagePresentation longPage = UpdatesPagePresenter.Build([longNamed], details, true, [], ["ready"], Now);
+        Assert.AreEqual("Update 1 app…", longPage.ReviewAllLabel);
+        Assert.AreEqual("Update 1 selected…", longPage.ReviewButtonLabel);
+        Assert.AreEqual("Microsoft Windows Desktop Runtime 10.0.14 (x64)", longPage.ReviewAllUnnamedApp);
+        InventoryRow atLimit = Row("ready", "VerifiedUpdate", "1.0") with { Name = new string('a', 24) };
+        Assert.AreEqual($"Update {new string('a', 24)}…", UpdatesPagePresenter.Build([atLimit], details, true, [], null, Now).ReviewAllLabel);
+        Assert.AreEqual("Update 1 app…", UpdatesPagePresenter.Build([atLimit with { Name = new string('a', 25) }], details, true, [], null, Now).ReviewAllLabel);
         Assert.IsEmpty(UpdatesPagePresenter.Build(rows, details, true, decisions, ["review"], Now).SelectedKeys, "a needs-review row can never be selected");
         Assert.IsEmpty(UpdatesPagePresenter.Build(rows, details, true, decisions, ["ignored"], Now).SelectedKeys);
         CollectionAssert.AreEqual(ReadyKeys, UpdatesPagePresenter.Build(rows, details, true, decisions, ["unmanaged", "ready", "pinned", "current", "unavailable"], Now).SelectedKeys.ToArray(),
@@ -603,12 +616,26 @@ public sealed class UpdatesAndJobPresentationTests
             "choosing several apps counts them; the ellipsis says a review opens first");
         Assert.AreEqual("2 updates are ready. Update all of them or choose some. You'll see one review before anything changes.", UpdatesPagePresenter.Build(rows, details, true, [], null, Now).SelectionText);
 
-        SourceSnapshot stale = new("winget", "1.9", Now.AddDays(-1), SourceSnapshotState.Cached, [], []);
-        UpdatesPageHeader cached = UpdatesPagePresenter.Header(page, true, [stale], Now, System.Globalization.CultureInfo.InvariantCulture, TimeZoneInfo.Utc);
+        // Owner report 2026-11-13 (release 0.1.15; owner decision the same day): results reloaded from this PC's store within
+        // the live window read as checked, with no notice; older ones get a calm note; a warning needs a failed check or a week.
+        SourceSnapshot reloaded = new("winget", "1.9", Now.AddMinutes(-11), SourceSnapshotState.Cached, [], []);
+        UpdatesPageHeader recent = UpdatesPagePresenter.Header(page, true, [reloaded], Now, System.Globalization.CultureInfo.InvariantCulture, TimeZoneInfo.Utc);
+        StringAssert.EndsWith(recent.Description, " · checked 11 minutes ago");
+        Assert.IsNull(recent.Notice, "a check 11 minutes old that nothing went wrong with needs no notice");
+        SourceSnapshot yesterday = new("winget", "1.9", Now.AddDays(-1), SourceSnapshotState.Cached, [], []);
+        UpdatesPageHeader cached = UpdatesPagePresenter.Header(page, true, [yesterday], Now, System.Globalization.CultureInfo.InvariantCulture, TimeZoneInfo.Utc);
         StringAssert.EndsWith(cached.Description, "cached results, last checked yesterday");
-        Assert.IsNotNull(cached.Notice, "anything less than live is called out");
-        Assert.AreEqual(StatusTone.Attention, cached.Notice.Tone);
+        Assert.IsNotNull(cached.Notice, "anything less than live is said");
+        Assert.AreEqual("Cached results", cached.Notice.Title);
+        Assert.AreEqual("Cached: these are the results of the last check. The last successful check was yesterday.", cached.Notice.Message);
+        Assert.AreEqual(StatusTone.Information, cached.Notice.Tone, "a healthy cache is a calm note, not a warning");
         Assert.IsFalse(cached.Notice.OffersTurnOnUpdateChecks);
+        SourceSnapshot weekOld = new("winget", "1.9", Now.AddDays(-8), SourceSnapshotState.Cached, [], []);
+        Assert.AreEqual(StatusTone.Attention, UpdatesPagePresenter.Header(page, true, [weekOld], Now, System.Globalization.CultureInfo.InvariantCulture, TimeZoneInfo.Utc).Notice!.Tone, "over a week old is a warning");
+        SourceSnapshot fellBack = new("winget", "1.9", Now.AddMinutes(-11), SourceSnapshotState.Cached, [], ["source:unavailable", "source:stale"]);
+        UpdatesPageHeader afterFailure = UpdatesPagePresenter.Header(page, true, [fellBack], Now, System.Globalization.CultureInfo.InvariantCulture, TimeZoneInfo.Utc);
+        Assert.AreEqual(StatusTone.Attention, afterFailure.Notice!.Tone, "a failed check is a warning however recent the results it fell back to");
+        StringAssert.Contains(afterFailure.Notice.Message, "may be out of date");
 
         UpdatesPagePresentation empty = UpdatesPagePresenter.Build([], details, true, [], null, Now);
         UpdatesPageHeader none = UpdatesPagePresenter.Header(empty, true, [live], Now);

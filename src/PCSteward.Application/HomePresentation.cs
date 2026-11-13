@@ -24,6 +24,11 @@ public readonly record struct LeastFreshSuccess(DateTimeOffset? OldestSuccessAt,
 /// When sources disagree the least fresh state is shown, and the age quoted is the least fresh source's (independent review M1), so
 /// the summary never overstates freshness. A source reads as Live only while its last success is within <see cref="LiveWindow"/> of
 /// the render-time clock (independent review L7); after that it reads as Cached. Presentation only.
+/// Owner report 2026-11-13 (release 0.1.15; owner decision the same day): Home and Updates showed one state differently, and a
+/// check 11 minutes old was called "Cached" with a warning, because results read back from this PC's store are always marked
+/// cached. Now a result that nothing went wrong with reads as Live for <see cref="LiveWindow"/> after its last success however
+/// it was loaded; an older one is Cached with a calm note; and the warning tone is kept for a check that failed and fell back to
+/// older results, a source that never succeeded, and results older than <see cref="StaleAfter"/>.
 /// </summary>
 public static class FreshnessPresenter
 {
@@ -32,6 +37,12 @@ public static class FreshnessPresenter
     /// this presentation-only window is 15 minutes; it changes only the word shown, never what may be updated.
     /// </summary>
     public static readonly TimeSpan LiveWindow = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// How old cached results are before they are called out as a warning (owner decision 2026-11-13). The longest scheduled
+    /// check is weekly, so results older than a week mean checks are not running. Presentation only, like <see cref="LiveWindow"/>.
+    /// </summary>
+    public static readonly TimeSpan StaleAfter = TimeSpan.FromDays(7);
 
     public static string Word(EvidenceFreshness freshness) => freshness switch
     {
@@ -73,21 +84,34 @@ public static class FreshnessPresenter
         string lastCheck = least.AnyNeverSucceeded
             ? (checkedSources.Length == 1 ? "It has never completed a successful check." : "One source has never completed a successful check.")
             : checkedSources.Length == 1 ? $"The last successful check was {age}." : $"The least fresh source's last successful check was {age}.";
+        bool calm = worst == EvidenceFreshness.Live || (worst == EvidenceFreshness.Cached && !NeedsWarning(checkedSources, least, now));
         string sentence = worst switch
         {
             EvidenceFreshness.Live => $"Live: update sources were checked {age}.",
+            EvidenceFreshness.Cached when calm => $"Cached: these are the results of the last check. {lastCheck}",
             EvidenceFreshness.Cached => $"Cached: results may be out of date. {lastCheck}",
             EvidenceFreshness.Offline => $"Offline: an update source couldn't be reached. {lastCheck}",
             _ => $"Unavailable: an update source couldn't complete its check. {lastCheck}"
         };
-        return new(worst, Word(worst), sentence, worst == EvidenceFreshness.Live ? StatusTone.Information : StatusTone.Attention);
+        return new(worst, Word(worst), sentence, calm ? StatusTone.Information : StatusTone.Attention);
     }
+
+    /// <summary>
+    /// Cached results are a warning when a check failed and fell back to older results (the refresh adds its reason to the
+    /// source's warnings), when a source has never succeeded, or when the least fresh success is older than <see cref="StaleAfter"/>.
+    /// </summary>
+    private static bool NeedsWarning(SourceSnapshot[] checkedSources, LeastFreshSuccess least, DateTimeOffset now) =>
+        least.AnyNeverSucceeded || least.OldestSuccessAt is not { } oldest || now - oldest > StaleAfter || checkedSources.Any(FellBack);
+
+    /// <summary>A cached source whose latest check failed: the refresh kept the older results and recorded why.</summary>
+    private static bool FellBack(SourceSnapshot source) => source.State == SourceSnapshotState.Cached && source.Warnings.Count != 0;
 
     private static EvidenceFreshness Of(SourceSnapshot source, DateTimeOffset now) => source.State switch
     {
         SourceSnapshotState.Live when source.LastSuccessAt is { } at && now - at <= LiveWindow => EvidenceFreshness.Live,
         SourceSnapshotState.Live => EvidenceFreshness.Cached,
         SourceSnapshotState.Cached when source.Warnings.Contains("source:offline", StringComparer.Ordinal) => EvidenceFreshness.Offline,
+        SourceSnapshotState.Cached when !FellBack(source) && source.LastSuccessAt is { } at && now - at <= LiveWindow => EvidenceFreshness.Live,
         SourceSnapshotState.Cached => EvidenceFreshness.Cached,
         SourceSnapshotState.Unavailable when source.Warnings.Contains("source:offline", StringComparer.Ordinal) => EvidenceFreshness.Offline,
         SourceSnapshotState.Unavailable => EvidenceFreshness.Unavailable,
@@ -318,7 +342,8 @@ public static class HomePresenter
             {
                 EvidenceFreshness.Live => new("", "Live results from your update sources", StatusTone.Success),
                 EvidenceFreshness.LocalOnly => new("", freshness.Sentence, StatusTone.Neutral),
-                EvidenceFreshness.Cached => new("", freshness.Sentence, StatusTone.Neutral),
+                // Owner decision 2026-11-13: cached results read calmly unless a check failed or they are over a week old.
+                EvidenceFreshness.Cached => new("", freshness.Sentence, freshness.Tone == StatusTone.Attention ? StatusTone.Attention : StatusTone.Neutral),
                 _ => new("", freshness.Sentence, StatusTone.Attention)
             };
             facts = [evidence, scanned, new("\uE71D", $"{DisplayFormat.Plural(rows.Count, "app")} on this PC", StatusTone.Neutral)];
@@ -329,7 +354,11 @@ public static class HomePresenter
             }
             else
             {
-                primary = new(HomeActionKind.UpdateAll, updates.ReviewAllLabel, $"{updates.ReviewAllLabel} (opens one review before anything is installed)", UpdateAllHelp);
+                // Owner report 2026-11-13 (release 0.1.15): a long app name is not on the button, so its accessible name says it.
+                string reviewAllName = updates.ReviewAllUnnamedApp is { } unnamed
+                    ? $"{updates.ReviewAllLabel} ({unnamed}; opens one review before anything is installed)"
+                    : $"{updates.ReviewAllLabel} (opens one review before anything is installed)";
+                primary = new(HomeActionKind.UpdateAll, updates.ReviewAllLabel, reviewAllName, UpdateAllHelp);
                 secondary = checkForUpdates;
             }
         }

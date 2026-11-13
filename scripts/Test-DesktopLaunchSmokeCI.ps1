@@ -50,6 +50,54 @@ public static class SmokeWin32 {
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int command);
 }
 '@
+# Owner reports 2026-11-13 (releases 0.1.14 and 0.1.15): what is drawn, measured from the screen's pixels. The background is
+# the commonest colour in the area; ink is every pixel that differs from it. Returns top, bottom, left, right, the row most
+# columns end on (a line of text's baseline), the ink pixel count and the background colour; -1 when nothing differs.
+Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+public static class SmokeInk {
+    public static int[] Measure(Bitmap bmp, int x0, int y0, int x1, int y1, bool disc, int threshold) {
+        if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0; if (x1 > bmp.Width) x1 = bmp.Width; if (y1 > bmp.Height) y1 = bmp.Height;
+        double cx = (x0 + x1) / 2.0, cy = (y0 + y1) / 2.0, radius = Math.Min(x1 - x0, y1 - y0) / 2.0;
+        Dictionary<int, int> counts = new Dictionary<int, int>();
+        for (int y = y0; y < y1; y++) {
+            for (int x = x0; x < x1; x++) {
+                if (disc && !Inside(x, y, cx, cy, radius)) continue;
+                int c = bmp.GetPixel(x, y).ToArgb(); int n; counts.TryGetValue(c, out n); counts[c] = n + 1;
+            }
+        }
+        int bg = 0, best = -1;
+        foreach (KeyValuePair<int, int> pair in counts) { if (pair.Value > best) { best = pair.Value; bg = pair.Key; } }
+        Color b = Color.FromArgb(bg);
+        int top = -1, bottom = -1, left = -1, right = -1, ink = 0;
+        int[] ends = new int[bmp.Height + 1];
+        for (int x = x0; x < x1; x++) {
+            int last = -1;
+            for (int y = y0; y < y1; y++) {
+                if (disc && !Inside(x, y, cx, cy, radius)) continue;
+                Color p = bmp.GetPixel(x, y);
+                int d = Math.Max(Math.Abs(p.R - b.R), Math.Max(Math.Abs(p.G - b.G), Math.Abs(p.B - b.B)));
+                if (d < threshold) continue;
+                ink++; last = y;
+                if (top < 0 || y < top) top = y;
+                if (y > bottom) bottom = y;
+                if (left < 0) left = x;
+                right = x;
+            }
+            if (last >= 0) ends[last]++;
+        }
+        int baseline = -1, most = 0;
+        for (int y = 0; y < ends.Length; y++) { if (ends[y] > most) { most = ends[y]; baseline = y; } }
+        return new int[] { top, bottom, left, right, baseline, ink, bg };
+    }
+    private static bool Inside(int x, int y, double cx, double cy, double radius) {
+        double dx = x + 0.5 - cx, dy = y + 0.5 - cy;
+        return dx * dx + dy * dy <= radius * radius;
+    }
+}
+'@
 
 function Save-Screenshot([IntPtr]$Handle, [string]$Name) {
     try {
@@ -94,6 +142,8 @@ function Write-Tree([Windows.Automation.AutomationElement]$Root, [string]$Page) 
 }
 
 $started = Get-Date
+# The About page also shows its layout samples (MainWindow.LayoutSamples.cs) for the pixel measurements below.
+$env:PCSTEWARD_LAYOUT_SAMPLES = '1'
 $process = Start-Process -FilePath $exe -WorkingDirectory $app -PassThru
 $handle = [IntPtr]::Zero
 $deadline = $started.AddSeconds($StartTimeoutSeconds)
@@ -178,6 +228,93 @@ function Write-BadgeLabel([Windows.Automation.AutomationElement]$Root, [string]$
         $against = 'pill=' + ($pill.Current.ControlType.ProgrammaticName -replace '^ControlType\.', '') + ',' + [Math]::Round($p.Top, 1) + ',' + [Math]::Round($p.Height, 1) + ' offCentre=' + [Math]::Round(($l.Top + $l.Height / 2) - ($p.Top + $p.Height / 2), 1)
     }
     Write-Line ('LAYOUT-BADGE-LABEL where=' + $Where + ' count=' + $labels.Count + ' first="' + $labels[0].Current.Name + '" heights=' + ($heights -join ',') + ' capHeightBox=' + ($heights[0] -le 12) + ' label=' + [Math]::Round($l.Top, 1) + ',' + [Math]::Round($l.Height, 1) + ' ' + $against)
+}
+# Owner reports 2026-11-13 (releases 0.1.14 and 0.1.15): an icon button was taller than the text button beside it with its
+# label higher, the update step numbers sat at the top of their circles, and the app's name sat higher than its mark in the
+# title bar. Layout boxes showed none of that, so these read the drawn pixels. At 100% one pixel is one unit. "mid" is how
+# far the middle of the ink is below the middle of the control; for a line of text the ink runs from the top of its tallest
+# letters to its baseline (the row most columns end on), with the lowest tail in brackets.
+$script:ink = @{}
+function Get-Capture([double]$Left, [double]$Top, [double]$Width, [double]$Height) {
+    $bmp = New-Object Drawing.Bitmap ([Math]::Max(1, [int][Math]::Round($Width))), ([Math]::Max(1, [int][Math]::Round($Height)))
+    $g = [Drawing.Graphics]::FromImage($bmp)
+    $g.CopyFromScreen([int][Math]::Round($Left), [int][Math]::Round($Top), 0, 0, $bmp.Size)
+    $g.Dispose()
+    return ,$bmp
+}
+function Get-RawTexts([Windows.Automation.AutomationElement]$Root) {
+    $rawView = New-Object Windows.Automation.CacheRequest
+    $rawView.TreeFilter = [Windows.Automation.Automation]::RawViewCondition
+    $active = $rawView.Activate()
+    try {
+        return ,@($Root.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Text)) |
+            Where-Object { $_.Current.BoundingRectangle.Height -gt 0 })
+    } finally { $active.Dispose() }
+}
+function Write-ButtonInk([Windows.Automation.AutomationElement]$Button, [string]$Id) {
+    $r = $Button.Current.BoundingRectangle
+    if ($Button.Current.IsOffscreen -or $r.Height -le 0) { Write-Line ('LAYOUT-INK button=' + $Id + ' skipped (not on screen)'); return }
+    # A button's label is the last text inside it; an icon is drawn by a text of its own before the label.
+    $texts = Get-RawTexts $Button
+    if ($texts.Count -eq 0) { Write-Line ('LAYOUT-INK button=' + $Id + ' skipped (no text inside)'); return }
+    $t = $texts[$texts.Count - 1].Current.BoundingRectangle
+    $bmp = Get-Capture $r.Left $r.Top $r.Width $r.Height
+    try {
+        $from = [Math]::Max(3, [int][Math]::Round($t.Left - $r.Left) - 1)
+        $labelInk = [SmokeInk]::Measure($bmp, $from, 3, $bmp.Width - 3, $bmp.Height - 3, $false, 60)
+        $faint = [SmokeInk]::Measure($bmp, $from, 3, $bmp.Width - 3, $bmp.Height - 3, $false, 24)
+        $result = @{ Height = [Math]::Round($r.Height, 1); Top = $labelInk[0]; Base = $labelInk[4]; IconMid = $null }
+        $line = 'LAYOUT-INK button=' + $Id + ' height=' + $result.Height + ' labelBox=' + [Math]::Round($t.Top - $r.Top, 1) + ',' + [Math]::Round($t.Height, 1) +
+            ' labelInk=' + $labelInk[0] + '..' + $labelInk[4] + '(' + $labelInk[1] + ') faint=' + $faint[0] + '..' + $faint[4] + ' labelMid=' + (($labelInk[0] + $labelInk[4] + 1) / 2 - $bmp.Height / 2)
+        if ($texts.Count -gt 1) {
+            $i = $texts[0].Current.BoundingRectangle
+            $iconInk = [SmokeInk]::Measure($bmp, [Math]::Max(3, [int][Math]::Round($i.Left - $r.Left) - 1), 3, [Math]::Min($from - 2, [int][Math]::Round($i.Right - $r.Left) + 1), $bmp.Height - 3, $false, 60)
+            $result.IconMid = ($iconInk[0] + $iconInk[1] + 1) / 2 - $bmp.Height / 2
+            $line += ' iconBox=' + [Math]::Round($i.Top - $r.Top, 1) + ',' + [Math]::Round($i.Height, 1) + ' iconInk=' + $iconInk[0] + '..' + $iconInk[1] + ' iconMid=' + $result.IconMid
+        }
+        $script:ink[$Id] = $result
+        Write-Line $line
+    } finally { $bmp.Dispose() }
+}
+# A step of the update steps: a 24-unit circle holding a number or a tick, then the step's label.
+function Write-StepInk([Windows.Automation.AutomationElement]$Entry) {
+    $r = $Entry.Current.BoundingRectangle
+    $bmp = Get-Capture $r.Left ($r.Top + ($r.Height - 24) / 2) $r.Width 24
+    try {
+        $dot = [SmokeInk]::Measure($bmp, 3, 3, 21, 21, $true, 60)
+        $faint = [SmokeInk]::Measure($bmp, 3, 3, 21, 21, $true, 24)
+        $label = [SmokeInk]::Measure($bmp, 30, 0, $bmp.Width, 24, $false, 60)
+        $dotMid = ($dot[0] + $dot[1] + 1) / 2 - 12
+        $labelMid = ($label[0] + $label[4] + 1) / 2 - 12
+        if ([Math]::Abs($dotMid) -gt $script:ink['worstStepDot']) { $script:ink['worstStepDot'] = [Math]::Abs($dotMid) }
+        if ([Math]::Abs($labelMid) -gt $script:ink['worstStepLabel']) { $script:ink['worstStepLabel'] = [Math]::Abs($labelMid) }
+        Write-Line ('LAYOUT-INK step="' + $Entry.Current.Name + '" entryHeight=' + [Math]::Round($r.Height, 1) + ' markInk=' + $dot[0] + '..' + $dot[1] + ' of 24 faint=' + $faint[0] + '..' + $faint[1] + ' markMid=' + $dotMid +
+            ' labelInk=' + $label[0] + '..' + $label[4] + '(' + $label[1] + ') labelMid=' + $labelMid)
+    } finally { $bmp.Dispose() }
+}
+# A title beside a status badge: the badge's label and glyph against the pill, and the title's letters against the pill.
+function Write-TitleBadgeInk([Windows.Automation.AutomationElement]$Row) {
+    $labels = @($Row.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, 'StatusBadgeLabel')))
+    if ($labels.Count -eq 0) { Write-Line 'LAYOUT-INK title-badge skipped (no badge)'; return }
+    $l = $labels[0].Current.BoundingRectangle
+    $pill = [Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($labels[0])
+    $p = $pill.Current.BoundingRectangle
+    $area = $Row.Current.BoundingRectangle
+    $bmp = Get-Capture $p.Left $p.Top $p.Width $p.Height
+    try {
+        $from = [int][Math]::Round($l.Left - $p.Left) - 1
+        $labelInk = [SmokeInk]::Measure($bmp, $from, 2, $bmp.Width - 6, $bmp.Height - 2, $false, 60)
+        $glyphInk = [SmokeInk]::Measure($bmp, 6, 2, $from - 2, $bmp.Height - 2, $false, 60)
+    } finally { $bmp.Dispose() }
+    $labelMid = ($labelInk[0] + $labelInk[4] + 1) / 2 - $p.Height / 2
+    $glyphMid = ($glyphInk[0] + $glyphInk[1] + 1) / 2 - $p.Height / 2
+    # The title is everything on the row to the left of the pill.
+    $strip = Get-Capture $area.Left $area.Top ($p.Left - $area.Left - 4) $area.Height
+    try { $nameInk = [SmokeInk]::Measure($strip, 0, 0, $strip.Width, $strip.Height, $false, 60) } finally { $strip.Dispose() }
+    $nameMid = ($area.Top + ($nameInk[0] + $nameInk[4] + 1) / 2) - ($p.Top + $p.Height / 2)
+    $script:ink['badgeLabelMid'] = $labelMid; $script:ink['titleMid'] = $nameMid
+    Write-Line ('LAYOUT-INK title-badge pill=' + [Math]::Round($p.Top - $area.Top, 1) + ',' + [Math]::Round($p.Height, 1) + ' row=' + [Math]::Round($area.Height, 1) + ' labelInk=' + $labelInk[0] + '..' + $labelInk[4] + '(' + $labelInk[1] + ') labelMid=' + $labelMid +
+        ' glyphInk=' + $glyphInk[0] + '..' + $glyphInk[1] + ' glyphMid=' + $glyphMid + ' titleInk=' + $nameInk[0] + '..' + $nameInk[4] + '(' + $nameInk[1] + ') titleMidFromPillMiddle=' + $nameMid)
 }
 function Open-Page([Windows.Automation.AutomationElement]$Root, [string]$Page) {
     $item = Find-Named $Root $Page ([Windows.Automation.ControlType]::ListItem)
@@ -304,6 +441,66 @@ if ($failures.Count -eq 0 -and !$process.HasExited) {
                 Write-Line ('LAYOUT-READING-COLUMN window=' + ($r.Right - $r.Left) + ' navigationRight=' + [int]$nv.Right + ' switchRight=' + [int]$sw.Right + ' columnFromNavigation=' + [int]($sw.Right - $nv.Right))
             } else { Write-Line 'LAYOUT-READING-COLUMN skipped (control not found)' }
         }
+        try {
+            if (!(Open-Page $window 'About')) { throw 'could not open About' }
+            Start-Sleep -Seconds $PageSettleSeconds
+            Save-Screenshot $handle '10-About-layout-samples'
+            Write-Line ('LAYOUT-INK fonts segoeUiVariable=' + (Test-Path -LiteralPath (Join-Path $env:WINDIR 'Fonts\SegUIVar.ttf')) + ' os="' + [Environment]::OSVersion.VersionString + '"')
+            $samples = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, 'LayoutSamples'))
+            if ($null -eq $samples) { Write-Line 'LAYOUT-INK skipped (the layout samples are not on the About page)' }
+            else {
+                $s = $samples.Current.BoundingRectangle
+                $whole = Get-Capture $s.Left $s.Top $s.Width $s.Height
+                try { $any = [SmokeInk]::Measure($whole, 0, 0, $whole.Width, $whole.Height, $false, 60) } finally { $whole.Dispose() }
+                Write-Line ('LAYOUT-INK samples=' + [int]$s.Left + ',' + [int]$s.Top + ',' + [int]$s.Width + 'x' + [int]$s.Height + ' inkPixels=' + $any[5] + ' background=' + ('{0:X8}' -f $any[6]))
+                $script:ink['worstStepDot'] = 0.0; $script:ink['worstStepLabel'] = 0.0
+                foreach ($e in $samples.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)) {
+                    $c = $e.Current
+                    if ($c.AutomationId -like 'SampleButton*') { Write-ButtonInk $e $c.AutomationId }
+                    elseif ($c.Name -match '^Step \d of 3') { Write-StepInk $e }
+                    elseif ($c.AutomationId -eq 'SampleTitleRow') { Write-TitleBadgeInk $e }
+                }
+                # What the owner reported, as numbers: an icon button against a text button with the same label, in both styles.
+                foreach ($pair in @(@('SampleButtonText', 'SampleButtonIcon'), @('SampleButtonPrimaryText', 'SampleButtonPrimaryIcon'))) {
+                    $plain = $script:ink[$pair[0]]; $icon = $script:ink[$pair[1]]
+                    if ($null -eq $plain -or $null -eq $icon) { Write-Line ('LAYOUT-INK-VERDICT ' + $pair[1] + ' skipped (not measured)'); continue }
+                    Write-Line ('LAYOUT-INK-VERDICT ' + $pair[1] + ' tallerThanTextButton=' + ($icon.Height - $plain.Height) + ' labelHigherThanTextButton=' + ($plain.Base - $icon.Base) + ' iconMid=' + $icon.IconMid +
+                        ' level=' + (($icon.Height -eq $plain.Height) -and ($icon.Base -eq $plain.Base) -and ($icon.Top -eq $plain.Top) -and ([Math]::Abs($icon.IconMid) -le 1)))
+                }
+                Write-Line ('LAYOUT-INK-VERDICT steps worstMarkMid=' + $script:ink['worstStepDot'] + ' worstLabelMid=' + $script:ink['worstStepLabel'] + ' centred=' + (($script:ink['worstStepDot'] -le 1) -and ($script:ink['worstStepLabel'] -le 1)))
+                if ($script:ink.ContainsKey('titleMid')) { Write-Line ('LAYOUT-INK-VERDICT title-badge labelMid=' + $script:ink['badgeLabelMid'] + ' titleMid=' + $script:ink['titleMid'] + ' level=' + (([Math]::Abs($script:ink['badgeLabelMid']) -le 1) -and ([Math]::Abs($script:ink['titleMid']) -le 1))) }
+            }
+            $copy = Find-Named $window 'Copy diagnostic' ([Windows.Automation.ControlType]::Button)
+            if ($null -ne $copy) { Write-ButtonInk $copy 'About-Copy-diagnostic' }
+            # The title bar: the app's name and mark, Back, and the window's own Close button should share one middle line.
+            $brand = Find-Named $window 'PC Steward' ([Windows.Automation.ControlType]::Text)
+            if ($null -eq $brand) { Write-Line 'LAYOUT-INK titlebar skipped (name not found)' }
+            else {
+                $b = $brand.Current.BoundingRectangle
+                $top = [Math]::Round($b.Top + $b.Height / 2) - 16
+                $strip = Get-Capture ($b.Left - 32) $top ($b.Width + 34) 32
+                try {
+                    $name = [SmokeInk]::Measure($strip, 31, 0, $strip.Width, 32, $false, 60)
+                    $mark = [SmokeInk]::Measure($strip, 4, 0, 27, 32, $false, 60)
+                } finally { $strip.Dispose() }
+                $line = 'LAYOUT-INK titlebar nameBox=' + [Math]::Round($b.Top, 1) + ',' + [Math]::Round($b.Height, 1) + ' nameInk=' + ($top + $name[0]) + '..' + ($top + $name[1]) + ' nameMidY=' + ($top + ($name[0] + $name[1] + 1) / 2) + ' markInk=' + ($top + $mark[0]) + '..' + ($top + $mark[1]) + ' markMidY=' + ($top + ($mark[0] + $mark[1] + 1) / 2)
+                foreach ($caption in 'Back', 'Close', 'Minimize', 'Maximize', 'Restore') {
+                    $found = @($window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::NameProperty, $caption)) | Where-Object { $_.Current.BoundingRectangle.Height -gt 0 -and $_.Current.BoundingRectangle.Top -lt $b.Bottom } | Select-Object -First 1)
+                    if ($found.Count -eq 0) { $line += ' ' + $caption + '=(not found)'; continue }
+                    $k = $found[0].Current.BoundingRectangle
+                    $shot = Get-Capture $k.Left $k.Top $k.Width $k.Height
+                    try { $glyph = [SmokeInk]::Measure($shot, 3, 3, $shot.Width - 3, $shot.Height - 3, $false, 60) } finally { $shot.Dispose() }
+                    $line += ' ' + $caption + '=' + [Math]::Round($k.Top, 1) + ',' + [Math]::Round($k.Height, 1) + ' ink=' + ($k.Top + $glyph[0]) + '..' + ($k.Top + $glyph[1]) + ' midY=' + ($k.Top + ($glyph[0] + $glyph[1] + 1) / 2)
+                }
+                $wr = $window.Current.BoundingRectangle
+                $edge = $wr.Right - [Math]::Max(0, -$wr.Left)
+                $corner = Get-Capture ($edge - 46) $top 46 32
+                try { $cross = [SmokeInk]::Measure($corner, 3, 0, 43, 32, $false, 60) } finally { $corner.Dispose() }
+                $line += ' window=' + [Math]::Round($wr.Left, 1) + ',' + [Math]::Round($wr.Top, 1) + ' cornerInk=' + ($top + $cross[0]) + '..' + ($top + $cross[1]) + ' cornerMidY=' + ($top + ($cross[0] + $cross[1] + 1) / 2)
+                Write-Line $line
+                Write-Line ('LAYOUT-INK-VERDICT titlebar nameBelowMark=' + (($top + ($name[0] + $name[1] + 1) / 2) - ($top + ($mark[0] + $mark[1] + 1) / 2)) + ' nameBelowCorner=' + (($top + ($name[0] + $name[1] + 1) / 2) - ($top + ($cross[0] + $cross[1] + 1) / 2)) + ' level=' + ([Math]::Abs(($name[0] + $name[1]) - ($mark[0] + $mark[1])) -le 2))
+            }
+        } catch { Write-Line ('LAYOUT-INK skipped: ' + $_.Exception.Message) }
         Open-Page $window 'Activity' | Out-Null
         Start-Sleep -Seconds $PageSettleSeconds
         $unnamedTotal += Write-Tree $window 'Activity after scan'

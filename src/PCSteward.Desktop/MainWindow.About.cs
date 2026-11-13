@@ -29,6 +29,7 @@ public sealed partial class MainWindow
     {
         StackPanel panel = CreatePagePanel();
         panel.Children.Add(StewardVisuals.PageHeader("About", string.Empty));
+        if (LayoutSamplesRequested) panel.Children.Add(BuildLayoutSamples());
 
         Grid identity = new() { ColumnSpacing = StewardSpacing.Section, RowSpacing = StewardSpacing.Medium };
         identity.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
