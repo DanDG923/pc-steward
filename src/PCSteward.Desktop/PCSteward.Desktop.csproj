@@ -35,6 +35,7 @@
     <ProjectReference Include="../PCSteward.Scheduling.Windows/PCSteward.Scheduling.Windows.csproj" />
     <ProjectReference Include="../PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../PCSteward.Diagnostics/PCSteward.Diagnostics.csproj" />
+    <ProjectReference Include="../PCSteward.Diagnostics.Windows/PCSteward.Diagnostics.Windows.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\..\design\assets\ico\pc-steward.ico" Link="Assets\pc-steward.ico" CopyToOutputDirectory="PreserveNewest" />

@@ -8,20 +8,20 @@ namespace PCSteward.Application.IntegrationTests;
 [TestClass]
 public sealed class DesktopFoundationsPresentationTests
 {
-    private static readonly string[] NavigationLabels = ["Home", "Updates", "Installed apps", "Activity", "Decisions", "Settings", "About"];
+    private static readonly string[] NavigationLabels = ["Home", "Updates", "Installed apps", "Activity", "Diagnostics", "Decisions", "Settings", "About"];
     private static readonly string[] FooterLabels = ["Settings", "About"];
     private static readonly string[] SingleFocusCandidate = ["only"];
     private static readonly string[] AmbiguousFocusCandidates = ["Remove", "Remove"];
 
     [TestMethod]
-    [Description("FR-UI-01/02; AC-UX-01/02: ADR-030 navigation set — five main items then Settings and About in the footer.")]
+    [Description("FR-UI-01/02; AC-UX-01/02: ADR-030 navigation set — six main items (Diagnostics from Task 64 stage 4) then Settings and About in the footer.")]
     public void NavigationItemsFollowAdr030()
     {
         CollectionAssert.AreEqual(
             NavigationLabels,
             ShellNavigation.Items.Select(item => item.Label).ToArray());
         CollectionAssert.AreEqual(FooterLabels, ShellNavigation.Items.Where(item => item.IsFooter).Select(item => item.Label).ToArray());
-        Assert.HasCount(7, ShellNavigation.Items.Select(item => item.Page).Distinct().ToArray());
+        Assert.HasCount(8, ShellNavigation.Items.Select(item => item.Page).Distinct().ToArray());
         Assert.IsTrue(ShellNavigation.Items.All(item => !string.IsNullOrEmpty(item.Glyph)));
     }
 

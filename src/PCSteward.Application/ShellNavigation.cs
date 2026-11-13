@@ -3,8 +3,9 @@ using System.ComponentModel;
 namespace PCSteward.Application;
 
 /// <summary>
-/// Every Desktop page. The first seven are navigation items (ADR-030); the rest are contextual pages. UI review 2026-11-13
-/// (item 14): the older Scan results, Review decisions and Repository apps pages are gone; Updates and Installed apps do their work.
+/// Every Desktop page. Eight are navigation items (ADR-030, plus Diagnostics from Task 64 stage 4); the rest are contextual pages.
+/// UI review 2026-11-13 (item 14): the older Scan results, Review decisions and Repository apps pages are gone; Updates and
+/// Installed apps do their work.
 /// </summary>
 public enum ShellPage
 {
@@ -21,7 +22,9 @@ public enum ShellPage
     /// <summary>The Data &amp; reset subpage under Settings (Task 73 Phase 4); the enum name is unchanged.</summary>
     Privacy,
     Onboarding,
-    UpdateJob
+    UpdateJob,
+    /// <summary>Task 64 stage 4 (FR-DIA-01–05, ADR-027): the local diagnostic timeline, a navigation item after Activity (owner's choice).</summary>
+    Diagnostics
 }
 
 /// <summary>One navigation pane item. <see cref="IsFooter"/> items sit at the bottom of the pane.</summary>
@@ -43,13 +46,18 @@ public sealed class ShellNavigation : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    /// <summary>The ADR-030 navigation set: Home, Updates, Installed apps, Activity and Decisions, then Settings and About in the footer.</summary>
+    /// <summary>
+    /// The ADR-030 navigation set: Home, Updates, Installed apps, Activity, Diagnostics and Decisions, then Settings and About in the
+    /// footer. Diagnostics (Task 64 stage 4) sits after Activity: Activity says what PC Steward did, Diagnostics sets that beside
+    /// what Windows recorded.
+    /// </summary>
     public static IReadOnlyList<ShellNavigationItem> Items { get; } =
     [
         new(ShellPage.Home, "Home", "", false),
         new(ShellPage.Updates, "Updates", "", false),
         new(ShellPage.InstalledApps, "Installed apps", "", false),
         new(ShellPage.Activity, "Activity", "", false),
+        new(ShellPage.Diagnostics, "Diagnostics", "\uE9D9", false),
         new(ShellPage.Decisions, "Decisions", "", false),
         new(ShellPage.Settings, "Settings", "", true),
         new(ShellPage.About, "About", "", true)
@@ -99,7 +107,7 @@ public sealed class ShellNavigation : INotifyPropertyChanged
         Changed();
     }
 
-    /// <summary>True for the seven navigation-pane pages.</summary>
+    /// <summary>True for the eight navigation-pane pages.</summary>
     public static bool IsNavigationItem(ShellPage page) => Items.Any(item => item.Page == page);
 
     /// <summary>
@@ -135,6 +143,7 @@ public sealed class ShellNavigation : INotifyPropertyChanged
         ShellPage.Privacy => "Data & reset",
         ShellPage.Onboarding => "Start fresh",
         ShellPage.UpdateJob => "Update job",
+        ShellPage.Diagnostics => "Diagnostics",
         _ => throw new ArgumentOutOfRangeException(nameof(page))
     };
 

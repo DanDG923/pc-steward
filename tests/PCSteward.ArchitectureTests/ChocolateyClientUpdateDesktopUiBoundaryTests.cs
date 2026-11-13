@@ -58,7 +58,7 @@ public sealed class ChocolateyClientUpdateDesktopUiBoundaryTests
         Assert.AreEqual(1, Regex.Count(all, @"\bChocolateyClientReleaseCatalog\b"), "one composition site of the catalog");
         // Independent review L5: the single read is wrapped so a fault building the compiled list never fails startup.
         StringAssert.Contains(Desktop("App.xaml.cs"),
-            "ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, chocolateyClientUpdates.CreateSession, chocolateyPackageUpdates.CreateSession, showPostResetOnboarding");
+            "ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, chocolateyClientUpdates.CreateSession, chocolateyPackageUpdates.CreateSession, CreateDiagnostics(database), showPostResetOnboarding");
 
         // The catalog's compiled IL reads only the compiled list's versions in the native layer (the signer is a compiled constant).
         string chocolatey = CompiledIlScanner.BuiltSrcAssemblies().Single(path => Path.GetFileNameWithoutExtension(path) == "PCSteward.Provider.Chocolatey");
