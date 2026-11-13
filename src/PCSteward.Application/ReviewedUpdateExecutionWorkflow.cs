@@ -34,6 +34,9 @@ public sealed record ReviewedUpdateExecutionResult(bool Started, string Message,
 /// D4b 32-bit-registered apps (design note §3.3–3.4): a preparation that carries an architecture proof request is reviewed only when
 /// <paramref name="architectureProof"/> proves the x64 architecture; its digest binds the 32-bit view the entry was read from, and the
 /// uninstall entry the target manifest declares goes with the approved job to the post-update check.
+/// D7 (per-user vendor installers, design note PHASE_D7_PER_USER_VENDOR_UPDATE_DESIGN §3): with <paramref name="userInstallerEvidence"/>
+/// composed, a per-user <c>winget</c>-source review binds the installer WinGet would use; Confirm reads it again before approval and
+/// freezes it as <c>wgu1</c> evidence.
 /// </summary>
 public sealed class ReviewedUpdateExecutionWorkflow(
     Func<string, CancellationToken, Task<UpdateSelectionPreparation>> prepareSelection,
@@ -44,7 +47,8 @@ public sealed class ReviewedUpdateExecutionWorkflow(
     Func<IReadOnlyList<string>, IProgress<int>?, CancellationToken, Task<IReadOnlyList<UpdateSelectionPreparation>>>? prepareSelections = null,
     Func<string?>? requestingUserSid = null,
     IWingetMachineInstallerEvidenceSource? machineInstallerEvidence = null,
-    IWingetArchitectureProofSource? architectureProof = null)
+    IWingetArchitectureProofSource? architectureProof = null,
+    IWingetUserInstallerEvidenceSource? userInstallerEvidence = null)
 {
     /// <summary>Stage C4 (ADR-025 transition amendment): Chocolatey is never reviewed or run on this route or on protocol 1.</summary>
     public const string ChocolateyNotOnThisRouteMessage = "Chocolatey updates use their own review, so this update can't be started from here.";
@@ -83,6 +87,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
     private readonly Func<string?>? requestingUserSid = requestingUserSid;
     private readonly IWingetMachineInstallerEvidenceSource? machineInstallerEvidence = machineInstallerEvidence;
     private readonly IWingetArchitectureProofSource? architectureProof = architectureProof;
+    private readonly IWingetUserInstallerEvidenceSource? userInstallerEvidence = userInstallerEvidence;
 
     public async Task<UpdateReviewPreparation> BeginReviewAsync(string stableProductKey, CancellationToken cancellationToken)
     {
@@ -128,6 +133,15 @@ public sealed class ReviewedUpdateExecutionWorkflow(
                 ArchitectureProven = proofRequest is not null,
             };
         }
+        else if (ReadsUserInstaller(preparation.Selection))
+        {
+            // D7 design §3 item 1: the installer WinGet would use is read and bound at review (vendor or MSIX); a Store-type installer
+            // keeps the C4 evidence.
+            WingetUserInstallerCheck check = await ReadUserInstallerAsync(preparation.Selection, cancellationToken).ConfigureAwait(false);
+            if (!check.IsMsix && check.Installer is null)
+                return new(null, check.Message, RunningApplicationDetection.NotDetected);
+            review = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), preparation.Selection, mode) { UserInstaller = check.Installer };
+        }
         else
         {
             review = UpdateJobApprovalService.BeginReview(Guid.NewGuid(), Guid.NewGuid(), preparation.Selection, mode);
@@ -158,6 +172,40 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         mode = WingetUserReviewedRoute.BindMode(selection);
         if (mode is null) refusal = WingetUserReviewedRoute.NoReviewedModeMessage;
         return mode is not null;
+    }
+
+    /// <summary>
+    /// D7 design §3 item 1: a per-user WinGet selection from the <c>winget</c> source, whose installer is read at review when the read is
+    /// composed. The Store source keeps the C4 evidence (its own stage).
+    /// </summary>
+    private bool ReadsUserInstaller(UpdateJobSelection selection) =>
+        userInstallerEvidence is not null && selection.Provider == UpdateProvider.WinGet && selection.Scope == UpdateScope.User &&
+        selection.Source == UpdateSource.WinGet;
+
+    /// <summary>One read of the installer; a faulted read is unreadable (fail closed). Cancellation still propagates.</summary>
+    private async Task<WingetUserInstallerCheck> ReadUserInstallerAsync(UpdateJobSelection selection, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await userInstallerEvidence!.ReadAsync(selection, cancellationToken).ConfigureAwait(false)
+                ?? WingetUserInstallerCheck.Refused(WingetUserInstallerText.UnreadableMessage);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return WingetUserInstallerCheck.Refused(WingetUserInstallerText.UnreadableMessage);
+        }
+    }
+
+    /// <summary>
+    /// D7 design §3 item 1: immediately before approval, a fresh read gives exactly what the review bound (the same vendor installer,
+    /// or MSIX when the review bound none). A review that bound an installer the workflow can't read again is refused.
+    /// </summary>
+    private async Task<bool> UserInstallerStillAppliesAsync(UpdateJobReview review, UpdateJobSelection fresh, CancellationToken cancellationToken)
+    {
+        if (!ReadsUserInstaller(fresh)) return review.UserInstaller is null;
+        WingetUserInstallerCheck check = await ReadUserInstallerAsync(fresh, cancellationToken).ConfigureAwait(false);
+        return review.UserInstaller is null ? check.IsMsix : !check.IsMsix && check.Installer == review.UserInstaller;
     }
 
     /// <summary>D4b: a WinGet machine-scope selection, which is reviewed only on the whole-PC route (stage 3 retired protocol 1).</summary>
@@ -218,6 +266,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         RunningApplicationDetection running;
         ImmutableUpdateJob job;
         ReviewedUpdateOperation? reviewedOperation = null;
+        WholePcRegistrationSnapshot? wholePcBaseline = null;
         try
         {
             preparation = await prepareSelection(review.Selection.StableProductKey, cancellationToken).ConfigureAwait(false);
@@ -233,6 +282,18 @@ public sealed class ReviewedUpdateExecutionWorkflow(
             // D4b stage 2b: the whole-PC registration bound at review must still be the one in the fresh inventory.
             if (machineRoute && !RegistrationStillApplies(review, preparation))
                 return new(false, WingetMachineReviewedRoute.RegistrationChangedMessage, null);
+            // D7 design §3 item 1: the installer bound at review is still the one WinGet would use.
+            if (review.Selection.Scope == UpdateScope.User &&
+                !await UserInstallerStillAppliesAsync(review, preparation.Selection, cancellationToken).ConfigureAwait(false))
+                return new(false, WingetUserInstallerText.ChangedMessage, null);
+            // D7 design §3 item 4 (Q3-A): a vendor installer's update is compared afterwards with the whole-PC entries of this fresh
+            // inventory, taken just before launch. Without it, nothing starts.
+            if (review.UserInstaller is { IsVendor: true })
+            {
+                if (preparation.Observation is null || WholePcRegistrationSnapshot.From(preparation.Observation) is not { IsComplete: true } baseline)
+                    return new(false, WingetUserInstallerText.NoBaselineMessage, null);
+                wholePcBaseline = baseline;
+            }
             string? requester = null;
             if ((review.Selection.Scope == UpdateScope.User || machineRoute) && string.IsNullOrWhiteSpace(requester = ReadRequestingUserSid()))
                 return new(false, WingetUserReviewedRoute.RequesterUnavailableMessage, null);
@@ -257,8 +318,13 @@ public sealed class ReviewedUpdateExecutionWorkflow(
                 // Stage C4: freeze the approved job with the reviewed mode; the runner runs nothing user-scope without it. A saved
                 // approval alone starts nothing and is never replayed.
                 LiveInventoryObservation? observation = preparation.Observation;
-                reviewedOperation = WingetUserReviewedRoute.Freeze(job, review.InstallerMode, requester,
-                    observation is null ? $"review:{review.CorrelationId:D}" : $"inventory:{observation.CorrelationId:D}",
+                // D7 design §3 item 5: a vendor installer bound at review goes into the frozen evidence as wgu1.
+                string evidenceId = review.UserInstaller is { } installer
+                    ? new WinGetUserEvidence(installer.Type, installer.Elevation,
+                        observation is null ? WinGetUserObservationKind.Review : WinGetUserObservationKind.Inventory,
+                        observation?.CorrelationId ?? review.CorrelationId).ToIdentity()
+                    : observation is null ? $"review:{review.CorrelationId:D}" : $"inventory:{observation.CorrelationId:D}";
+                reviewedOperation = WingetUserReviewedRoute.Freeze(job, review.InstallerMode, requester, evidenceId,
                     observation?.ObservedAt ?? job.ApprovedAt);
                 if (reviewedOperation is null) return new(false, WingetUserReviewedRoute.NoReviewedModeMessage, null);
             }
@@ -278,7 +344,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         }
         UpdateBatchResult batch = await coordinator.RunAsync(
             [new UpdateBatchItem(job, new UpdateJobExecutionEvidence(preparation.Selection, true, true), runningApplicationWarningAcknowledged, progress,
-                acknowledgedRunningProcesses, reviewedOperation, review.ExpectedEntry)],
+                acknowledgedRunningProcesses, reviewedOperation, review.ExpectedEntry, wholePcBaseline)],
             cancellationToken).ConfigureAwait(false);
         if (batch.AdmissionRefused)
             return new(false, "The update was not started: another update owns execution or previous owned work is still unresolved.", batch);

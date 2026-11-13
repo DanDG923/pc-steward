@@ -321,10 +321,13 @@ public sealed class ReferenceBoundaryTests
 
         Assert.IsTrue(detailRequirement >= 0 && reviewButton > detailRequirement);
         Assert.IsTrue(reviewAndExecute >= 0 && confirmedRequirement > reviewAndExecute && sheet > confirmedRequirement && showConfirmation > sheet && execute > showConfirmation);
-        StringAssert.Contains(source, "item.Preparation.RunningApplication))];");
+        // D7 design §3: the per-user review's bound vendor installer feeds the sheet too, so its requirement names the owner-chosen warning.
+        StringAssert.Contains(source, "item.Preparation.RunningApplication,");
+        StringAssert.Contains(source, "item.Preparation.Review!.UserInstaller))];");
         string sheetBuilder = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Application", "UpdateJobPresentation.cs"));
-        StringAssert.Contains(sheetBuilder, "Item(input, AdministratorRequirementPresenter.ForSelection(input.Selection))");
-        StringAssert.Contains(sheetBuilder, "AdministratorRequirementPresenter.ForBatch(inputs.Select(input => input.Selection).ToArray())");
+        StringAssert.Contains(sheetBuilder, "Item(input, AdministratorRequirementPresenter.ForSelection(input.Selection, input.UserInstaller))");
+        StringAssert.Contains(sheetBuilder, "AdministratorRequirementPresenter.ForBatch(inputs.Select(input => input.Selection).ToArray(),");
+        StringAssert.Contains(sheetBuilder, "inputs.Select(input => input.UserInstaller).ToArray());");
         StringAssert.Contains(source, "administratorRequirement.Label");
         StringAssert.Contains(source, "administratorRequirement.Explanation");
         StringAssert.Contains(source, "AutomationProperties.SetHelpText(review, administratorRequirement.Explanation)");

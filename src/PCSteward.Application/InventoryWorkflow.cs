@@ -325,14 +325,31 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     /// Otherwise the target version, scope and architecture must match exactly, as before. Either way WinGet's export must show
     /// exactly the target package version.
     /// </summary>
-    public async Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, ExpectedUninstallEntry? expected, CancellationToken cancellationToken)
+    public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, ExpectedUninstallEntry? expected, CancellationToken cancellationToken) =>
+        ReInventoryAsync(job, expected, null, cancellationToken);
+
+    /// <summary>
+    /// D7 design §3 item 4: as <see cref="ReInventoryAsync(ImmutableUpdateJob, ExpectedUninstallEntry?, CancellationToken)"/>; with
+    /// <paramref name="wholePcBaseline"/>, the post-update scan's whole-PC uninstall entries are compared with it, whether or not the
+    /// target version is found. Without a live observation, or when the registry scan was incomplete, no comparison is made.
+    /// </summary>
+    public async Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, ExpectedUninstallEntry? expected,
+        WholePcRegistrationSnapshot? wholePcBaseline, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(job);
-        if (postUpdatePackageInventory is null || !await postUpdatePackageInventory.HasExactExpectedVersionAsync(job, cancellationToken).ConfigureAwait(false)) return new(false, false);
+        bool exportShowsTarget = postUpdatePackageInventory is not null &&
+            await postUpdatePackageInventory.HasExactExpectedVersionAsync(job, cancellationToken).ConfigureAwait(false);
+        // D7 design §3 item 4 (Codex P2 on #91): with a baseline the scan and the whole-PC comparison run even when the target version
+        // is missing, so an installer that changed whole-PC entries without completing the update is still named.
+        if (!exportShowsTarget && wholePcBaseline is null) return new(false, false);
         ScanResult scan = await ScanAsync(null, cancellationToken).ConfigureAwait(false);
         if (!scan.Succeeded) return new(false, false);
         LiveInventoryObservation? observation = hasCurrentLocalInventoryProviders ? scan.Observation : null;
         if (hasCurrentLocalInventoryProviders && (observation is null || observation.CorrelationId != scan.CorrelationId)) return new(false, false);
+        IReadOnlyList<string>? wholePcChanges = null;
+        if (wholePcBaseline is not null && observation is not null && WholePcRegistrationSnapshot.From(observation) is { IsComplete: true } after)
+            wholePcChanges = after.ChangedSince(wholePcBaseline);
+        if (!exportShowsTarget || postUpdatePackageInventory is null) return new(false, false) { WholePcChanges = wholePcChanges };
         IReadOnlyCollection<CanonicalProduct> products = observation is null ? await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false) : observation.Products;
         IReadOnlyCollection<InstallationInstance> instances = observation is null ? await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false) : observation.Instances;
         // An MSI upgrade can replace the reviewed uninstall entry with a new one (new product code, so a new product key). The
@@ -365,7 +382,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         }
         bool expectedVersionDetected = exactLocal.Length == 1 &&
             !productIds.Any(id => id != exactLocal[0].ProductId && instances.Any(instance => instance.ProductId == id && IsConcreteLocalEvidence(instance)));
-        return new(expectedVersionDetected, false);
+        return new(expectedVersionDetected, false) { WholePcChanges = wholePcChanges };
     }
 
     private static bool IsRegistryEntry(InstallationInstance instance, string key) =>
@@ -495,7 +512,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
             // cover the same uninstall key name in several registry views; differing installed targets are ambiguous, never picked.
             bool conflictingTargets = wingetInstances.Select(instance => (instance.ProviderIdentity, instance.SourceId, instance.Version, instance.Scope, instance.Architecture, instance.Channel)).Distinct().Skip(1).Any() ||
                 (winget is null && productInstances.Where(IsConcreteLocalEvidence).Select(instance => (Scope: instance.Scope.ToUpperInvariant(), Architecture: instance.Architecture.ToUpperInvariant(), instance.Version)).Distinct().Skip(1).Any());
-            return new ProductMatchProfile(product.StableKey, product.DisplayName, winget?.ProviderIdentity, msix is null ? null : product.StableKey, null, preferred?.Publisher, winget?.Version ?? executionEvidence?.Version, executionEvidence?.Scope ?? "Unknown", executionEvidence?.Architecture ?? "Unknown", preferred?.Channel, InstalledSourceId: winget?.SourceId, HasConflictingTargetInstances: conflictingTargets, HasConcreteLocalEvidence: productInstances.Length == 0 || productInstances.Any(instance => !string.Equals(instance.Provider, "winget", StringComparison.OrdinalIgnoreCase)),
+            return new ProductMatchProfile(product.StableKey, product.DisplayName, winget?.ProviderIdentity, msix?.ProviderIdentity, null, preferred?.Publisher, winget?.Version ?? executionEvidence?.Version, executionEvidence?.Scope ?? "Unknown", executionEvidence?.Architecture ?? "Unknown", preferred?.Channel, InstalledSourceId: winget?.SourceId, HasConflictingTargetInstances: conflictingTargets, HasConcreteLocalEvidence: productInstances.Length == 0 || productInstances.Any(instance => !string.Equals(instance.Provider, "winget", StringComparison.OrdinalIgnoreCase)),
                 RegisteredIn32BitView: winget is null && executionEvidence is not null && IsMachine32Registration(executionEvidence));
         }).ToArray();
     }

@@ -75,7 +75,7 @@ public sealed class WingetCandidateCompatibilityTests
     {
         WingetCandidateCompatibility evidence = WingetCandidateCompatibilityRules.Evaluate(Observation() with { InstalledProductCodes = [" {A1B2C3D4-0000-1111-2222-333344445555} "] }, "winget", "Contoso.Cli", "2.0.0", "2.1.0")!;
 
-        Assert.AreEqual(RegistryKey("{A1B2C3D4-0000-1111-2222-333344445555}"), evidence.RegistryProductKey);
+        Assert.AreEqual(RegistryKey("{A1B2C3D4-0000-1111-2222-333344445555}"), evidence.LinkedProductKey);
         Assert.AreEqual("Contoso, Inc.", evidence.Publisher);
     }
 
@@ -85,10 +85,91 @@ public sealed class WingetCandidateCompatibilityTests
         string[][] refused = [[], ["{A}", "{B}"], ["{A}", ""], [new string('x', 256)], ["{A}\u0001B"]];
         foreach (string[] codes in refused)
         {
-            Assert.IsNull(WingetCandidateCompatibilityRules.Evaluate(Observation() with { InstalledProductCodes = codes }, "winget", "Contoso.Cli", "2.0.0", "2.1.0")!.RegistryProductKey, string.Join("|", codes));
+            Assert.IsNull(WingetCandidateCompatibilityRules.Evaluate(Observation() with { InstalledProductCodes = codes }, "winget", "Contoso.Cli", "2.0.0", "2.1.0")!.LinkedProductKey, string.Join("|", codes));
         }
-        Assert.AreEqual(RegistryKey("{A}"), WingetCandidateCompatibilityRules.Evaluate(Observation() with { InstalledProductCodes = ["{A}", "{a}"] }, "winget", "Contoso.Cli", "2.0.0", "2.1.0")!.RegistryProductKey);
+        Assert.AreEqual(RegistryKey("{A}"), WingetCandidateCompatibilityRules.Evaluate(Observation() with { InstalledProductCodes = ["{A}", "{a}"] }, "winget", "Contoso.Cli", "2.0.0", "2.1.0")!.LinkedProductKey);
         Assert.IsNull(WingetCandidateCompatibilityRules.Evaluate(Observation() with { CandidatePublisher = "  " }, "winget", "Contoso.Cli", "2.0.0", "2.1.0")!.Publisher);
+    }
+
+    [TestMethod]
+    public void WinGetsSingleInstalledPackageFamilyBecomesTheMsixProductKey()
+    {
+        // Owner's PC, 2026-11-13: WinGet reports the family in lower case; the MSIX inventory names it as Windows does.
+        WingetCandidateCompatibility evidence = WingetCandidateCompatibilityRules.Evaluate(MsixObservation(), "winget", "Contoso.Studio", "3.3.0.4529", "3.4.0.4650")!;
+
+        Assert.AreEqual(MsixKey("Contoso.Studio_g54w8ztgkx496"), evidence.LinkedProductKey);
+        Assert.AreEqual(("User", "X64", "Stable"), (evidence.Scope, evidence.Architecture, evidence.Channel));
+    }
+
+    [TestMethod]
+    public void NoneSeveralMalformedOrMixedPackageFamiliesGiveNoMsixProductKey()
+    {
+        string[][] refused = [["a_g54w8ztgkx496"], ["contoso.studio_g54w8ztgkx496", "contoso.other_g54w8ztgkx496"], ["contoso.studio"], ["contoso.studio_short"], ["contoso studio_g54w8ztgkx496"], [""]];
+        foreach (string[] families in refused)
+        {
+            WingetCandidateCompatibility evidence = WingetCandidateCompatibilityRules.Evaluate(MsixObservation() with { InstalledPackageFamilyNames = families }, "winget", "Contoso.Studio", "3.3.0.4529", "3.4.0.4650")!;
+            Assert.IsNull(evidence.LinkedProductKey, string.Join("|", families));
+            Assert.AreEqual("Unknown", evidence.Scope, string.Join("|", families));
+        }
+
+        // A product code and a package family together are two different local apps: neither is linked.
+        WingetCandidateCompatibility mixed = WingetCandidateCompatibilityRules.Evaluate(MsixObservation() with { InstalledProductCodes = ["{A}"] }, "winget", "Contoso.Studio", "3.3.0.4529", "3.4.0.4650")!;
+        Assert.IsNull(mixed.LinkedProductKey);
+        Assert.AreEqual("Unknown", mixed.Scope);
+        Assert.AreEqual(MsixKey("Contoso.Studio_g54w8ztgkx496"), WingetCandidateCompatibilityRules.Evaluate(MsixObservation() with { InstalledPackageFamilyNames = ["contoso.studio_g54w8ztgkx496", "Contoso.Studio_G54W8ZTGKX496"] }, "winget", "Contoso.Studio", "3.3.0.4529", "3.4.0.4650")!.LinkedProductKey);
+    }
+
+    [TestMethod]
+    public void APackageFamilyIsLinkedOnlyThroughAnMsixInstaller()
+    {
+        // Codex security review (PR #92): a catalog that names an installed MSIX family but offers another installer type must not gain
+        // exact identity from the family, because Windows' family and publisher check would never run.
+        foreach (string? type in new[] { "Exe", "Msi", "Wix", "Inno", "Nullsoft", "Burn", "Portable", "Zip", "MSStore", null, "" })
+        {
+            WingetCandidateCompatibility evidence = WingetCandidateCompatibilityRules.Evaluate(MsixObservation() with { InstallerType = type }, "winget", "Contoso.Studio", "3.3.0.4529", "3.4.0.4650")!;
+            Assert.IsNull(evidence.LinkedProductKey, type ?? "null");
+            Assert.AreEqual("Unknown", evidence.Scope, type ?? "null");
+        }
+        Assert.AreEqual(MsixKey("Contoso.Studio_g54w8ztgkx496"), WingetCandidateCompatibilityRules.Evaluate(MsixObservation() with { InstallerType = " msix " }, "winget", "Contoso.Studio", "3.3.0.4529", "3.4.0.4650")!.LinkedProductKey);
+    }
+
+    [TestMethod]
+    public void OnlyAnMsixInstallerWithNoScopeOfItsOwnIsTakenAsPerUser()
+    {
+        Assert.AreEqual("Unknown", WingetCandidateCompatibilityRules.Evaluate(MsixObservation() with { InstallerType = "Exe" }, "winget", "Contoso.Studio", "3.3.0.4529", "3.4.0.4650")!.Scope);
+        Assert.AreEqual("Unknown", WingetCandidateCompatibilityRules.Evaluate(MsixObservation() with { InstallerType = null }, "winget", "Contoso.Studio", "3.3.0.4529", "3.4.0.4650")!.Scope);
+        Assert.AreEqual("Machine", WingetCandidateCompatibilityRules.Evaluate(MsixObservation() with { InstallerScope = "System" }, "winget", "Contoso.Studio", "3.3.0.4529", "3.4.0.4650")!.Scope);
+        Assert.AreEqual("Machine", WingetCandidateCompatibilityRules.Evaluate(MsixObservation() with { InstalledScope = "Machine" }, "winget", "Contoso.Studio", "3.3.0.4529", "3.4.0.4650")!.Scope);
+        Assert.AreEqual("Unknown", WingetCandidateCompatibilityRules.Evaluate(MsixObservation() with { InstalledPackageFamilyNames = [] }, "winget", "Contoso.Studio", "3.3.0.4529", "3.4.0.4650")!.Scope);
+    }
+
+    [TestMethod]
+    public async Task TheMsixAppWinGetLinksIsOfferedOnceAndItsWinGetRowIsNotShownTwice()
+    {
+        SourceSnapshot snapshot = await new WingetUpdateSourceConnector(MsixProcess(), "winget", new FakeCompatibility(_ => [MsixObservation()])).RefreshAsync(CancellationToken.None);
+        // The MSIX row as the inventory now builds it (package family identity, shown names), and WinGet's own installed record of it.
+        ProductMatchProfile msix = new(MsixKey("Contoso.Studio_g54w8ztgkx496"), "Contoso Studio", null, "Contoso.Studio_g54w8ztgkx496", null, "Contoso Audio, Inc.", "3.3.0.4529", "User", "X64", null);
+        ProductMatchProfile wingetOnly = new("winget:winget:Contoso.Studio", "Contoso Studio", "Contoso.Studio", null, null, null, "3.3.0.4529", "Unknown", "Unknown", null, InstalledSourceId: "winget", HasConcreteLocalEvidence: false);
+
+        UpdateIntelligenceSummary summary = UpdateIntelligence.Assess([msix, wingetOnly], [snapshot]);
+
+        UpdateIntelligenceItem item = summary.Items.Single();
+        Assert.AreEqual(msix.StableProductKey, item.StableProductKey);
+        Assert.AreEqual(UpdateIntelligenceStatus.VerifiedUpdate, item.Status, item.Explanation);
+        Assert.AreEqual(MappingOrigin.ProviderSupplied, item.Mapping!.Origin);
+        Assert.AreEqual("3.4.0.4650", item.Mapping.CandidateVersion);
+    }
+
+    [TestMethod]
+    public async Task AnMsixAppOfAnotherArchitectureStaysReview()
+    {
+        SourceSnapshot snapshot = await new WingetUpdateSourceConnector(MsixProcess(), "winget", new FakeCompatibility(_ => [MsixObservation() with { InstallerArchitecture = "Arm64" }])).RefreshAsync(CancellationToken.None);
+        ProductMatchProfile msix = new(MsixKey("Contoso.Studio_g54w8ztgkx496"), "Contoso Studio", null, "Contoso.Studio_g54w8ztgkx496", null, "Contoso Audio, Inc.", "3.3.0.4529", "User", "X64", null);
+
+        UpdateIntelligenceItem item = UpdateIntelligence.Assess([msix], [snapshot]).Items.Single();
+
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, item.Status);
+        CollectionAssert.Contains(item.Mapping!.ReviewReasons.ToArray(), MappingReviewReason.ArchitectureConflict);
     }
 
     [TestMethod]
@@ -211,6 +292,22 @@ public sealed class WingetCandidateCompatibilityTests
 
     private static WinGetCandidateCompatibilityObservation Observation() => new(
         "Contoso.Cli", true, true, true, 1, false, "Contoso.Cli", "2.0.0", "2.1.0", "winget", true, "Machine", true, "System", "X64", "", "Contoso, Inc.", []);
+
+    // Owner's PC, 2026-11-13 (Elgato Wave Link, shape only): WinGet records no installed scope for an MSIX app, its MSIX installer names
+    // none, and WinGet links the installed package by its package family, not a product code.
+    private static WinGetCandidateCompatibilityObservation MsixObservation() => new(
+        "Contoso.Studio", true, true, true, 1, false, "Contoso.Studio", "3.3.0.4529", "3.4.0.4650", "winget", true, "", true, "Unknown", "X64", "", "Contoso Audio, Inc.", [],
+        ["contoso.studio_g54w8ztgkx496"], "Msix");
+
+    private static string MsixKey(string familyName) =>
+        InventoryNormalization.ProductFingerprint(new RawInstallEvidence("msix", familyName, "Contoso Studio", "Contoso Audio, Inc.", "3.3.0.4529", "User", "X64", null, "Application", "fixture"));
+
+    private static SequenceProcess MsixProcess() => new(
+    [
+        new(0, "v1.29.380", "", false),
+        new(0, "Name            Id               Version      Source\n----------------------------------------------------\nContoso Studio  Contoso.Studio   3.3.0.4529   winget", "", false),
+        new(0, "Name            Id               Version      Available    Source\n-----------------------------------------------------------------\nContoso Studio  Contoso.Studio   3.3.0.4529   3.4.0.4650   winget\n1 upgrades available.", "", false)
+    ]);
 
     private static string RegistryKey(string keyName) =>
         InventoryNormalization.ProductFingerprint(new RawInstallEvidence("registry", keyName, "Contoso CLI", "Contoso", "2.0.0", "Machine", "x64", null, "Application", "fixture"));

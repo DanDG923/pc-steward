@@ -94,7 +94,14 @@ public interface IApprovedUpdateExecutor
 /// <see cref="Note"/> (ADR-031 design §3a) is a disclosure on a verified result only; it never makes a result verified.
 /// </summary>
 public sealed record PostUpdateInventoryResult(bool ExpectedVersionDetected, bool RestartPending,
-    PostUpdateVerificationDetail Detail = PostUpdateVerificationDetail.None, PostUpdateVerificationNote Note = PostUpdateVerificationNote.None);
+    PostUpdateVerificationDetail Detail = PostUpdateVerificationDetail.None, PostUpdateVerificationNote Note = PostUpdateVerificationNote.None)
+{
+    /// <summary>
+    /// D7 design §3 item 4: the names of the whole-PC uninstall entries that changed since the baseline the check was given (empty when
+    /// none did), or null when no comparison was made (no baseline, or the check couldn't read a live observation).
+    /// </summary>
+    public IReadOnlyList<string>? WholePcChanges { get; init; }
+}
 
 /// <summary>
 /// Verification detail; anything but <see cref="None"/> is Unverified. ADR-031 (Chocolatey client self-update):
@@ -134,6 +141,15 @@ public interface IPostUpdateInventory
     /// </summary>
     Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, ExpectedUninstallEntry? expected, CancellationToken cancellationToken) =>
         ReInventoryAsync(job, cancellationToken);
+
+    /// <summary>
+    /// D7 design §3 item 4: as <see cref="ReInventoryAsync(ImmutableUpdateJob, ExpectedUninstallEntry?, CancellationToken)"/>, also
+    /// comparing the whole-PC uninstall entries with <paramref name="wholePcBaseline"/> taken just before launch. Verifiers that can't
+    /// compare leave <see cref="PostUpdateInventoryResult.WholePcChanges"/> null, which the coordinator never records as successful.
+    /// </summary>
+    Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, ExpectedUninstallEntry? expected, WholePcRegistrationSnapshot? wholePcBaseline,
+        CancellationToken cancellationToken) =>
+        ReInventoryAsync(job, expected, cancellationToken);
 }
 
 /// <summary>
@@ -147,7 +163,8 @@ public sealed record UpdateBatchItem(
     UpdateProgressMailbox? Progress = null,
     IReadOnlyCollection<string>? AcknowledgedRunningProcesses = null,
     ReviewedUpdateOperation? Reviewed = null,
-    ExpectedUninstallEntry? ExpectedEntry = null)
+    ExpectedUninstallEntry? ExpectedEntry = null,
+    WholePcRegistrationSnapshot? WholePcBaseline = null)
 {
     /// <summary>True when <paramref name="running"/> is covered by this item's acknowledgement.</summary>
     public bool Acknowledges(RunningApplicationDetection running) =>
@@ -196,6 +213,16 @@ public sealed class SequentialUpdateBatchCoordinator(
     private readonly IApprovedUpdateExecutor executor = executor ?? throw new ArgumentNullException(nameof(executor));
     /// <summary>The fixed diagnostic prefix of an item recorded as Restart required from a typed provider restart result (Task 51).</summary>
     public const string RestartReportedDiagnostic = "provider-reported-restart-required";
+
+    /// <summary>
+    /// D7 design §3 item 4: the diagnostic prefix of a per-user update after which whole-PC uninstall entries had changed (recorded as
+    /// <see cref="UpdateHistoryStatus.VerificationFailed"/>, never Success), followed by whether the target version was found and the
+    /// changed entries' names.
+    /// </summary>
+    public const string UnexpectedWholePcChangesDiagnostic = "unexpected-whole-pc-changes";
+
+    /// <summary>D7 design §3 item 4: the diagnostic of a per-user update whose whole-PC comparison couldn't be made.</summary>
+    public const string WholePcCheckUnavailableDiagnostic = "whole-pc-change-check-unavailable";
 
     private readonly IPostUpdateInventory inventory = inventory ?? throw new ArgumentNullException(nameof(inventory));
     private readonly IUpdateHistoryStore history = history ?? throw new ArgumentNullException(nameof(history));
@@ -320,7 +347,9 @@ public sealed class SequentialUpdateBatchCoordinator(
                             item.Progress?.Offer(item.Job.Id, item.Job.CorrelationId, UpdateProgressPhase.Verifying);
                         try
                         {
-                            PostUpdateInventoryResult verification = await inventory.ReInventoryAsync(item.Job, item.ExpectedEntry, cancellation.Token).ConfigureAwait(false);
+                            PostUpdateInventoryResult verification = item.WholePcBaseline is null
+                                ? await inventory.ReInventoryAsync(item.Job, item.ExpectedEntry, cancellation.Token).ConfigureAwait(false)
+                                : await inventory.ReInventoryAsync(item.Job, item.ExpectedEntry, item.WholePcBaseline, cancellation.Token).ConfigureAwait(false);
                             if (restartReported)
                             {
                                 // Task 51, AC-UPD-07: a typed provider restart result is never Success, even with the version detected.
@@ -339,6 +368,21 @@ public sealed class SequentialUpdateBatchCoordinator(
                                     UpdateHistoryStatus.RestartRequired => "provider-reported-reliable-restart-pending-state",
                                     _ => "provider-succeeded-but-target-version-was-not-detected"
                                 };
+                            }
+                            // D7 design §3 item 4: a per-user update that changed whole-PC entries, or whose comparison couldn't be made, is
+                            // never recorded as successful. A restart result stays Restart required and names the changes.
+                            if (item.WholePcBaseline is not null && verification.WholePcChanges is not { Count: 0 })
+                            {
+                                string found = verification.ExpectedVersionDetected ? "target-version-detected" : "target-version-not-detected";
+                                string wholePc = verification.WholePcChanges is { } changes
+                                    ? $"{UnexpectedWholePcChangesDiagnostic}; {found}; changed: {NameChanges(changes)}"
+                                    : $"{WholePcCheckUnavailableDiagnostic}; {found}";
+                                if (restartReported) diagnostic = $"{diagnostic}; {wholePc}";
+                                else
+                                {
+                                    status = UpdateHistoryStatus.VerificationFailed;
+                                    diagnostic = wholePc;
+                                }
                             }
                         }
                         catch (OperationCanceledException) when (cancellation.Token.IsCancellationRequested)
@@ -434,6 +478,20 @@ public sealed class SequentialUpdateBatchCoordinator(
         Guid.NewGuid(), job.Id, job.CorrelationId, job.Selection.StableProductKey, job.Selection.Provider,
         job.Selection.PackageId, job.Selection.InstalledVersion, job.Selection.CandidateVersion, utcNow(), status, exitCode,
         SanitizedDiagnosticBundle.Sanitize(diagnostic));
+
+    /// <summary>The changed entries' names for the history line: bounded, single-line, without separators.</summary>
+    private static string NameChanges(IReadOnlyList<string> changes)
+    {
+        static string Clean(string name)
+        {
+            string text = new([.. name.Select(c => char.IsControl(c) || c == ';' ? ' ' : c)]);
+            text = text.Trim();
+            return text.Length <= 64 ? text : text[..64];
+        }
+        IEnumerable<string> named = changes.Take(WholePcRegistrationSnapshot.MaximumNamedChanges).Select(Clean);
+        string more = changes.Count > WholePcRegistrationSnapshot.MaximumNamedChanges ? $" and {changes.Count - WholePcRegistrationSnapshot.MaximumNamedChanges} more" : string.Empty;
+        return $"{string.Join(", ", named)}{more}";
+    }
 
     private static UpdateHistoryStatus Map(UpdateProviderAttemptStatus status) => status switch
     {

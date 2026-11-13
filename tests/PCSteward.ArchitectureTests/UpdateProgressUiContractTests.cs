@@ -39,7 +39,7 @@ public sealed class UpdateProgressUiContractTests
         string source = Source();
         string review = source[source.IndexOf("private async Task ReviewAndExecuteAsync", StringComparison.Ordinal)..];
         // Task 73 Phase 2: the running-app warning and its coverage disclosure reach the review sheet page, which shows them.
-        StringAssert.Contains(review, "item.Preparation.RunningApplication))];");
+        StringAssert.Contains(review, "item.Preparation.RunningApplication,");
         StringAssert.Contains(ApplicationSource("UpdateJobPresentation.cs"), "running.CoverageDisclosure");
         StringAssert.Contains(Between(source, "private void AddReviewStep(", "private void AddUpdateStep("), "sheet.CoverageDisclosure");
         // Task 73 Phase 6: each app's own review-bound mailbox is passed to its confirm-and-run and attached to the UI when its turn starts.
