@@ -50,6 +50,8 @@ public sealed class AdvisoryAiRedactionTests
     [DataRow("api_key = 'two words' next", "words", "api_key = '[secret]' next")]
     [DataRow("token: \"never closed and more", "closed", "token: \"[secret]")]
     [DataRow("{\"client_secret\": \"a, b; c\"}", "a, b; c", "{\"client_secret\": \"[secret]\"}")]
+    [DataRow("{\"password\":\"prefix\\\"hunter2\"}", "hunter2", "{\"password\":\"[secret]\"}")]
+    [DataRow("secret='it\\'s hunter2' next", "hunter2", "secret='[secret]' next")]
     public void QuotedNamesAndValuesAreRedactedInFull(string text, string mustNotRemain, string expected)
     {
         string? clean = AdvisoryAiRedaction.SanitizeEvidence(text, 2048, Identity).Value;
@@ -57,6 +59,23 @@ public sealed class AdvisoryAiRedactionTests
         Assert.IsFalse(clean!.Contains(mustNotRemain, StringComparison.Ordinal));
         Assert.AreEqual(clean, AdvisoryAiRedaction.SanitizeEvidence(clean, 2048, Identity).Value, "applying it again changes nothing");
         Assert.AreEqual(expected, AdvisoryAiRedaction.SanitizeAnswer(text, 2048, Identity).Value);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-02")]
+    [DataRow("token")]
+    [DataRow("serial")]
+    [DataRow("password")]
+    public void AComputerOrAccountNameEqualToASecretLabelCannotShieldTheSecret(string name)
+    {
+        DiagnosticRedactionContext context = new([name]);
+        string text = name + "=hunter2 seen";
+        string? evidence = AdvisoryAiRedaction.SanitizeEvidence(text, 2048, context).Value;
+        string? answer = AdvisoryAiRedaction.SanitizeAnswer(text, 2048, context).Value;
+        Assert.IsFalse(evidence!.Contains("hunter2", StringComparison.Ordinal), evidence);
+        Assert.IsFalse(answer!.Contains("hunter2", StringComparison.Ordinal), answer);
+        Assert.IsFalse(evidence.Contains(name + "=", StringComparison.Ordinal), "the name itself is still replaced");
+        Assert.AreEqual(evidence, AdvisoryAiRedaction.SanitizeEvidence(evidence, 2048, context).Value, "applying it again changes nothing");
     }
 
     [TestMethod]

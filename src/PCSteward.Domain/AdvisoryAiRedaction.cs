@@ -26,10 +26,10 @@ public static class AdvisoryAiRedaction
     private const RegexOptions Options = RegexOptions.CultureInvariant | RegexOptions.NonBacktracking;
 
     private static readonly Regex Bearer = new(@"(?i)\bbearer\s+[A-Za-z0-9._~+/=\-]{6,}", Options, MatchTimeout);
-    // The name may be quoted (JSON or INI style); a quoted value is consumed whole, spaces included, up to its closing quote or the
-    // end of the text; an unquoted value runs to the next space, comma, semicolon, quote or brace.
+    // The name may be quoted (JSON or INI style); a quoted value is consumed whole, spaces and backslash-escaped quotes included, up
+    // to its closing quote or the end of the text; an unquoted value runs to the next space, comma, semicolon, quote or brace.
     private static readonly Regex NamedSecret = new(
-        @"(?i)\b(password|passwd|pwd|passphrase|secret|client[_\- ]?secret|token|access[_\- ]?token|refresh[_\- ]?token|api[_\- ]?key|access[_\- ]?key|private[_\- ]?key|licen[cs]e[_\- ]?key|product[_\- ]?key|serial[_\- ]?number|serial[_\- ]?no|serial|s/n)([""']?\s*[:=]\s*)(?:(""[^""]*""?)|('[^']*'?)|([^\s,;""'{}]+))",
+        @"(?i)\b(password|passwd|pwd|passphrase|secret|client[_\- ]?secret|token|access[_\- ]?token|refresh[_\- ]?token|api[_\- ]?key|access[_\- ]?key|private[_\- ]?key|licen[cs]e[_\- ]?key|product[_\- ]?key|serial[_\- ]?number|serial[_\- ]?no|serial|s/n)([""']?\s*[:=]\s*)(?:(""(?:[^""\\]|\\.)*""?)|('(?:[^'\\]|\\.)*'?)|([^\s,;""'{}]+))",
         Options, MatchTimeout);
     private static readonly Regex PrefixedKey = new(
         @"\b(?:sk|rk|pk)-[A-Za-z0-9_\-]{16,}|\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bAKIA[0-9A-Z]{16}\b|\bxox[abprs]-[A-Za-z0-9\-]{10,}|\bAIza[0-9A-Za-z_\-]{30,}",
@@ -95,7 +95,13 @@ public static class AdvisoryAiRedaction
     /// <summary>Sanitizes, redacts and collapses spaces in one line of text, then cuts it to <paramref name="maximumScalars"/>.</summary>
     private static DiagnosticSanitizedText Clean(string text, int maximumScalars, DiagnosticRedactionContext? context)
     {
-        string? cleaned = DiagnosticTextSanitizer.Sanitize(text, int.MaxValue, context, text.Length + 1).Value;
+        // Secrets are found before the PC's account, domain and computer names are replaced, so a name that happens to equal a
+        // secret label ("token", "serial") can never break the label apart and leave its value behind. The first pass removes
+        // invisible characters and replaces paths, links, SIDs and addresses; the second replaces only the names.
+        string? structural = DiagnosticTextSanitizer.Sanitize(text, int.MaxValue, null, text.Length + 1).Value;
+        if (structural is null) return new(null, false);
+        string redacted = RedactSecrets(structural);
+        string? cleaned = context is null ? redacted : DiagnosticTextSanitizer.Sanitize(redacted, int.MaxValue, context, redacted.Length + 1).Value;
         if (cleaned is null) return new(null, false);
         string value = Spaces.Replace(RedactSecrets(cleaned), " ").Trim();
         return value.Length == 0 ? new(null, false) : Truncate(value, maximumScalars);
