@@ -691,7 +691,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
     private sealed class CountingProvider(ProviderScanResult result) : ILocalInventoryProvider
     {
         public int Scans { get; private set; }
-        public string Name => name;
+        public string Name => "fixture";
         public TimeSpan Timeout => TimeSpan.FromSeconds(1);
         public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) { Scans++; return Task.FromResult(result); }
     }
@@ -736,7 +736,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
     private sealed class SequenceProvider(params ProviderScanResult[] results) : ILocalInventoryProvider
     {
         private readonly Queue<ProviderScanResult> results = new(results);
-        public string Name => name;
+        public string Name => "fixture";
         public TimeSpan Timeout => TimeSpan.FromSeconds(1);
         public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) => Task.FromResult(results.Dequeue());
     }
