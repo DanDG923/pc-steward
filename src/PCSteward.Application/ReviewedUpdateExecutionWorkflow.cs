@@ -290,8 +290,9 @@ public sealed class ReviewedUpdateExecutionWorkflow(
             // inventory, taken just before launch. Without it, nothing starts.
             if (review.UserInstaller is { IsVendor: true })
             {
-                if (preparation.Observation is null) return new(false, WingetUserInstallerText.NoBaselineMessage, null);
-                wholePcBaseline = WholePcRegistrationSnapshot.From(preparation.Observation);
+                if (preparation.Observation is null || WholePcRegistrationSnapshot.From(preparation.Observation) is not { IsComplete: true } baseline)
+                    return new(false, WingetUserInstallerText.NoBaselineMessage, null);
+                wholePcBaseline = baseline;
             }
             string? requester = null;
             if ((review.Selection.Scope == UpdateScope.User || machineRoute) && string.IsNullOrWhiteSpace(requester = ReadRequestingUserSid()))

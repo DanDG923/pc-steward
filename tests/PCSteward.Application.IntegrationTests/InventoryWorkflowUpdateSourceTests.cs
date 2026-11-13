@@ -539,6 +539,19 @@ public sealed class InventoryWorkflowUpdateSourceTests
         Assert.HasCount(1, added.WholePcChanges!);
 
         Assert.IsNull((await workflow.ReInventoryAsync(job, null, CancellationToken.None)).WholePcChanges, "no baseline, no comparison");
+
+        // Codex P2 on #91: the comparison runs even when WinGet's export doesn't show the target version.
+        using InventoryWorkflow notUpdated = new(database.Store, database.Store, database.Store,
+            [new FixedProvider(new ProviderScanResult([widget, shared], [user, machine], [], []))], postUpdatePackageInventory: new PostUpdatePackageInventory(false));
+        PostUpdateInventoryResult partial = await notUpdated.ReInventoryAsync(job, null, Baseline(user with { Version = "1.0.0" }), CancellationToken.None);
+        Assert.IsFalse(partial.ExpectedVersionDetected);
+        Assert.HasCount(1, partial.WholePcChanges!);
+
+        // An incomplete whole-PC registry scan after the update makes no comparison.
+        using InventoryWorkflow unreadable = new(database.Store, database.Store, database.Store,
+            [new FixedProvider(new ProviderScanResult([widget, shared], [user, machine], [], ["Machine64:access-denied"]), WholePcRegistrationSnapshot.RegistryProviderName)],
+            postUpdatePackageInventory: new PostUpdatePackageInventory(true));
+        Assert.IsNull((await unreadable.ReInventoryAsync(job, null, Baseline(user with { Version = "1.0.0" }, machine), CancellationToken.None)).WholePcChanges);
     }
 
     /// <summary>
@@ -678,7 +691,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
     private sealed class CountingProvider(ProviderScanResult result) : ILocalInventoryProvider
     {
         public int Scans { get; private set; }
-        public string Name => "fixture";
+        public string Name => name;
         public TimeSpan Timeout => TimeSpan.FromSeconds(1);
         public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) { Scans++; return Task.FromResult(result); }
     }
@@ -713,9 +726,9 @@ public sealed class InventoryWorkflowUpdateSourceTests
         public Task<SourceSnapshot> RefreshAsync(CancellationToken cancellationToken) => Task.FromResult(result);
     }
 
-    private sealed class FixedProvider(ProviderScanResult result) : ILocalInventoryProvider
+    private sealed class FixedProvider(ProviderScanResult result, string name = "fixture") : ILocalInventoryProvider
     {
-        public string Name => "fixture";
+        public string Name => name;
         public TimeSpan Timeout => TimeSpan.FromSeconds(1);
         public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) => Task.FromResult(result);
     }
@@ -723,7 +736,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
     private sealed class SequenceProvider(params ProviderScanResult[] results) : ILocalInventoryProvider
     {
         private readonly Queue<ProviderScanResult> results = new(results);
-        public string Name => "fixture";
+        public string Name => name;
         public TimeSpan Timeout => TimeSpan.FromSeconds(1);
         public Task<ProviderScanResult> ScanAsync(CancellationToken cancellationToken) => Task.FromResult(results.Dequeue());
     }

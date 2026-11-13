@@ -14,14 +14,25 @@ public sealed class WholePcRegistrationSnapshot
     /// <summary>At most this many changed app names are kept for the history line.</summary>
     public const int MaximumNamedChanges = 5;
 
+    /// <summary>The name the uninstall-registry inventory provider reports its warnings under (Desktop and scheduled host alike).</summary>
+    public const string RegistryProviderName = "Windows uninstall registry";
+
     private readonly Dictionary<string, string> versions;
     private readonly Dictionary<string, string> names;
 
-    private WholePcRegistrationSnapshot(Dictionary<string, string> versions, Dictionary<string, string> names)
+    private WholePcRegistrationSnapshot(Dictionary<string, string> versions, Dictionary<string, string> names, bool isComplete)
     {
         this.versions = versions;
         this.names = names;
+        IsComplete = isComplete;
     }
+
+    /// <summary>
+    /// Codex P2 on #91: false when the observation carries a registry warning that isn't about the current user's view (a whole-PC view
+    /// or entry couldn't be read, the entry budget was exceeded, or the provider failed or timed out). An incomplete snapshot is never
+    /// comparison evidence: no update starts from one, and an incomplete post-update one makes no comparison.
+    /// </summary>
+    public bool IsComplete { get; }
 
     /// <summary>How many whole-PC entries the snapshot holds.</summary>
     public int Count => versions.Count;
@@ -47,7 +58,10 @@ public sealed class WholePcRegistrationSnapshot
         Dictionary<string, string> versions = new(StringComparer.OrdinalIgnoreCase);
         foreach ((string key, List<string> list) in grouped)
             versions[key] = string.Join('\u001e', list.Order(StringComparer.Ordinal));
-        return new(versions, names);
+        string prefix = RegistryProviderName + ":";
+        bool complete = !observation.Warnings.Any(warning => warning is null ||
+            (warning.StartsWith(prefix, StringComparison.Ordinal) && !warning.AsSpan(prefix.Length).StartsWith("CurrentUser:", StringComparison.Ordinal)));
+        return new(versions, names, complete);
     }
 
     /// <summary>

@@ -360,6 +360,34 @@ public sealed class WingetUserVendorInstallerTests
     }
 
     [TestMethod]
+    public async Task AnIncompleteWholePcBaselineStartsNothing()
+    {
+        // Codex P2 on #91: a whole-PC registry view or entry the scan couldn't read is never comparison evidence.
+        UpdateJobSelection selection = Selection();
+        foreach (string warning in new[]
+                 {
+                     "Windows uninstall registry:Machine64:access-denied", "Windows uninstall registry:Machine32:{KEY}:value-too-large",
+                     "Windows uninstall registry:timeout", "Windows uninstall registry:failed",
+                 })
+        {
+            RecordingStore store = new();
+            RecordingExecutor executor = new();
+            LiveInventoryObservation partial = new(FixtureObservationId, new DateTimeOffset(2026, 11, 13, 14, 0, 0, TimeSpan.Zero), [], [], [warning]);
+            Assert.IsFalse(WholePcRegistrationSnapshot.From(partial).IsComplete, warning);
+            ReviewedUpdateExecutionWorkflow workflow = Workflow(selection, store, executor, new ScriptedSource(WingetUserInstallerCheck.Vendor(ExeInstaller)),
+                observation: partial);
+            UpdateReviewPreparation preparation = await workflow.BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
+            ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(preparation.Review!, false, CancellationToken.None);
+            Assert.IsFalse(result.Started, warning);
+            Assert.AreEqual(WingetUserInstallerText.NoBaselineMessage, result.Message);
+            Assert.HasCount(0, store.Jobs);
+            Assert.HasCount(0, executor.Reviewed);
+        }
+        foreach (string harmless in new[] { "Windows uninstall registry:CurrentUser:access-denied", "Current-user AppX/MSIX catalog:timeout" })
+            Assert.IsTrue(WholePcRegistrationSnapshot.From(new LiveInventoryObservation(FixtureObservationId, DateTimeOffset.UtcNow, [], [], [harmless])).IsComplete, harmless);
+    }
+
+    [TestMethod]
     public void TheSnapshotSeesNewGoneAndReVersionedWholePcEntriesOnly()
     {
         WholePcRegistrationSnapshot before = WholePcRegistrationSnapshot.From(Observation(
@@ -446,11 +474,12 @@ public sealed class WingetUserVendorInstallerTests
         new("Contoso.Widget", true, true, true, 1, false, "Contoso.Widget", 1, type, nested, scope, elevation);
 
     private static ReviewedUpdateExecutionWorkflow Workflow(UpdateJobSelection selection, RecordingStore store, RecordingExecutor executor,
-        IWingetUserInstallerEvidenceSource? source, IPostUpdateInventory? inventory = null, bool withObservation = true)
+        IWingetUserInstallerEvidenceSource? source, IPostUpdateInventory? inventory = null, bool withObservation = true,
+        LiveInventoryObservation? observation = null)
     {
         RunningDetector running = new();
         SequentialUpdateBatchCoordinator coordinator = new(executor, inventory ?? new RecordingInventory(), new InMemoryHistory(), running);
-        LiveInventoryObservation? observation = withObservation
+        observation ??= withObservation
             ? Observation(Machine("{AAA}", "1.0", "x64", "Alpha"), Machine("{BBB}", "2.0", "x86", "Beta"), User("Contoso.Widget", "1.0.0"))
             : null;
         return new ReviewedUpdateExecutionWorkflow((_, _) => Task.FromResult(new UpdateSelectionPreparation(selection, "fresh", observation)),
