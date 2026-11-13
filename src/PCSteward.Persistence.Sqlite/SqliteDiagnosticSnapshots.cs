@@ -291,7 +291,9 @@ public sealed partial class SqliteDatabase : IDiagnosticSnapshotStore, IDiagnost
     {
         await using SqliteCommand command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT COALESCE(SUM(payload_bytes), 0) FROM diagnostic_snapshots;";
+        // Each snapshot is charged its record bytes plus the fixed envelope charge (snapshot row and source results).
+        command.CommandText = "SELECT COALESCE(SUM(payload_bytes), 0) + (COUNT(*) * $envelope) FROM diagnostic_snapshots;";
+        command.Parameters.AddWithValue("$envelope", DiagnosticCollectionPolicy.ReservedEnvelopeBytes);
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
     }
 

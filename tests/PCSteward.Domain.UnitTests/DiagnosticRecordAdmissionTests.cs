@@ -39,6 +39,15 @@ public sealed class DiagnosticRecordAdmissionTests
 
     [TestMethod]
     [TestCategory("FR-DIA-03")]
+    public void IdentityTokensCannotBreakAPathBeforeItIsRedacted()
+    {
+        DiagnosticRedactionContext driveLetter = new(["c", "someone"]);
+        Assert.AreEqual("[path] failed for [redacted]", DiagnosticTextSanitizer.Sanitize(@"C:\Users\someone\private\widget.exe failed for someone", 512, driveLetter).Value);
+        Assert.AreEqual("Mail [email] link [link]", DiagnosticTextSanitizer.Sanitize("Mail someone@example.invalid link https://c.example.invalid/someone", 512, driveLetter).Value);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-DIA-03")]
     public void RemovesControlFormatAndBidirectionalCharactersAndCollapsesWhitespace()
     {
         string hostile = "Line1\r\n\tLine2\u0000\u0007 \u202Eevil\u202C \u200Bzero\u2028next   end";

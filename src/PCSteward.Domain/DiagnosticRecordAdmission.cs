@@ -72,7 +72,15 @@ public static class DiagnosticTextSanitizer
             else cleaned.Append(rune.ToString());
         }
 
+        // Structured values go first, so an identity token can never break a path, link, SID or address apart before it is
+        // recognised (a one-letter account name "c" would otherwise turn "C:\Users\..." into text no path pattern matches).
         string value = cleaned.ToString();
+        value = Link.Replace(value, LinkPlaceholder);
+        value = UncPath.Replace(value, PathPlaceholder);
+        value = DrivePath.Replace(value, PathPlaceholder);
+        value = VariablePath.Replace(value, PathPlaceholder);
+        value = Sid.Replace(value, AccountPlaceholder);
+        value = Email.Replace(value, EmailPlaceholder);
         foreach (string token in (context ?? DiagnosticRedactionContext.None).IdentityTokens
             .Where(token => !string.IsNullOrWhiteSpace(token))
             .Select(token => token.Trim())
@@ -80,12 +88,6 @@ public static class DiagnosticTextSanitizer
             .OrderByDescending(token => token.Length)
             .ThenBy(token => token, StringComparer.Ordinal))
             value = ReplaceWholeWord(value, token);
-        value = Link.Replace(value, LinkPlaceholder);
-        value = UncPath.Replace(value, PathPlaceholder);
-        value = DrivePath.Replace(value, PathPlaceholder);
-        value = VariablePath.Replace(value, PathPlaceholder);
-        value = Sid.Replace(value, AccountPlaceholder);
-        value = Email.Replace(value, EmailPlaceholder);
         value = Whitespace.Replace(value, " ").Trim();
         if (value.Length == 0) return new(null, false);
         return Truncate(value, maximumScalars);

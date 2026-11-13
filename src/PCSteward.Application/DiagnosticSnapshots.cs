@@ -30,6 +30,9 @@ public sealed record DiagnosticSnapshotSummary(
     public bool HasCoverage => Sources.Any(source => source.Outcome is DiagnosticSourceOutcome.Available or DiagnosticSourceOutcome.Empty or DiagnosticSourceOutcome.Partial);
 
     public bool IsPartial => Sources.Any(source => source.Outcome is not (DiagnosticSourceOutcome.Available or DiagnosticSourceOutcome.Empty));
+
+    /// <summary>Record bytes plus the fixed envelope charge: what this snapshot counts against the 64 MiB allowance.</summary>
+    public long RetainedBytes => DiagnosticCollectionPolicy.RetainedBytes(PayloadBytes);
 }
 
 /// <summary>FR-DIA-02/03: loading a snapshot either replays it whole or reports it unavailable; it never returns fewer records.</summary>
@@ -50,7 +53,7 @@ public sealed record DiagnosticSnapshotLoad(DiagnosticSnapshotLoadStatus Status,
 /// </summary>
 public interface IDiagnosticSnapshotStore
 {
-    /// <summary>Saves the snapshot, removes expired ones, then removes the oldest snapshots not in <paramref name="protectedSnapshotIds"/> until the total fits 64 MiB. All in one transaction.</summary>
+    /// <summary>Saves the snapshot, removes expired ones, then removes the oldest snapshots not in <paramref name="protectedSnapshotIds"/> until the total retained bytes (records plus each snapshot's envelope charge) fit 64 MiB. All in one transaction.</summary>
     Task<DiagnosticSnapshotSaveResult> SaveDiagnosticSnapshotAsync(DiagnosticSnapshot snapshot, DateTimeOffset nowUtc, IReadOnlyCollection<Guid> protectedSnapshotIds, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<DiagnosticSnapshotSummary>> ListDiagnosticSnapshotsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken);

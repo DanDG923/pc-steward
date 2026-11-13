@@ -179,6 +179,12 @@ public static class DiagnosticCollectionPolicy
     }
 
     public static DateTimeOffset ExpiresAt(DateTimeOffset collectionStartUtc) => collectionStartUtc.ToUniversalTime() + Retention;
+
+    /// <summary>
+    /// ADR-027 byte limits: what one saved snapshot counts against the 64 MiB allowance. Its record bytes plus the fixed envelope
+    /// charge, which covers the snapshot row and its five source results, so even an empty or all-denied snapshot uses space.
+    /// </summary>
+    public static long RetainedBytes(long payloadBytes) => payloadBytes + ReservedEnvelopeBytes;
 }
 
 /// <summary>
@@ -237,6 +243,9 @@ public sealed record DiagnosticSnapshot(
     public bool IsPartial => Sources.Any(source => source.Outcome is not (DiagnosticSourceOutcome.Available or DiagnosticSourceOutcome.Empty));
 
     public bool IsExpired(DateTimeOffset nowUtc) => nowUtc.ToUniversalTime() >= ExpiresAtUtc;
+
+    /// <summary>Record bytes plus the fixed envelope charge: what this snapshot counts against the 64 MiB allowance.</summary>
+    public long RetainedBytes => DiagnosticCollectionPolicy.RetainedBytes(PayloadBytes);
 }
 
 /// <summary>FR-DIA-02: one PC Steward change whose completion time falls inside the inclusive window around the selected incident.</summary>

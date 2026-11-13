@@ -87,6 +87,27 @@ public sealed class DiagnosticSnapshotStoreTests
     }
 
     [TestMethod]
+    [TestCategory("FR-DIA-03")]
+    public async Task EverySnapshotIsChargedItsEnvelopeEvenWhenItHasNoRecords()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        DiagnosticSnapshot first = Snapshot(Collected.AddDays(-1));
+        DiagnosticSnapshot second = Snapshot(Collected);
+        Assert.AreEqual(DiagnosticCollectionPolicy.ReservedEnvelopeBytes, first.RetainedBytes, "an empty snapshot still uses its envelope");
+        await fixture.Store.SaveDiagnosticSnapshotAsync(first, Collected, [], CancellationToken.None);
+        // Leave room for exactly one more envelope minus one byte, so the record bytes alone would still fit.
+        long almostFull = DiagnosticCollectionPolicy.MaximumRetainedBytes - (2 * DiagnosticCollectionPolicy.ReservedEnvelopeBytes) + 1;
+        await fixture.ExecuteAsync("PRAGMA ignore_check_constraints=ON; UPDATE diagnostic_snapshots SET payload_bytes = $bytes;", ("$bytes", almostFull));
+
+        DiagnosticSnapshotSaveResult saved = await fixture.Store.SaveDiagnosticSnapshotAsync(second, Collected, [], CancellationToken.None);
+
+        Assert.IsTrue(saved.Saved);
+        Assert.AreEqual(1, saved.PrunedForCapacity, "the second envelope takes the total past 64 MiB");
+        Assert.AreEqual(DiagnosticSnapshotLoadStatus.Unavailable, (await fixture.Store.LoadDiagnosticSnapshotAsync(first.Id, Collected, CancellationToken.None)).Status);
+        Assert.AreEqual(DiagnosticCollectionPolicy.ReservedEnvelopeBytes, (await fixture.Store.ListDiagnosticSnapshotsAsync(Collected, CancellationToken.None)).Single().RetainedBytes);
+    }
+
+    [TestMethod]
     [TestCategory("FR-DIA-04")]
     public async Task ClearScanDataRemovesSnapshotsButClearUpdateHistoryKeepsTheCapturedCopies()
     {
