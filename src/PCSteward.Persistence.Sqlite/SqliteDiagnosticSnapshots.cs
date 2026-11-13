@@ -185,10 +185,10 @@ public sealed partial class SqliteDatabase : IDiagnosticSnapshotStore, IDiagnost
         return deleted;
     }
 
-    public async Task<(IReadOnlyList<DiagnosticAppHistoryEntry> Entries, bool MoreMatched)> GetUpdateHistoryBetweenAsync(DateTimeOffset fromUtc, DateTimeOffset toUtc, int maximumEntries, CancellationToken cancellationToken)
+    public async Task<(IReadOnlyList<DiagnosticAppHistoryEntry?> Entries, bool MoreMatched)> GetUpdateHistoryBetweenAsync(DateTimeOffset fromUtc, DateTimeOffset toUtc, int maximumEntries, CancellationToken cancellationToken)
     {
         if (maximumEntries is < 1 or > DiagnosticCollectionPolicy.MaximumRecordsPerSource) throw new ArgumentOutOfRangeException(nameof(maximumEntries));
-        List<DiagnosticAppHistoryEntry> entries = [];
+        List<DiagnosticAppHistoryEntry?> entries = [];
         bool more = false;
         await using SqliteConnection connection = new(connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -209,9 +209,9 @@ public sealed partial class SqliteDatabase : IDiagnosticSnapshotStore, IDiagnost
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
+            // Every matching row counts, readable or not, so an unreadable row is disclosed and cannot hide truncation.
             if (entries.Count == maximumEntries) { more = true; break; }
-            if (TryReadHistoryEntry(reader, out UpdateHistoryEntry? entry))
-                entries.Add(new(entry!, reader.GetValue(12) as string));
+            entries.Add(TryReadHistoryEntry(reader, out UpdateHistoryEntry? entry) ? new(entry!, reader.GetValue(12) as string) : null);
         }
         return (entries.AsReadOnly(), more);
     }

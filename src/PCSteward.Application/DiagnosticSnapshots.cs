@@ -70,8 +70,11 @@ public sealed record DiagnosticAppHistoryEntry(UpdateHistoryEntry Entry, string?
 /// <summary>FR-DIA-01: PC Steward's own recorded update history inside an interval, newest first, read without changing anything.</summary>
 public interface IDiagnosticAppHistorySource
 {
-    /// <summary>Returns at most <paramref name="maximumEntries"/> entries with <c>fromUtc &lt;= occurred &lt;= toUtc</c>, and whether more matched.</summary>
-    Task<(IReadOnlyList<DiagnosticAppHistoryEntry> Entries, bool MoreMatched)> GetUpdateHistoryBetweenAsync(DateTimeOffset fromUtc, DateTimeOffset toUtc, int maximumEntries, CancellationToken cancellationToken);
+    /// <summary>
+    /// Returns at most <paramref name="maximumEntries"/> matching rows with <c>fromUtc &lt;= occurred &lt;= toUtc</c>, and whether more
+    /// matched. A matching row that cannot be read is returned as <see langword="null"/>, so it still counts and is disclosed.
+    /// </summary>
+    Task<(IReadOnlyList<DiagnosticAppHistoryEntry?> Entries, bool MoreMatched)> GetUpdateHistoryBetweenAsync(DateTimeOffset fromUtc, DateTimeOffset toUtc, int maximumEntries, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -86,8 +89,8 @@ public sealed class PcStewardHistoryDiagnosticReader(IDiagnosticAppHistorySource
     public async Task<DiagnosticReaderResult> ReadAsync(DiagnosticReadRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        (IReadOnlyList<DiagnosticAppHistoryEntry> entries, bool more) = await history.GetUpdateHistoryBetweenAsync(request.FromUtc, request.ToUtc, request.MaximumMatchingRecords, cancellationToken).ConfigureAwait(false);
-        DiagnosticRecordCandidate[] records = [.. entries.Take(request.MaximumMatchingRecords).Select(entry => Project(entry, request.ToUtc))];
+        (IReadOnlyList<DiagnosticAppHistoryEntry?> entries, bool more) = await history.GetUpdateHistoryBetweenAsync(request.FromUtc, request.ToUtc, request.MaximumMatchingRecords, cancellationToken).ConfigureAwait(false);
+        DiagnosticRecordCandidate[] records = [.. entries.Take(request.MaximumMatchingRecords).Select(entry => entry is null ? DiagnosticRecordCandidate.Unreadable(Source) : Project(entry, request.ToUtc))];
         return DiagnosticReaderResult.Completed(records, more || entries.Count > request.MaximumMatchingRecords);
     }
 

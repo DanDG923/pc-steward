@@ -21,7 +21,15 @@ public sealed record DiagnosticRecordCandidate(
     long? ResultCode = null,
     string? Subject = null,
     string? Detail = null,
-    string? Summary = null);
+    string? Summary = null)
+{
+    /// <summary>
+    /// A matching source record the reader could not read. Admission always rejects it (its event ID is out of range), so it is
+    /// counted as rejected and the source is reported as partial instead of being silently dropped.
+    /// </summary>
+    public static DiagnosticRecordCandidate Unreadable(DiagnosticSourceKind source) =>
+        new(source, null, DiagnosticOccurrence.Unknown, DiagnosticEventKind.PcStewardUpdate, DiagnosticOutcomeKind.Unknown, EventId: -1);
+}
 
 /// <summary>FR-DIA-03 (ADR-010/016): device and account names to remove from text, supplied by the host, never stored.</summary>
 public sealed record DiagnosticRedactionContext(IReadOnlyList<string> IdentityTokens)

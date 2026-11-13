@@ -182,6 +182,32 @@ public sealed class DiagnosticSnapshotStoreTests
 
     [TestMethod]
     [TestCategory("FR-DIA-01")]
+    public async Task UnreadableHistoryRowsAreCountedAndDisclosedNotDropped()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        UpdateHistoryEntry newest = History(Collected.AddHours(-1), UpdateHistoryStatus.Success);
+        UpdateHistoryEntry damaged = History(Collected.AddHours(-2), UpdateHistoryStatus.Success);
+        UpdateHistoryEntry oldest = History(Collected.AddHours(-3), UpdateHistoryStatus.Success);
+        foreach (UpdateHistoryEntry entry in new[] { newest, damaged, oldest }) await fixture.Store.RecordAsync(entry, CancellationToken.None);
+        await fixture.ExecuteAsync("PRAGMA ignore_check_constraints=ON; UPDATE update_job_history SET status = 'Nonsense' WHERE event_id = $id;", ("$id", damaged.EventId.ToString("D")));
+
+        (IReadOnlyList<DiagnosticAppHistoryEntry?> two, bool more) = await fixture.Store.GetUpdateHistoryBetweenAsync(Collected.AddDays(-7), Collected, 2, CancellationToken.None);
+        Assert.HasCount(2, two);
+        Assert.IsNull(two[1], "the unreadable row keeps its place");
+        Assert.IsTrue(more, "an unreadable row cannot hide truncation");
+
+        DiagnosticCollectionOrchestrator orchestrator = new([new PcStewardHistoryDiagnosticReader(fixture.Store)], DiagnosticRedactionContext.None, new FixedClock(Collected));
+        DiagnosticSnapshot snapshot = (await orchestrator.CollectAsync(new([DiagnosticSourceKind.PcStewardHistory], TimeSpan.FromDays(7), DiagnosticCollectionPolicy.Version), CancellationToken.None)).Snapshot!;
+        DiagnosticSourceResult app = snapshot.Sources[0];
+        Assert.AreEqual(DiagnosticSourceOutcome.Partial, app.Outcome);
+        Assert.AreEqual(DiagnosticSourceReason.InvalidRecordsRejected, app.Reason);
+        Assert.AreEqual(3, app.MatchingRecordsReturned);
+        Assert.AreEqual(2, app.RecordsKept);
+        Assert.AreEqual(1, app.RecordsRejected);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-DIA-01")]
     public async Task AppHistorySourceFiltersByInstantInclusivelyNewestFirstWithItsLimit()
     {
         await using Fixture fixture = await Fixture.CreateAsync();
@@ -194,12 +220,12 @@ public sealed class DiagnosticSnapshotStoreTests
         foreach (UpdateHistoryEntry entry in new[] { atStart, beforeStart, atEnd, offsetInside, afterEnd }) await fixture.Store.RecordAsync(entry, CancellationToken.None);
         await fixture.Store.PromoteAsync([new CanonicalProduct(Guid.NewGuid(), atEnd.StableProductKey, "Contoso Widget")], [], CancellationToken.None);
 
-        (IReadOnlyList<DiagnosticAppHistoryEntry> all, bool moreAll) = await fixture.Store.GetUpdateHistoryBetweenAsync(from, Collected, 500, CancellationToken.None);
-        (IReadOnlyList<DiagnosticAppHistoryEntry> two, bool moreTwo) = await fixture.Store.GetUpdateHistoryBetweenAsync(from, Collected, 2, CancellationToken.None);
+        (IReadOnlyList<DiagnosticAppHistoryEntry?> all, bool moreAll) = await fixture.Store.GetUpdateHistoryBetweenAsync(from, Collected, 500, CancellationToken.None);
+        (IReadOnlyList<DiagnosticAppHistoryEntry?> two, bool moreTwo) = await fixture.Store.GetUpdateHistoryBetweenAsync(from, Collected, 2, CancellationToken.None);
         DiagnosticReaderResult read = await new PcStewardHistoryDiagnosticReader(fixture.Store).ReadAsync(new(DiagnosticSourceKind.PcStewardHistory, from, Collected, 500), CancellationToken.None);
 
         Guid[] expected = [atEnd.EventId, offsetInside.EventId, atStart.EventId];
-        CollectionAssert.AreEqual(expected, all.Select(entry => entry.Entry.EventId).ToArray(), "inclusive at both ends, ordered by instant whatever the stored offset");
+        CollectionAssert.AreEqual(expected, all.Select(entry => entry!.Entry.EventId).ToArray(), "inclusive at both ends, ordered by instant whatever the stored offset");
         Assert.IsFalse(moreAll);
         Assert.HasCount(2, two);
         Assert.IsTrue(moreTwo);
