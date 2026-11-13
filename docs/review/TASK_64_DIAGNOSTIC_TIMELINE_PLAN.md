@@ -1,6 +1,6 @@
 # Task 64 — Bounded local diagnostic timeline: staged build plan and interfaces
 
-**Status:** In progress (stages 1–2 of 5 built). Owner started Phase F on 2026-11-13 alongside the D4b update work; that instruction is the explicit order exception the Phase F brief requires (Phases D installs and E removals are paused by the owner). ADR-027 is Accepted; nothing here widens it.
+**Status:** In progress (stages 1–3 of 5 built). Owner started Phase F on 2026-11-13 alongside the D4b update work; that instruction is the explicit order exception the Phase F brief requires (Phases D installs and E removals are paused by the owner). ADR-027 is Accepted; nothing here widens it.
 
 **Owner choices (2026-11-13):** the timeline lives on a new **Diagnostics** page in the navigation, not on Activity. Reliability is read through one narrow, time-filtered, cancellable WMI query unless the owner prefers it shown as unsupported in v1.
 
@@ -42,6 +42,17 @@ Application (`src/PCSteward.Application/DiagnosticCollection.cs`):
 - `DeleteExpiredDiagnosticSnapshotsAsync` is bounded opportunistic maintenance at start or use; there is no scheduler.
 - Clear scan data deletes all three tables and counts snapshots; Clear update history leaves them; factory reset deletes the database file set.
 - `IDiagnosticAppHistorySource` + `PcStewardHistoryDiagnosticReader`: update history in `[from, to]` newest first, limited to the record slot plus one to detect more; subject is the current display name, falling back to the package ID.
+
+## Stage 3 Windows readers (implemented, synthetic and CI-host evidence only)
+
+`src/PCSteward.Diagnostics.Windows` (references Application only; never referenced by the scheduled host, helper or execution):
+
+- **System and Application event logs** (`EventLogDiagnosticCatalog`, `WindowsEventLogQueryRunner`). One structured wevtapi query per channel, newest first, with one `Select` per allowlisted provider and event ID, each bounded by the inclusive time window: System — Kernel-Power 41 and EventLog 6008 (unexpected shutdown), WER-SystemErrorReporting 1001 (bugcheck); Application — Application Error 1000, Application Hang 1002, Windows Error Reporting 1001. Only channel, provider, event ID, record ID, `TimeCreated` and Kernel-Power 41's numeric `BugcheckCode` are rendered; no message text, event data, user or computer. Events are taken in batches of 16 with a 0.5 s wait, stopping at the slot count plus one; cancellation calls `EvtCancel`.
+- **Reliability** (`ReliabilityDiagnosticCatalog`, `WmiReliabilityRecordSource`). One WQL query on `Win32_ReliabilityRecords` in `root\cimv2` on this PC, naming six properties (log, record number, source, event identifier, time, product name), the inclusive window and the allowlist (application crash, hang, error report, unexpected shutdown, MSI install/failed install/removal, Windows Update install/failure). Enumeration stops at the slot count plus one; kept records are ordered newest first. No message, user, computer or insertion strings; no WMI method call or write; never `Win32_Product`.
+- **Windows Update history** (`WindowsUpdateHistoryCatalog`, `WuaHistorySource`). `Microsoft.Update.Session` → `CreateUpdateSearcher` → `GetTotalHistoryCount` and `QueryHistory` pages of 50, newest first, stopping at the first entry older than the window, the slot count plus one, or 2,000 inspected entries (reported as truncated). Projects title, operation, result and HRESULT. No search, download, install, hide or service change.
+- `WindowsDiagnosticReaders.Create()` returns the four readers for the stage 4 page. Anything the route returns outside the allowlist is passed on as `DiagnosticRecordCandidate.Unreadable`, so admission counts it as rejected and the source is reported as partial.
+
+**For the stage 5 host check (not yet proven on the owner's PC):** the exact provider names and the Kernel-Power `BugcheckCode` value type on Windows 11; the Reliability source names and whether WMI returns newest records first when a source is truncated; that `IUpdateHistoryEntry.Date` is UTC; read access for a standard user. CI proves only that Windows accepts both event log queries.
 
 ## Out of scope here
 
