@@ -306,7 +306,7 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(apps, "viewModel.SavedFilter != InstalledAppsFilter.NeedsReview || !viewModel.IsUpdateSourceEnabled ? []");
         StringAssert.Contains(apps, "detail.CanConfirmAsCurrent)];");
         StringAssert.Contains(apps, "confirmAll.Click += async (_, _) => await ConfirmCurrentMatchesAsync(currentMatches);");
-        string confirmTogether = Between(source, "private async Task ConfirmCurrentMatchesAsync(IReadOnlyCollection<InventoryRow> candidates)", DesktopWindowSource.EndOf("MainWindow.Review.cs"));
+        string confirmTogether = Between(source, "private async Task ConfirmCurrentMatchesAsync(InventoryRow[] candidates)", DesktopWindowSource.EndOf("MainWindow.Review.cs"));
         StringAssert.Contains(confirmTogether, "DefaultButton = ContentDialogButton.Close");
         StringAssert.Contains(confirmTogether, "if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;");
         StringAssert.Contains(confirmTogether, "workflow.ConfirmCurrentRepositoryIdentitiesAsync(confirmations, viewModel.IsUpdateSourceEnabled,");

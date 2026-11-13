@@ -229,14 +229,14 @@ public sealed partial class MainWindow
     /// 2026-11-13 (item 14): it is offered on Installed apps under "Check the match", now that the Scan results and Review decisions
     /// pages are gone. Each match is validated again when it is saved and can be undone on the Decisions page; nothing is updated.
     /// </summary>
-    private async Task ConfirmCurrentMatchesAsync(IReadOnlyCollection<InventoryRow> candidates)
+    private async Task ConfirmCurrentMatchesAsync(InventoryRow[] candidates)
     {
         ContentDialog confirmation = new()
         {
             XamlRoot = Content.XamlRoot,
             Title = InstalledAppsFilters.ConfirmCurrentMatchesTitle,
             Content = InstalledAppsFilters.ConfirmCurrentMatchesExplanation,
-            PrimaryButtonText = InstalledAppsFilters.ConfirmCurrentMatchesLabel(candidates.Count),
+            PrimaryButtonText = InstalledAppsFilters.ConfirmCurrentMatchesLabel(candidates.Length),
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
         };
