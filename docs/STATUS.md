@@ -1,3 +1,5 @@
+**Release 0.1.16 (2026-11-13; version number only).** VersionPrefix 0.1.16 for the release that carries the Diagnostics page and the diagnostic timeline's Windows readers (#105) and UI review follow-up 3 (#106). No code change here.
+
 **Diagnostic timeline, Task 64 stage 4: the Diagnostics page (2026-11-13; code and tests; no host action).** Requirements: `FR-DIA-01–05`, `FR-UI-01`. ([plan](review/TASK_64_DIAGNOSTIC_TIMELINE_PLAN.md)).
 
 - **A new page.** Diagnostics sits in the navigation after Activity (the owner's choice). It shows what Windows recorded in the last seven days beside what PC Steward changed, collected only when asked.
