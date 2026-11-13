@@ -51,7 +51,8 @@ public static class DiagnosticTextSanitizer
     private static readonly Regex Link = new(@"[A-Za-z][A-Za-z0-9+.\-]*://\S+", Options, MatchTimeout);
     private static readonly Regex UncPath = new(@"\\\\[^\\/\s]+(?:[\\/](?:[^\\/\r\n""<>|:*?]*[\\/])*[^\\/\s""<>|:*?]*)?", Options, MatchTimeout);
     private static readonly Regex DrivePath = new(@"[A-Za-z]:[\\/](?:[^\\/\r\n""<>|:*?]*[\\/])*[^\\/\s""<>|:*?]*", Options, MatchTimeout);
-    private static readonly Regex VariablePath = new(@"%[A-Za-z_][A-Za-z0-9_]*%(?:[\\/][^\\/\s""<>|:*?]*)*", Options, MatchTimeout);
+    // Same structure as a drive path: folders may contain spaces, the last segment ends at whitespace.
+    private static readonly Regex VariablePath = new(@"%[A-Za-z_][A-Za-z0-9_]*%(?:[\\/](?:[^\\/\r\n""<>|:*?]*[\\/])*[^\\/\s""<>|:*?]*)?", Options, MatchTimeout);
     private static readonly Regex Sid = new(@"S-1-[0-9]+(?:-[0-9]+)+", Options | RegexOptions.IgnoreCase, MatchTimeout);
     private static readonly Regex Email = new(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", Options, MatchTimeout);
     private static readonly Regex Whitespace = new(@"\s+", Options, MatchTimeout);

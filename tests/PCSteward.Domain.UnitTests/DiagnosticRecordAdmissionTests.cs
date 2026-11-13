@@ -20,6 +20,7 @@ public sealed class DiagnosticRecordAdmissionTests
     [DataRow(@"Module C:\Program Files\Contoso App\bin\core.dll crashed", "Module [path] crashed")]
     [DataRow(@"Share \\fileserver\team\setup.msi failed", "Share [path] failed")]
     [DataRow(@"Profile %LOCALAPPDATA%\Contoso\cache missing", "Profile [path] missing")]
+    [DataRow(@"Report %LOCALAPPDATA%\Contoso App\private\report.txt saved", "Report [path] saved")]
     [DataRow("See https://example.invalid/report?id=1&user=alice now", "See [link] now")]
     [DataRow("Account S-1-5-21-1004336348-1177238915-682003330-1001 denied", "Account [account] denied")]
     [DataRow("Contact someone@example.invalid today", "Contact [email] today")]
