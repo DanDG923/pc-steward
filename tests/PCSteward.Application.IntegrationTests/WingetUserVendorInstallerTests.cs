@@ -350,6 +350,9 @@ public sealed class WingetUserVendorInstallerTests
         AdministratorRequirementPresentation batch = AdministratorRequirementPresenter.ForBatch([selection, other], [elevating, ExeInstaller]);
         Assert.AreEqual(AdministratorRequirementStatus.Required, batch.Status);
         Assert.AreEqual("Administrator approval required for 1 of 2 apps", batch.Label);
+        // Security review 2026-11-13 (owner's choice): a batch shows the same publisher check as a single review.
+        StringAssert.EndsWith(batch.Explanation, WingetUserInstallerText.PublisherCheck);
+        StringAssert.EndsWith(WingetUserInstallerText.ElevationWarning, WingetUserInstallerText.PublisherCheck);
         AdministratorRequirementPresentation quietBatch = AdministratorRequirementPresenter.ForBatch([selection, other], [ExeInstaller, null]);
         Assert.AreEqual(AdministratorRequirementStatus.NotExpected, quietBatch.Status);
         StringAssert.Contains(quietBatch.Explanation, "choose No");

@@ -53,10 +53,23 @@ public static class WingetUserInstallerText
         "This update runs without administrator rights. The app's own installer decides where it writes. If Windows asks for administrator " +
         "permission while it runs, choose No: this update shouldn't need it.";
 
-    /// <summary>Review text for a vendor installer whose manifest says it asks for administrator permission (owner answer Q1-B).</summary>
+    /// <summary>
+    /// Review text for a vendor installer whose manifest says it asks for administrator permission (owner answer Q1-B). Security review
+    /// 2026-11-13: on this route WinGet runs unelevated, so the installer waits in the account's own Temp folder until Windows asks;
+    /// a program already running as the owner could swap it there. The Windows prompt is then the last check, so the text says what to
+    /// look for on it.
+    /// </summary>
     public const string ElevationWarning =
         "This app's installer asks for administrator permission. Windows will ask you to allow it while the update runs; PC Steward itself " +
-        "never asks for it. If you allow it, the installer can change things for every user of this PC.";
+        "never asks for it. If you allow it, the installer can change things for every user of this PC. " + PublisherCheck;
+
+    /// <summary>
+    /// Security review 2026-11-13 (owner's choice): what to check on the Windows prompt before allowing a per-user installer that asks
+    /// for administrator permission. Shown on single and batch reviews alike.
+    /// </summary>
+    public const string PublisherCheck =
+        "Before you choose Yes, check that Windows names the app's publisher as the verified publisher. If it says Unknown publisher or " +
+        "names someone else, choose No.";
 
     /// <summary>The review text for <paramref name="installer"/>.</summary>
     public static string Disclosure(WinGetUserInstaller installer)
