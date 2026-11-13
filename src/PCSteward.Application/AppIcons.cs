@@ -33,6 +33,17 @@ public static class AppIconRules
 {
     /// <summary>ADR-035: what About's privacy text says about the icons.</summary>
     public const string PrivacyNote = "The icons in the lists come from each app's own files on this PC, read when a list is shown. They aren't saved and nothing is sent anywhere.";
+    /// <summary>
+    /// ADR-035 rule 1: true when any part of a tile is inside what the window shows. The viewport is given in the tile's own
+    /// coordinates, as Windows reports it: the tile is the rectangle from 0,0 to its width and height. An empty or
+    /// not-a-number viewport, or a tile with no size, is not on screen.
+    /// </summary>
+    public static bool IsOnScreen(double viewportX, double viewportY, double viewportWidth, double viewportHeight, double tileWidth, double tileHeight) =>
+        Overlaps(viewportX, viewportWidth, tileWidth) && Overlaps(viewportY, viewportHeight, tileHeight);
+
+    private static bool Overlaps(double start, double length, double size) =>
+        length > 0 && size > 0 && start < size && (double.IsPositiveInfinity(length) || start + length > 0);
+
     /// <summary>The tile's side in layout units; the icon is read at this size times the display's scale.</summary>
     public const double TileSize = 32;
     /// <summary>The only extra registry value read, from the uninstall entry the scan recorded.</summary>

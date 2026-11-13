@@ -151,6 +151,16 @@ function Find-Named([Windows.Automation.AutomationElement]$Root, [string]$Prefix
     }
     return $null
 }
+# ADR-035: how many app icons are showing under an element. The image is decoration, so it is in the raw view only; a row
+# that shows its two letters has no image with a size.
+function Get-AppIconCount([Windows.Automation.AutomationElement]$Root) {
+    $rawView = New-Object Windows.Automation.CacheRequest
+    $rawView.TreeFilter = [Windows.Automation.Automation]::RawViewCondition
+    $byIcon = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, 'AppIcon')
+    $active = $rawView.Activate()
+    try { return @($Root.FindAll([Windows.Automation.TreeScope]::Descendants, $byIcon) | Where-Object { $_.Current.BoundingRectangle.Width -gt 0 }).Count } finally { $active.Dispose() }
+}
+
 function Open-Page([Windows.Automation.AutomationElement]$Root, [string]$Page) {
     $item = Find-Named $Root $Page ([Windows.Automation.ControlType]::ListItem)
     if ($null -eq $item) { return $false }
@@ -199,27 +209,40 @@ if ($failures.Count -eq 0 -and !$process.HasExited) {
         Write-SameLine (Find-Named $window 'Scan again' ([Windows.Automation.ControlType]::Button)) (Find-Named $window 'More options' ([Windows.Automation.ControlType]::Button)) 'installed-header'
         Write-SameLine (Find-Named $window 'Sort by' ([Windows.Automation.ControlType]::Text)) (Find-Named $window 'Sort applications' ([Windows.Automation.ControlType]::ComboBox)) 'installed-sort'
         # UI review 2026-11-13 (item 20; ADR-035): a row shows the app's own icon when one could be read, and its two letters
-        # otherwise. The image is decoration, so it is in the raw view only. Icons arrive a moment after the rows.
+        # otherwise. An icon is read only for a row that is on screen, so the count is at most the rows the window shows, which
+        # is fewer than the rows the list has built. Icons arrive a moment after the rows.
         try {
-            $rawView = New-Object Windows.Automation.CacheRequest
-            $rawView.TreeFilter = [Windows.Automation.Automation]::RawViewCondition
-            $byIcon = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, 'AppIcon')
-            $icons = 0
-            $iconDeadline = (Get-Date).AddSeconds(15)
-            do {
-                Start-Sleep -Seconds 3
-                $active = $rawView.Activate()
-                try { $icons = @($list.FindAll([Windows.Automation.TreeScope]::Descendants, $byIcon) | Where-Object { $_.Current.BoundingRectangle.Width -gt 0 }).Count } finally { $active.Dispose() }
-            } while ($icons -eq 0 -and (Get-Date) -lt $iconDeadline)
+            $icons = -1
+            $iconDeadline = (Get-Date).AddSeconds(18)
+            do { Start-Sleep -Seconds 3; $before = $icons; $icons = Get-AppIconCount $list } while (($icons -eq 0 -or $icons -ne $before) -and (Get-Date) -lt $iconDeadline)
             $process.Refresh()
-            Write-Line ('LAYOUT-APP-ICONS shown=' + $icons + ' rowsBuilt=' + $rows + ' appRunning=' + !$process.HasExited)
+            $onScreen = @($list.FindAll([Windows.Automation.TreeScope]::Children, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)) | Where-Object { !$_.Current.IsOffscreen })
+            Write-Line ('LAYOUT-APP-ICONS shown=' + $icons + ' rowsOnScreen=' + $onScreen.Count + ' rowsBuilt=' + $rows + ' appRunning=' + !$process.HasExited)
             if ($process.HasExited) { $failures.Add('the app exited while showing app icons (code ' + $process.ExitCode + ')') }
+            # For each row on screen: whether it shows an icon, against what the runner's uninstall entry of that name gives as
+            # its icon. A row with no entry of its name is a Store-type app or came from another source.
+            $entryIcons = @{}
+            foreach ($root in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall') {
+                foreach ($key in @(Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue)) {
+                    $entryName = [string]$key.GetValue('DisplayName')
+                    if ($entryName -and !$entryIcons.ContainsKey($entryName)) { $entryIcons[$entryName] = [string]$key.GetValue('DisplayIcon', '', 'DoNotExpandEnvironmentNames') }
+                }
+            }
+            foreach ($row in $onScreen) {
+                $rowName = ($row.Current.Name -split ', ')[0]
+                $entryIcon = if ($entryIcons.ContainsKey($rowName)) { '"' + $entryIcons[$rowName] + '"' } else { '(no uninstall entry of this name)' }
+                Write-Line ('APP-ICON-ROW icon=' + ((Get-AppIconCount $row) -gt 0) + ' name="' + $rowName + '" entryIcon=' + $entryIcon)
+            }
         } catch { Write-Line ('LAYOUT-APP-ICONS skipped: ' + $_.Exception.Message) }
         Save-Screenshot $handle '08-Installed-apps-after-scan'
         # UI review 2026-11-13 (item 19): on this wide window an app opened from the list shows its details beside the list.
         try {
             $first = $list.FindFirst([Windows.Automation.TreeScope]::Children, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem))
             if ($null -eq $first) { throw 'no row to open' }
+            # ADR-035: open a row that shows an icon when there is one, so the column's tile can be checked against it.
+            $withIcon = @($list.FindAll([Windows.Automation.TreeScope]::Children, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)) | Where-Object { (Get-AppIconCount $_) -gt 0 } | Select-Object -First 1)
+            $rowHasIcon = $withIcon.Count -gt 0
+            if ($rowHasIcon) { $first = $withIcon[0] }
             ($first.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)).Invoke()
             Start-Sleep -Seconds $PageSettleSeconds
             $process.Refresh(); if ($process.HasExited) { throw 'the app exited after opening a row' }
@@ -231,6 +254,8 @@ if ($failures.Count -eq 0 -and !$process.HasExited) {
                 Write-Line ('LAYOUT-DETAILS-PANE name="' + $pane.Current.Name + '" pane=' + [int]$p.Left + ',' + [int]$p.Top + ',' + [int]$p.Width + 'x' + [int]$p.Height + ' list=' + [int]$l.Left + ',' + [int]$l.Top + ',' + [int]$l.Width + 'x' + [int]$l.Height + ' beside=' + ($p.Left -ge $l.Right))
                 Save-Screenshot $handle '08b-Installed-apps-details-beside'
                 $unnamedTotal += Write-Tree $pane 'Details beside the list'
+                # ADR-035: the details column's tile is built in code, not from the list's template; 1 when the opened app has an icon.
+                Write-Line ('LAYOUT-APP-ICONS details=' + (Get-AppIconCount $pane) + ' openedRowHadIcon=' + $rowHasIcon)
                 $close = Find-Named $pane 'Close details' ([Windows.Automation.ControlType]::Button)
                 if ($null -ne $close) {
                     ($close.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)).Invoke(); Start-Sleep -Seconds 2

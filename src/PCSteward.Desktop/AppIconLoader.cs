@@ -33,32 +33,46 @@ internal sealed class AppIconLoader
     /// <summary>True when this icon was already read this session; <paramref name="icon"/> is null when the app has none to show.</summary>
     public bool TryGetCached(AppIconSource source, int pixels, out ImageSource? icon) => cache.TryGetValue(Key(source, pixels), out icon);
 
-    /// <summary>The icon, or null. Call on the UI thread; the file is read off it. Never throws.</summary>
+    /// <summary>
+    /// The icon, or null. Call on the UI thread; the file is read off it. Never throws. A read that is still running for this
+    /// icon is not started twice.
+    /// </summary>
     public Task<ImageSource?> LoadAsync(AppIconSource source, int pixels)
     {
         string key = Key(source, pixels);
         if (cache.TryGetValue(key, out ImageSource? cached)) return Task.FromResult(cached);
         if (pending.TryGetValue(key, out Task<ImageSource?>? running)) return running;
-        Task<ImageSource?> load = LoadAndRememberAsync(source, pixels, key);
+        Task<ImageSource?> load = LoadInTurnAsync(source, pixels, key);
         if (!load.IsCompleted) pending[key] = load;
         return load;
     }
 
     private static string Key(AppIconSource source, int pixels) => $"{pixels}|{source.CacheKey}";
 
-    private async Task<ImageSource?> LoadAndRememberAsync(AppIconSource source, int pixels, string key)
+    /// <summary>
+    /// Waits for a turn, starts the read and gives its icon if it comes in time. A slower read is not waited for (ADR-035
+    /// rule 5): the row keeps its letters. The read itself is left to end in <see cref="ReadAndRememberAsync"/>.
+    /// </summary>
+    private async Task<ImageSource?> LoadInTurnAsync(AppIconSource source, int pixels, string key)
+    {
+        await TurnAsync();
+        Task<ImageSource?> read = ReadAndRememberAsync(source, pixels, key);
+        try { return await read.WaitAsync(AppIconRules.ReadTimeout); }
+        catch (TimeoutException) { return null; }
+    }
+
+    /// <summary>
+    /// Runs until the read really ends, however long that takes, and only then gives up its turn and its place in
+    /// <see cref="pending"/>. So reads that have stalled can never number more than the few allowed at once, and a stalled
+    /// read is not started again. An icon that arrives late is remembered and shown the next time its row is.
+    /// </summary>
+    private async Task<ImageSource?> ReadAndRememberAsync(AppIconSource source, int pixels, string key)
     {
         ImageSource? icon;
-        try
-        {
-            await TurnAsync();
-            try { icon = source.Kind == AppIconSourceKind.StorePackage ? await ReadStoreLogoAsync(source.Identity, pixels) : await ReadClassicIconAsync(source, pixels); }
-            finally { EndTurn(); }
-        }
-        // A read that was too slow is tried again the next time the row is shown; it is not remembered as "no icon".
-        catch (TimeoutException) { pending.Remove(key); return null; }
-        // ADR-035 rule 7: any other refusal or error means no icon, and is not reported.
+        try { icon = source.Kind == AppIconSourceKind.StorePackage ? await ReadStoreLogoAsync(source.Identity, pixels) : await ReadClassicIconAsync(source, pixels); }
+        // ADR-035 rule 7: any refusal or error means no icon, and is not reported.
         catch (Exception) { icon = null; }
+        EndTurn();
         pending.Remove(key);
         if (cache.Count < AppIconRules.MaximumCachedIcons) cache[key] = icon;
         return icon;
@@ -81,7 +95,7 @@ internal sealed class AppIconLoader
 
     private static async Task<ImageSource?> ReadClassicIconAsync(AppIconSource source, int pixels)
     {
-        byte[]? iconFile = await Task.Run(() => ReadClassicIconFile(source, pixels)).WaitAsync(AppIconRules.ReadTimeout);
+        byte[]? iconFile = await Task.Run(() => ReadClassicIconFile(source, pixels));
         if (iconFile is null) return null;
         using InMemoryRandomAccessStream stream = new();
         await stream.WriteAsync(iconFile.AsBuffer());
@@ -115,9 +129,9 @@ internal sealed class AppIconLoader
         {
             Package? package = new PackageManager().FindPackagesForUser(string.Empty, packageFamilyName).FirstOrDefault(candidate => !candidate.IsFramework && !candidate.IsResourcePackage);
             return package?.GetLogoAsRandomAccessStreamReference(new Size(pixels, pixels));
-        }).WaitAsync(AppIconRules.ReadTimeout);
+        });
         if (logo is null) return null;
-        using IRandomAccessStreamWithContentType stream = await logo.OpenReadAsync().AsTask().WaitAsync(AppIconRules.ReadTimeout);
+        using IRandomAccessStreamWithContentType stream = await logo.OpenReadAsync();
         if (stream.Size == 0 || stream.Size > MaximumLogoBytes) return null;
         BitmapImage image = new() { DecodePixelType = DecodePixelType.Physical, DecodePixelWidth = pixels };
         await image.SetSourceAsync(stream);

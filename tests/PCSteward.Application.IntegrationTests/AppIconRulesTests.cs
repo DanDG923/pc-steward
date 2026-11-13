@@ -151,4 +151,27 @@ public sealed class AppIconRulesTests
 
         Assert.AreEqual(TimeSpan.FromSeconds(2), AppIconRules.ReadTimeout);
     }
+
+    [TestMethod]
+    [Description("ADR-035 rule 1: an icon is read only for a tile that is on screen. The viewport is what the window shows, in the tile's own coordinates; any part of the tile inside it counts, and an empty viewport or a tile with no size does not.")]
+    public void ATileIsOnScreenWhenAnyPartOfItIsInsideWhatTheWindowShows()
+    {
+        // A 32 x 32 tile; the window shows 1,000 x 600 units and the tile is 100 across and 200 down inside it.
+        Assert.IsTrue(AppIconRules.IsOnScreen(-100, -200, 1000, 600, 32, 32));
+        Assert.IsTrue(AppIconRules.IsOnScreen(-100, 20, 1000, 600, 32, 32), "the tile's lower part shows at the top edge");
+        Assert.IsTrue(AppIconRules.IsOnScreen(-100, -590, 1000, 600, 32, 32), "the tile's upper part shows at the bottom edge");
+
+        Assert.IsFalse(AppIconRules.IsOnScreen(-100, 32, 1000, 600, 32, 32), "just above what is shown");
+        Assert.IsFalse(AppIconRules.IsOnScreen(-100, -600, 1000, 600, 32, 32), "just below what is shown");
+        Assert.IsFalse(AppIconRules.IsOnScreen(-100, -5000, 1000, 600, 32, 32), "far down a long page");
+        Assert.IsFalse(AppIconRules.IsOnScreen(40, -200, 1000, 600, 32, 32), "to the left of what is shown");
+        Assert.IsFalse(AppIconRules.IsOnScreen(-1000, -200, 1000, 600, 32, 32), "to the right of what is shown");
+
+        Assert.IsFalse(AppIconRules.IsOnScreen(-100, -200, 0, 600, 32, 32), "nothing is shown");
+        Assert.IsFalse(AppIconRules.IsOnScreen(double.PositiveInfinity, double.PositiveInfinity, double.NegativeInfinity, double.NegativeInfinity, 32, 32), "Windows' empty rectangle");
+        Assert.IsFalse(AppIconRules.IsOnScreen(double.NaN, 0, 1000, 600, 32, 32));
+        Assert.IsFalse(AppIconRules.IsOnScreen(0, 0, double.NaN, 600, 32, 32));
+        Assert.IsFalse(AppIconRules.IsOnScreen(-100, -200, 1000, 600, 0, 0), "a tile in a closed group has no size");
+        Assert.IsTrue(AppIconRules.IsOnScreen(double.NegativeInfinity, double.NegativeInfinity, double.PositiveInfinity, double.PositiveInfinity, 32, 32), "nothing clips the tile");
+    }
 }

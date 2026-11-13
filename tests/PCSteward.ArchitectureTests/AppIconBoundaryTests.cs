@@ -78,8 +78,20 @@ public sealed class AppIconBoundaryTests
         // Kept in memory for the session with an upper limit, a few reads at a time, each abandoned if slow.
         StringAssert.Contains(loader, "if (cache.Count < AppIconRules.MaximumCachedIcons) cache[key] = icon;");
         StringAssert.Contains(loader, "if (runningReads < AppIconRules.MaximumConcurrentReads)");
-        Assert.AreEqual(3, Count(loader, ".WaitAsync(AppIconRules.ReadTimeout)"));
         StringAssert.Contains(loader, "catch (Exception) { icon = null; }");
+
+        // A slow read is not waited for, but it keeps its turn and its place until it really ends, so stalled reads can never
+        // number more than the few allowed at once and a stalled read is not started a second time (independent review).
+        Assert.AreEqual(1, Count(loader, ".WaitAsync("));
+        string wait = Between(loader, "private async Task<ImageSource?> LoadInTurnAsync(", "private async Task<ImageSource?> ReadAndRememberAsync(");
+        StringAssert.Contains(wait, "await TurnAsync();");
+        StringAssert.Contains(wait, "try { return await read.WaitAsync(AppIconRules.ReadTimeout); }");
+        StringAssert.Contains(wait, "catch (TimeoutException) { return null; }");
+        Assert.IsFalse(wait.Contains("EndTurn", StringComparison.Ordinal) || wait.Contains("pending.Remove", StringComparison.Ordinal), "giving up waiting frees nothing");
+        string ending = Between(loader, "private async Task<ImageSource?> ReadAndRememberAsync(", "private Task TurnAsync()");
+        Assert.IsTrue(ending.IndexOf("catch (Exception) { icon = null; }", StringComparison.Ordinal) < ending.IndexOf("EndTurn();", StringComparison.Ordinal), "the turn is given up after the read ended");
+        StringAssert.Contains(ending, "pending.Remove(key);");
+        Assert.AreEqual(1, Count(loader, "EndTurn();"));
     }
 
     [TestMethod]
@@ -106,6 +118,17 @@ public sealed class AppIconBoundaryTests
         StringAssert.Contains(icons, "if (icon is not null && !windowClosed) show(icon);");
         StringAssert.Contains(icons, "AppIconRules.PixelSize(Content?.XamlRoot?.RasterizationScale ?? 1)");
 
+        // ADR-035 rule 1 (independent review): a read starts only when its tile is on screen, never when the tile is built.
+        // A row below the window's edge, in a closed group or in the list's scroll buffer reads nothing.
+        StringAssert.Contains(icons, "tile.EffectiveViewportChanged += (sender, args) =>");
+        StringAssert.Contains(icons, "watch.OnScreen = AppIconRules.IsOnScreen(viewport.X, viewport.Y, viewport.Width, viewport.Height, sender.ActualWidth, sender.ActualHeight);");
+        StringAssert.Contains(icons, "if (!ShowAppIconIfAlreadyRead(source, Show)) WatchTile(tile).ReadWhenOnScreen = () => ShowAppIcon(source, Show);");
+        StringAssert.Contains(icons, "Action read = () => ShowAppIcon(source, Show);");
+        Assert.AreEqual(2, Count(icons, "ShowAppIcon(source, Show)"), "a read is only ever started by a tile coming on screen");
+        Assert.AreEqual(2, Count(icons, "() => ShowAppIcon(source, Show)"));
+        StringAssert.Contains(icons, "watch.ReadWhenOnScreen = null;");
+        StringAssert.Contains(icons, "if (watch.OnScreen && ReferenceEquals(watch.ReadWhenOnScreen, read)) StartWaitingRead(watch);");
+
         // Decoration: in the raw view only, in both the template and the built tiles; the row's name is unchanged.
         StringAssert.Contains(template, "AutomationProperties.Name=\"{Binding AccessibleSummary}\"");
         StringAssert.Contains(template, "Text=\"{Binding Initials}\"");
@@ -120,6 +143,7 @@ public sealed class AppIconBoundaryTests
         StringAssert.Contains(sources["PCSteward.Desktop/MainWindow.About.cs"], "privacy.Children.Add(PageCopy(AppIconRules.PrivacyNote));");
         string smoke = File.ReadAllText(Path.Combine(root, "scripts", "Test-DesktopLaunchSmokeCI.ps1"));
         StringAssert.Contains(smoke, "'LAYOUT-APP-ICONS shown='");
+        StringAssert.Contains(smoke, "'LAYOUT-APP-ICONS details='");
         StringAssert.Contains(smoke, "'the app exited while showing app icons (code '");
     }
 
