@@ -39,15 +39,22 @@ public static class DecisionNoticePresenter
     public static DecisionNotice Skipped(string name, string version, IEnumerable<string> keys, IReadOnlyCollection<StableDecision> active) =>
         new($"Version {version} of {name} is skipped. A newer version will be offered.", Newest(active, keys, UserDecisionService.SkipVersionKind), []);
 
-    public static DecisionNotice MatchConfirmed(string name, string stableProductKey, string sourceId, string packageId, IReadOnlyCollection<ManualMapping> mappings)
+    /// <summary>
+    /// <paramref name="savedBefore"/> holds the ids of the matches that were already saved before this confirmation. Confirming a
+    /// match that was already saved adds nothing, so the line says so and offers no Undo: Undo must never remove an earlier decision.
+    /// </summary>
+    public static DecisionNotice MatchConfirmed(string name, string stableProductKey, string sourceId, string packageId,
+        IReadOnlyCollection<ManualMapping> mappings, IReadOnlyCollection<Guid> savedBefore)
     {
         ArgumentNullException.ThrowIfNull(mappings);
+        ArgumentNullException.ThrowIfNull(savedBefore);
         Guid[] ids = [.. mappings
             .Where(mapping => string.Equals(mapping.StableProductKey, stableProductKey, StringComparison.Ordinal)
                 && string.Equals(mapping.SourceId, sourceId, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(mapping.PackageId, packageId, StringComparison.OrdinalIgnoreCase))
+                && string.Equals(mapping.PackageId, packageId, StringComparison.OrdinalIgnoreCase)
+                && !savedBefore.Contains(mapping.Id))
             .OrderByDescending(mapping => mapping.CreatedAt).Take(1).Select(mapping => mapping.Id)];
-        return new($"{packageId} is now matched to {name}.", [], ids);
+        return new(ids.Length > 0 ? $"{packageId} is now matched to {name}." : $"{packageId} was already matched to {name}.", [], ids);
     }
 
     private static Guid[] Newest(IReadOnlyCollection<StableDecision> active, IEnumerable<string> keys, string kind)

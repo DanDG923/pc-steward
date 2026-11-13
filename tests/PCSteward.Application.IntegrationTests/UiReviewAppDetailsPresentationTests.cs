@@ -147,10 +147,16 @@ public sealed class UiReviewAppDetailsPresentationTests
         Assert.IsFalse(skipped.CanUndo, "the line is still shown when the saved record can't be found again, without Undo");
 
         ManualMapping mapping = new(Guid.NewGuid(), "a", "winget", "Elgato.WaveLink", Now);
-        DecisionNotice matched = DecisionNoticePresenter.MatchConfirmed("Elgato Wave Link", "a", "WINGET", "Elgato.WaveLink", [mapping, new(Guid.NewGuid(), "b", "winget", "Elgato.WaveLink", Now)]);
+        ManualMapping[] saved = [mapping, new(Guid.NewGuid(), "b", "winget", "Elgato.WaveLink", Now)];
+        DecisionNotice matched = DecisionNoticePresenter.MatchConfirmed("Elgato Wave Link", "a", "WINGET", "Elgato.WaveLink", saved, []);
         Assert.AreEqual("Elgato.WaveLink is now matched to Elgato Wave Link.", matched.Message);
         CollectionAssert.AreEqual(new List<Guid> { mapping.Id }, matched.MappingIds.ToList());
         Assert.IsEmpty(matched.DecisionIds);
+
+        // Confirming a match that was already saved adds nothing, so Undo must not be offered: it would remove the earlier decision.
+        DecisionNotice again = DecisionNoticePresenter.MatchConfirmed("Elgato Wave Link", "a", "winget", "Elgato.WaveLink", saved, [mapping.Id]);
+        Assert.AreEqual("Elgato.WaveLink was already matched to Elgato Wave Link.", again.Message);
+        Assert.IsFalse(again.CanUndo);
     }
 
     private static AppDetailSummary Build(InventoryRow row, UpdateDetail? detail, bool sourcesEnabled = true) =>

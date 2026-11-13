@@ -135,12 +135,13 @@ public sealed partial class MainWindow
         };
         if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
         string decisionReason = reason.Text;
+        Guid[] savedBefore = [.. manualMappings.Select(mapping => mapping.Id)];
         PCSteward.Domain.ManualMappingValidation validation;
         try { validation = await DataOperationLease.RunAsync(token => workflow.CreateManualMappingAsync(row.StableProductKey, sourceId, packageId, viewModel.IsUpdateSourceEnabled, decisionReason, token), CancellationToken.None); }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); return; }
         if (!validation.IsValid) { await ShowUpdateOutcomeAsync("Match not saved", validation.Explanation); return; }
         LoadSavedInventory();
-        ShowDecisionNotice(DecisionNoticePresenter.MatchConfirmed(row.Name, row.StableProductKey, sourceId, packageId, manualMappings));
+        ShowDecisionNotice(DecisionNoticePresenter.MatchConfirmed(row.Name, row.StableProductKey, sourceId, packageId, manualMappings, savedBefore));
     }
 
     /// <summary>
