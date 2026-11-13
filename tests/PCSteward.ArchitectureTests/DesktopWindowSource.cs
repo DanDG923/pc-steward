@@ -17,7 +17,7 @@ internal static class DesktopWindowSource
         "MainWindow.Review.cs", "MainWindow.Storage.cs", "MainWindow.Activity.cs",
         "MainWindow.DataAndReset.cs", "MainWindow.Decisions.cs", "MainWindow.Shell.cs", "MainWindow.Scan.cs", "MainWindow.Updates.cs",
         "MainWindow.UpdateJob.cs", "MainWindow.Settings.cs", "MainWindow.Operations.cs", "MainWindow.Detail.cs", "MainWindow.Chocolatey.cs",
-        "MainWindow.SelfUpdate.cs"
+        "MainWindow.SelfUpdate.cs", "MainWindow.AppIcons.cs"
     ];
 
     /// <summary>The whole window source: every partial file, in <see cref="PartialFiles"/> order.</summary>

@@ -198,6 +198,23 @@ if ($failures.Count -eq 0 -and !$process.HasExited) {
         Write-Line ('LAYOUT-INSTALLED-LIST window=' + ($r.Right - $r.Left) + 'x' + ($r.Bottom - $r.Top) + ' listTop=' + [int]$box.Top + ' listHeight=' + [int]$box.Height + ' gapToWindowBottom=' + $gap + ' rowsOnScreen=' + $rows + ' verdict=' + $verdict)
         Write-SameLine (Find-Named $window 'Scan again' ([Windows.Automation.ControlType]::Button)) (Find-Named $window 'More options' ([Windows.Automation.ControlType]::Button)) 'installed-header'
         Write-SameLine (Find-Named $window 'Sort by' ([Windows.Automation.ControlType]::Text)) (Find-Named $window 'Sort applications' ([Windows.Automation.ControlType]::ComboBox)) 'installed-sort'
+        # UI review 2026-11-13 (item 20; ADR-035): a row shows the app's own icon when one could be read, and its two letters
+        # otherwise. The image is decoration, so it is in the raw view only. Icons arrive a moment after the rows.
+        try {
+            $rawView = New-Object Windows.Automation.CacheRequest
+            $rawView.TreeFilter = [Windows.Automation.Automation]::RawViewCondition
+            $byIcon = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, 'AppIcon')
+            $icons = 0
+            $iconDeadline = (Get-Date).AddSeconds(15)
+            do {
+                Start-Sleep -Seconds 3
+                $active = $rawView.Activate()
+                try { $icons = @($list.FindAll([Windows.Automation.TreeScope]::Descendants, $byIcon) | Where-Object { $_.Current.BoundingRectangle.Width -gt 0 }).Count } finally { $active.Dispose() }
+            } while ($icons -eq 0 -and (Get-Date) -lt $iconDeadline)
+            $process.Refresh()
+            Write-Line ('LAYOUT-APP-ICONS shown=' + $icons + ' rowsBuilt=' + $rows + ' appRunning=' + !$process.HasExited)
+            if ($process.HasExited) { $failures.Add('the app exited while showing app icons (code ' + $process.ExitCode + ')') }
+        } catch { Write-Line ('LAYOUT-APP-ICONS skipped: ' + $_.Exception.Message) }
         Save-Screenshot $handle '08-Installed-apps-after-scan'
         # UI review 2026-11-13 (item 19): on this wide window an app opened from the list shows its details beside the list.
         try {

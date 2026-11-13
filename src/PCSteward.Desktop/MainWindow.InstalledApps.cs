@@ -129,6 +129,7 @@ public sealed partial class MainWindow
         ListView list = new() { Style = AppStyle("StewardListViewStyle"), ItemContainerStyle = AppStyle("StewardListItemStyle"), ItemTemplate = (DataTemplate)global::Microsoft.UI.Xaml.Application.Current.Resources["StewardApplicationRowTemplate"] };
         AutomationProperties.SetName(list, "Installed apps list");
         AutomationProperties.SetAutomationId(list, "InstalledAppsList");
+        ShowAppIconsInRows(list);
         Border listCard = new() { Style = AppStyle("StewardCardStyle"), Padding = new Thickness(0, StewardSpacing.XSmall, 0, StewardSpacing.XSmall), Child = list };
         StewardVisuals.FillViewportHeight(panel, listCard, list, MinimumListHeight);
         // "Has an update source" lists nothing while update checks are off, so its empty state says that and opens Settings.

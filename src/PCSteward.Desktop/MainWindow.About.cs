@@ -66,8 +66,11 @@ public sealed partial class MainWindow
 
         StackPanel works = new() { Spacing = StewardSpacing.XSmall };
         works.Children.Add(SectionHeading("How PC Steward works"));
-        works.Children.Add(StewardVisuals.ExpanderRow("\uE72E", "Private, and you stay in control", "No account, cloud sync, usage tracking, always-running background service or automatic updates.",
-            PageCopy("PC Steward has no account and sends no usage data. It never runs in the background as administrator and never installs anything you haven't reviewed and approved."), "green"));
+        StackPanel privacy = new() { Spacing = StewardSpacing.Small };
+        privacy.Children.Add(PageCopy("PC Steward has no account and sends no usage data. It never runs in the background as administrator and never installs anything you haven't reviewed and approved."));
+        // ADR-035: the lists read each app's own icon; said here because it is a read PC Steward did not make before.
+        privacy.Children.Add(PageCopy(AppIconRules.PrivacyNote));
+        works.Children.Add(StewardVisuals.ExpanderRow("\uE72E", "Private, and you stay in control", "No account, cloud sync, usage tracking, always-running background service or automatic updates.", privacy, "green"));
         StackPanel elevation = new() { Spacing = StewardSpacing.Small };
         elevation.Children.Add(PageCopy(ElevationStory.Summary));
         elevation.Children.Add(PageCopy(ElevationStory.HelperRequirement));

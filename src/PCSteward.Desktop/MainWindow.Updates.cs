@@ -113,7 +113,7 @@ public sealed partial class MainWindow
                 choose.Checked += (_, _) => { if (selectedReadyKeys.Add(key)) Render(); };
                 choose.Unchecked += (_, _) => { if (selectedReadyKeys.Remove(key)) Render(); };
                 line.Children.Add(choose);
-                Border avatar = StewardVisuals.Avatar(StewardPresentation.Initials(ready.Name));
+                Border avatar = AppTile(ready.Name, ready.StableProductKey);
                 Grid.SetColumn(avatar, 1); line.Children.Add(avatar);
                 StewardWrapPanel title = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.XSmall };
                 title.Children.Add(UpdateRowName(ready.Name, ready.StableProductKey));
@@ -151,7 +151,7 @@ public sealed partial class MainWindow
             foreach (UpdateRowPresentation match in page.CheckTheMatch)
             {
                 Grid line = UpdateRowGrid();
-                Border avatar = StewardVisuals.Avatar(StewardPresentation.Initials(match.Name));
+                Border avatar = AppTile(match.Name, match.StableProductKey);
                 Grid.SetColumnSpan(avatar, 2); line.Children.Add(avatar);
                 StewardWrapPanel title = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.XSmall };
                 title.Children.Add(UpdateRowName(match.Name, match.StableProductKey));
@@ -239,7 +239,7 @@ public sealed partial class MainWindow
             foreach (UpdateRowPresentation ignored in page.IgnoredAndSkipped)
             {
                 Grid line = UpdateRowGrid();
-                Border avatar = StewardVisuals.Avatar(StewardPresentation.Initials(ignored.Name));
+                Border avatar = AppTile(ignored.Name, ignored.StableProductKey);
                 Grid.SetColumnSpan(avatar, 2); line.Children.Add(avatar);
                 TextBlock name = new() { Text = ignored.Name, Style = AppStyle("StewardBodyStrongStyle"), TextWrapping = TextWrapping.Wrap };
                 UpdateRowCopy(line, name, ignored.Summary);

@@ -18,20 +18,26 @@
                 <ColumnDefinition Width="1.4*" />
                 <ColumnDefinition Width="16" />
             </Grid.ColumnDefinitions>
-            <Border
-                Width="32"
-                Height="32"
-                VerticalAlignment="Center"
-                Background="{ThemeResource StewardIconWellBrush}"
-                CornerRadius="6">
-                <TextBlock
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    FontSize="12"
-                    FontWeight="SemiBold"
-                    Foreground="{ThemeResource StewardTextBrush}"
-                    Text="{Binding Initials}" />
-            </Border>
+            <!-- ADR-035: the two-letter tile, and over it the app's own icon when one could be read (MainWindow.AppIcons.cs
+                 shows the image and hides the letters). The image is decoration: the row's name is the app's name. -->
+            <Grid Width="32" Height="32" VerticalAlignment="Center">
+                <Border Background="{ThemeResource StewardIconWellBrush}" CornerRadius="6">
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        FontSize="12"
+                        FontWeight="SemiBold"
+                        Foreground="{ThemeResource StewardTextBrush}"
+                        Text="{Binding Initials}" />
+                </Border>
+                <Image
+                    Width="32"
+                    Height="32"
+                    AutomationProperties.AccessibilityView="Raw"
+                    AutomationProperties.AutomationId="AppIcon"
+                    Stretch="Uniform"
+                    Visibility="Collapsed" />
+            </Grid>
             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
                 <TextBlock
                     Foreground="{ThemeResource StewardTextBrush}"

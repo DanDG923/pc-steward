@@ -50,7 +50,7 @@ public sealed partial class MainWindow
         Grid heading = new() { ColumnSpacing = StewardSpacing.Large };
         heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         heading.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Border avatar = StewardVisuals.Avatar(StewardPresentation.Initials(row.Name));
+        Border avatar = AppTile(row.Name, row);
         avatar.VerticalAlignment = VerticalAlignment.Center;
         heading.Children.Add(avatar);
         StackPanel title = new() { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
