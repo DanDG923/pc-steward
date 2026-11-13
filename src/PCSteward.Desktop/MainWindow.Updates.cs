@@ -143,7 +143,8 @@ public sealed partial class MainWindow
         }
 
         // Check the match (UI review 2026-11-13, item 10): one question the owner can answer. "Yes, same app" opens the existing
-        // confirmation, which records a reversible match and never starts an update; the row has no update control at all.
+        // confirmation, which records a reversible match and never starts an update; "Choose the match" opens the app's details,
+        // where tied matches are listed. The row has no update control at all.
         if (page.CheckTheMatch.Count > 0)
         {
             List<FrameworkElement> matchRows = [];
@@ -166,9 +167,13 @@ public sealed partial class MainWindow
                     if (RowsFor([matchKey]) is [var row] && viewModel.UpdateDetails.TryGetValue(matchKey, out UpdateDetail? detail) && detail is { SourceId: not null, PackageId: not null, CanConfirmPackageIdentity: true })
                         await PromptAndConfirmPackageIdentityAsync(row, detail);
                 };
+                // Tied matches (owner decision 2026-11-13: ask only when two packages tie): the choice is made on the app's details,
+                // through the same reversible confirmation. Opening details never starts, approves or changes anything.
+                Button pick = StewardVisuals.ActionButton("Choose the match", $"for {match.Name}");
+                pick.Click += async (_, _) => { if (RowsFor([matchKey]) is [var row]) await ShowDetailsAsync(row); };
                 StewardWrapPanel matchActions = StewardVisuals.ActionRow();
                 matchActions.VerticalAlignment = VerticalAlignment.Center;
-                matchActions.Children.Add(same);
+                matchActions.Children.Add(match.AsksToChoose ? pick : same);
                 matchActions.Children.Add(UpdateRowOverflow(match));
                 Grid.SetColumn(matchActions, 3); line.Children.Add(matchActions);
                 matchRows.Add(line);

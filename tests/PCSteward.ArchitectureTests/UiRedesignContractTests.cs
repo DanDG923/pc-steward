@@ -24,6 +24,7 @@ public sealed class UiRedesignContractTests
         // UI review 2026-11-13 (items 9 and 10): the per-row "Update…" and "Yes, same app" buttons name their app.
         "StewardVisuals.ActionButton(\"Update…\", $\"{ready.Name} to {ready.NewVersion}\")",
         "StewardVisuals.ActionButton(\"Yes, same app\", $\"({match.PackageId} is {match.Name})\")",
+        "StewardVisuals.ActionButton(\"Choose the match\", $\"for {match.Name}\")",
         "StewardVisuals.ActionButton(\"Check again\", $\"for {group.Names}\")"
     ];
     // UI polish phase 4 (approved target T-Settings) deliberately removes Settings' "Open Decisions" card: Decisions is a main
@@ -365,6 +366,8 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(match, "UpdateRowCopy(line, title, match.Summary);");
         StringAssert.Contains(match, "detail is { SourceId: not null, PackageId: not null, CanConfirmPackageIdentity: true })");
         StringAssert.Contains(match, "await PromptAndConfirmPackageIdentityAsync(row, detail);");
+        StringAssert.Contains(match, "pick.Click += async (_, _) => { if (RowsFor([matchKey]) is [var row]) await ShowDetailsAsync(row); };");
+        StringAssert.Contains(match, "matchActions.Children.Add(match.AsksToChoose ? pick : same);");
         // Can't update yet: the reason in words, each app's name opens its details, and "Check again" is the read-only check.
         StringAssert.Contains(cantUpdate, "Text = group.Reason");
         StringAssert.Contains(cantUpdate, "again.Click += async (_, _) => await CheckForUpdatesAsync();");

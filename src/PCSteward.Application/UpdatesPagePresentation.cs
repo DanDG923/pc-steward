@@ -180,20 +180,29 @@ public sealed record UpdateRowPresentation(
     bool AsksAboutMatch = false,
     string CantUpdateReason = "",
     bool CanCheckAgain = false,
-    bool OffersNewer = true)
+    bool OffersNewer = true,
+    int Choices = 0,
+    bool AsksToChoose = false)
 {
     /// <summary>
     /// UI review 2026-11-13 (item 10): true when an update is on offer for this row, so it belongs on the Updates page. A row
     /// with nothing on offer stays on Installed apps. A verified or unreachable row is always shown, so nothing is hidden that
     /// PC Steward tried and failed to check.
     /// </summary>
-    public bool IsOnOffer => Group != UpdateGroup.NeedsReview || Status != nameof(UpdateIntelligenceStatus.ReviewRequired) || (NewVersion is not null && OffersNewer);
+    public bool IsOnOffer => Group != UpdateGroup.NeedsReview || Status != nameof(UpdateIntelligenceStatus.ReviewRequired) || ((NewVersion is not null || Choices > 0) && OffersNewer);
+
+    /// <summary>
+    /// True when the row puts a question to the owner: one possible match to confirm (<see cref="AsksAboutMatch"/>) or several tied
+    /// matches to choose from (<see cref="AsksToChoose"/>, owner decision 2026-11-13: ask only when two packages tie).
+    /// </summary>
+    public bool AsksOwner => AsksAboutMatch || AsksToChoose;
 
     /// <summary>
     /// The one question the owner can answer for a "Check the match" row, for example "WinGet has 3.4.0, listed as
     /// Elgato.WaveLink. Is that this app?" Empty for every other row.
     /// </summary>
-    public string Question => !AsksAboutMatch ? string.Empty
+    public string Question => AsksToChoose ? $"PC Steward found {Choices.ToString(CultureInfo.CurrentCulture)} possible matches, and a newer version is on offer. Which one is this app?"
+        : !AsksAboutMatch ? string.Empty
         : SourceName.Length > 0 ? $"{SourceName} has {NewVersion}, listed as {PackageId}. Is that this app?"
         : $"Version {NewVersion} is on offer, listed as {PackageId}. Is that this app?";
 
@@ -248,7 +257,7 @@ public sealed record UpdateRowPresentation(
                     if (Badge is { Jump: VersionJump.Major }) parts.Add("bigger changes are possible");
                     parts.AddRange(Reasons);
                     break;
-                case UpdateGroup.NeedsReview when AsksAboutMatch:
+                case UpdateGroup.NeedsReview when AsksOwner:
                     parts.Add(Question);
                     break;
                 case UpdateGroup.NeedsReview:
@@ -321,10 +330,10 @@ public sealed record UpdatesPagePresentation(
     /// UI review 2026-11-13 (item 10): the rows that ask the owner one question they can answer. Every row here has an update on
     /// offer and a match the owner can confirm; confirming records a reversible decision and never starts an update.
     /// </summary>
-    public IReadOnlyList<UpdateRowPresentation> CheckTheMatch => [.. NeedsReview.Where(row => row.IsOnOffer && row.AsksAboutMatch)];
+    public IReadOnlyList<UpdateRowPresentation> CheckTheMatch => [.. NeedsReview.Where(row => row.IsOnOffer && row.AsksOwner)];
 
     /// <summary>Rows with an update on offer, or a failed check, that nothing on this page can settle. Each has a reason in words.</summary>
-    public IReadOnlyList<UpdateRowPresentation> CantUpdateYet => [.. NeedsReview.Where(row => row.IsOnOffer && !row.AsksAboutMatch)];
+    public IReadOnlyList<UpdateRowPresentation> CantUpdateYet => [.. NeedsReview.Where(row => row.IsOnOffer && !row.AsksOwner)];
 
     /// <summary><see cref="CantUpdateYet"/> grouped by its reason, in first-seen order: one line per reason, naming its apps.</summary>
     public IReadOnlyList<CantUpdateGroup> CantUpdateGroups =>
@@ -406,12 +415,20 @@ public static class UpdatesPagePresenter
                     bool newer = detail is not null && !detail.ReviewReasons.Any(reason => reason is nameof(MappingReviewReason.CandidateIsCurrent) or nameof(MappingReviewReason.CandidateIsOlder))
                         && !string.Equals(detail.CandidateVersion?.Trim(), row.Version.Trim(), StringComparison.OrdinalIgnoreCase);
                     bool asks = sourcesEnabled && newer && detail is { CanConfirmPackageIdentity: true, CandidateVersion: not null, PackageId: not null, SourceId: not null };
+                    // Tied matches (owner decision 2026-11-13: ask only when two packages tie). The matcher records no single
+                    // candidate, so the row has no new version of its own, but each choice carries its version. A choice that isn't
+                    // known to be the installed version or older is on offer, so the app is never hidden as "nothing on offer".
+                    int choices = detail is { SourceId: null, PackageId: null, CandidateVersion: null } ? detail.ReviewCandidates.Count : 0;
+                    bool newerChoice = choices > 0 && detail!.ReviewCandidates.Any(choice => MayBeNewer(row.Version, choice.CandidateVersion));
+                    bool chooses = sourcesEnabled && newerChoice;
                     review.Add(Row(row, detail, UpdateGroup.NeedsReview, NeedsReviewReasons(detail), WithSkip([Ignore, Pin, Details], detail)) with
                     {
                         AsksAboutMatch = asks,
-                        OffersNewer = newer,
-                        CantUpdateReason = asks ? string.Empty : CantUpdateReasons.For(detail),
-                        CanCheckAgain = !asks && sourcesEnabled && detail is { RequiresFreshSourceEvidence: true }
+                        AsksToChoose = chooses,
+                        Choices = newerChoice ? choices : 0,
+                        OffersNewer = choices > 0 ? newerChoice : newer,
+                        CantUpdateReason = asks || chooses ? string.Empty : newerChoice ? CantUpdateReasons.MoreThanOne : CantUpdateReasons.For(detail),
+                        CanCheckAgain = !asks && !chooses && sourcesEnabled && detail is { RequiresFreshSourceEvidence: true }
                     });
                     break;
                 case nameof(UpdateIntelligenceStatus.FailedUnavailable):
@@ -451,6 +468,14 @@ public static class UpdatesPagePresenter
         string[] selected = selectedKeys is null ? [] : [.. ready.Select(row => row.StableProductKey).Where(key => selectedKeys.Contains(key, StringComparer.Ordinal))];
         return new(ready, review, ignored, selected);
     }
+
+    /// <summary>
+    /// True unless <paramref name="candidate"/> is known to be the installed version or older. A version that can't be compared
+    /// counts as possibly newer, so the page never says nothing is on offer when it can't tell.
+    /// </summary>
+    private static bool MayBeNewer(string installed, string? candidate) =>
+        !string.IsNullOrWhiteSpace(candidate) && !string.Equals(candidate.Trim(), installed.Trim(), StringComparison.OrdinalIgnoreCase)
+        && VersionComparison.Compare(new VersionComparisonRequest(installed, candidate)).Outcome is not (VersionComparisonOutcome.Equal or VersionComparisonOutcome.Older);
 
     /// <summary>The line under the "Check the match" heading.</summary>
     public const string CheckTheMatchDescription = "Answer once and PC Steward will offer the update.";

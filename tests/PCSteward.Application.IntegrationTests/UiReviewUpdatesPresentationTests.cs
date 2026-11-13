@@ -15,6 +15,7 @@ public sealed class UiReviewUpdatesPresentationTests
     private static readonly DateTimeOffset Now = new(2026, 11, 13, 15, 0, 0, TimeSpan.Zero);
     private static readonly string[] ReadyKeys = ["ready"];
     private static readonly string[] MatchKeys = ["match"];
+    private static readonly string[] TiedKeys = ["tied", "odd"];
     private static readonly string[] CantKeys = ["terminal", "wave", "unreachable", "stale"];
     private static readonly string[] GroupReasons = [CantUpdateReasons.HowInstalledUnknown, CantUpdateReasons.CouldNotCheck, CantUpdateReasons.NeedsFreshCheck];
 
@@ -98,6 +99,36 @@ public sealed class UiReviewUpdatesPresentationTests
     }
 
     [TestMethod]
+    [Description("Item 10 (owner decision 2026-11-13: ask only when two packages tie): tied matches with a newer version stay on Updates as a question; without one they are not listed.")]
+    public void TiedMatchesWithANewerVersionAreAQuestionNotHidden()
+    {
+        // The matcher records no single candidate for a tie, so the row has no new version of its own; the choices carry theirs.
+        InventoryRow[] rows = [Row("tied", "Widget", "ReviewRequired", "1.0"), Row("same", "Gadget", "ReviewRequired", "2.0"), Row("odd", "Gizmo", "ReviewRequired", "2026-R1")];
+        Dictionary<string, UpdateDetail> details = new(StringComparer.Ordinal)
+        {
+            ["tied"] = Tied("tied", "1.0", "1.1", "1.0"),
+            ["same"] = Tied("same", "2.0", "2.0", "1.9"),
+            ["odd"] = Tied("odd", "2026-R1", "spring", null)
+        };
+        UpdatesPagePresentation page = UpdatesPagePresenter.Build(rows, details, true, [], ["tied"], Now);
+        CollectionAssert.AreEqual(TiedKeys, page.CheckTheMatch.Select(row => row.StableProductKey).ToArray(), "a version that can't be compared is not assumed to be nothing");
+        Assert.AreEqual(1, page.NothingOnOfferCount, "choices that are the installed version or older are not an update on offer");
+        UpdateRowPresentation tied = page.CheckTheMatch[0];
+        Assert.IsTrue(tied.AsksToChoose);
+        Assert.IsFalse(tied.AsksAboutMatch, "there is no single match to say yes to");
+        Assert.AreEqual("PC Steward found 2 possible matches, and a newer version is on offer. Which one is this app?", tied.Question);
+        Assert.AreEqual(tied.Question, tied.Summary);
+        Assert.IsFalse(tied.HasUpdateControl, "choosing a match is a decision; it is never an update control");
+        Assert.IsEmpty(page.SelectedKeys, "a tied row can never be selected");
+        Assert.IsEmpty(page.Ready);
+
+        // With update checks off the choice couldn't be used, so it is a reason, not a question; the app is still listed.
+        UpdatesPagePresentation off = UpdatesPagePresenter.Build([rows[0]], details, false, [], null, Now);
+        Assert.IsEmpty(off.CheckTheMatch);
+        Assert.AreEqual(CantUpdateReasons.MoreThanOne, off.CantUpdateYet.Single().CantUpdateReason);
+    }
+
+    [TestMethod]
     [Description("Item 9: a ready row doesn't repeat that its match is sure, and the size of the version change is a fact without a warning colour.")]
     public void ReadyRowsSayOnlyWhatDiffers()
     {
@@ -118,6 +149,11 @@ public sealed class UiReviewUpdatesPresentationTests
 
     private static InventoryRow Row(string key, string name, string status, string version) =>
         new(Guid.NewGuid(), name, "Contoso", "winget", "User", version, status, "Application", [], key);
+
+    private static UpdateDetail Tied(string key, string installed, params string?[] versions) =>
+        new(key, installed, null, null, null, "None", "More than one package has the same strongest evidence.", "winget: live result from today.", "X64", null,
+            "Fixture.", ["AmbiguousCandidate"], [],
+            [.. versions.Select((version, index) => new ReviewCandidateChoice("winget", $"Contoso.Choice{index}", version, "Contoso", "User", "x64", "Stable", "Fixture.", []))]);
 
     private static UpdateDetail Detail(string key, string installed, string? candidate, string? packageId, string confidence = "High",
         string[]? reasons = null, bool canConfirm = false, bool needsFreshCheck = false) =>
