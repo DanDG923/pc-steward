@@ -104,7 +104,10 @@ public static class AdvisoryAiRedaction
         // Secrets are found before the PC's account, domain and computer names are replaced, so a name that happens to equal a
         // secret label ("token", "serial") can never break the label apart and leave its value behind. The first pass removes
         // invisible characters and replaces paths, links, SIDs and addresses; the second replaces only the names.
-        string? structural = DiagnosticTextSanitizer.Sanitize(text, int.MaxValue, null, text.Length + 1).Value;
+        // A quoted secret value is removed whole before that first pass, so a value that starts like a path and holds an escaped quote
+        // (password="C:\temp\x\"hunter2") cannot be taken as a quoted path that ends early and leaves the rest of the secret behind.
+        string quoted = RedactQuotedNamedValues(StripInvisibleKeepingLines(text));
+        string? structural = DiagnosticTextSanitizer.Sanitize(quoted, int.MaxValue, null, quoted.Length + 1).Value;
         if (structural is null) return new(null, false);
         string redacted = RedactSecrets(structural);
         string? cleaned = context is null ? redacted : DiagnosticTextSanitizer.Sanitize(redacted, int.MaxValue, context, redacted.Length + 1).Value;
@@ -154,6 +157,10 @@ public static class AdvisoryAiRedaction
         value = LongBase64.Replace(value, SecretPlaceholder);
         return value;
     }
+
+    /// <summary>Removes only the quoted values of named secrets; an unquoted value is left for the full pass after paths are replaced.</summary>
+    private static string RedactQuotedNamedValues(string value) =>
+        NamedSecret.Replace(value, match => match.Groups[5].Success ? match.Value : RedactNamedValue(match));
 
     private static string RedactNamedValue(Match match)
     {

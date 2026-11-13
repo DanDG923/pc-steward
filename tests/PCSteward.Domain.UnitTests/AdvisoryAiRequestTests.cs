@@ -145,6 +145,8 @@ public sealed class AdvisoryAiRequestTests
         Assert.IsTrue(edited.Items[0].EditedByOwner);
         Assert.AreEqual(AdvisoryAiEvidenceRole.SelectedIncident, edited.Items[0].Role, "an edit never changes the role");
         Assert.AreEqual(draft.Version + 1, edited.Version);
+        Assert.AreEqual(AdvisoryAiDraftProblem.None, draft.TryEdit(0, "Login failed: password=\"C:\\temp\\prefix\\\"hunter2\"", identity, out AdvisoryAiEvidenceDraft quoted));
+        Assert.AreEqual("Login failed: password=\"[secret]\"", quoted.Items[0].Text, "a path-like quoted secret with an escaped quote is removed whole");
         Assert.AreEqual(AdvisoryAiDraftProblem.EditIsEmpty, draft.TryEdit(0, " \u200B ", identity, out _));
         Assert.AreEqual(AdvisoryAiDraftProblem.NoSuchItem, draft.TryEdit(99, "x", identity, out _));
 

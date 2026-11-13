@@ -52,6 +52,9 @@ public sealed class AdvisoryAiRedactionTests
     [DataRow("{\"client_secret\": \"a, b; c\"}", "a, b; c", "{\"client_secret\": \"[secret]\"}")]
     [DataRow("{\"password\":\"prefix\\\"hunter2\"}", "hunter2", "{\"password\":\"[secret]\"}")]
     [DataRow("secret='it\\'s hunter2' next", "hunter2", "secret='[secret]' next")]
+    [DataRow("password=\"C:\\temp\\prefix\\\"hunter2\" next", "hunter2", "password=\"[secret]\" next", DisplayName = "path-like value with an escaped quote")]
+    [DataRow("token='C:\\temp\\it\\'s hunter2' next", "hunter2", "token='[secret]' next", DisplayName = "single-quoted path-like value")]
+    [DataRow("pass\u200Bword=\"C:\\temp\\x\\\"hunter2\"", "hunter2", "password=\"[secret]\"", DisplayName = "invisible character in the label")]
     public void QuotedNamesAndValuesAreRedactedInFull(string text, string mustNotRemain, string expected)
     {
         string? clean = AdvisoryAiRedaction.SanitizeEvidence(text, 2048, Identity).Value;
