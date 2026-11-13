@@ -115,9 +115,13 @@ public sealed partial class MainWindow
                 line.Children.Add(choose);
                 Border avatar = AppTile(ready.Name, ready.StableProductKey);
                 Grid.SetColumn(avatar, 1); line.Children.Add(avatar);
-                StewardWrapPanel title = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.XSmall };
-                title.Children.Add(UpdateRowName(ready.Name, ready.StableProductKey));
-                title.Children.Add(new TextBlock { Text = ready.VersionText, VerticalAlignment = VerticalAlignment.Center, IsTextSelectionEnabled = true });
+                // A row with a badge is a title row: the name, the versions and the badge share one middle line. A row without one
+                // is laid out as before.
+                bool badged = ready.Badge is not null;
+                StewardWrapPanel title = badged ? StewardVisuals.TitleRow() : new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.XSmall };
+                title.Children.Add(UpdateRowName(ready.Name, ready.StableProductKey, badged));
+                TextBlock versions = new() { Text = ready.VersionText, VerticalAlignment = VerticalAlignment.Center, IsTextSelectionEnabled = true };
+                title.Children.Add(badged ? StewardVisuals.CapCentred(versions) : versions);
                 if (ready.Badge is { } badge)
                 {
                     Border jump = StewardVisuals.Badge(badge.Label, badge.Glyph, StewardStatus.ToneName(badge.Tone), badge.AccessibleName);
@@ -276,11 +280,14 @@ public sealed partial class MainWindow
     /// An app's name on an Updates row. It opens the app's details, as a row on Installed apps does (UI review 2026-11-13, item 9).
     /// Opening details never starts, approves or changes anything.
     /// </summary>
-    private Button UpdateRowName(string name, string stableProductKey)
+    private Button UpdateRowName(string name, string stableProductKey, bool besideBadge = false)
     {
+        // Beside a badge the name's letters are centred on the badge (see StewardVisuals.CapCentred); the button keeps one text
+        // line's height, so it is no smaller a target.
+        TextBlock label = new() { Text = name, Style = AppStyle("StewardBodyStrongStyle"), TextWrapping = TextWrapping.Wrap };
         Button open = new()
         {
-            Content = new TextBlock { Text = name, Style = AppStyle("StewardBodyStrongStyle"), TextWrapping = TextWrapping.Wrap },
+            Content = besideBadge ? StewardVisuals.CapCentred(label) : label,
             Padding = new Thickness(0),
             MinWidth = 0,
             MinHeight = 0,

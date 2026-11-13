@@ -305,7 +305,7 @@ public sealed partial class UiAccessibilityContractTests
         // Owner report 2026-11-13 (release 0.1.14): a row of controls gives everything on one line the line's height, so Home's
         // "Check for updates" (with an icon) is level with "Update all N…" beside it. Rows of text and chips do not.
         StringAssert.Contains(presentation, "ActionRow(double spacing = StewardSpacing.Small) => new() { HorizontalSpacing = spacing, VerticalSpacing = spacing, LevelLines = true };");
-        Assert.AreEqual(1, Count(presentation, "LevelLines = true"));
+        Assert.AreEqual(2, Count(presentation, "LevelLines = true"), "action rows and title rows that hold a badge");
         // The same report: the update steps' joining lines are at the circles' middle, and a step's number is centred by its shape.
         string steps = Between(DesktopSource("MainWindow.cs"), "private static Grid BuildJobStepIndicator(", "private static string RiskGlyph(");
         StringAssert.Contains(steps, "StewardWrapPanel row = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.Small, LevelLines = true };");
@@ -336,6 +336,47 @@ public sealed partial class UiAccessibilityContractTests
         StringAssert.Contains(source, "new FontIcon { Glyph = \"\\uEA18\", FontSize = 16, Margin = StewardVisuals.IconLabelIconMargin, VerticalAlignment = VerticalAlignment.Center }");
         Assert.IsFalse(source.Contains("HorizontalScrollBarVisibility = ScrollBarVisibility.Auto", StringComparison.Ordinal), "filter rows wrap instead of scrolling sideways");
         Assert.IsTrue(Count(source, "StewardVisuals.ActionRow()") >= 12);
+    }
+
+    [TestMethod]
+    [Description("FR-UI-01, AC-UX-01 best effort (UI review follow-up 2026-11-13, owner report): a status badge is level with the title beside it, and its label sits at the middle of its pill.")]
+    public void ABadgeIsLevelWithTheTitleBesideIt()
+    {
+        string presentation = DesktopSource("StewardPresentation.cs");
+        string source = DesktopSource("MainWindow.cs");
+        // A title line that holds a badge gives everything on a line the line's height, so each thing centres itself in it.
+        StringAssert.Contains(presentation, "public static StewardWrapPanel TitleRow() => new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.XSmall, LevelLines = true };");
+        // Text beside the badge is measured by its capital letters and centred in a holder that is still one text line tall.
+        string capCentred = Between(presentation, "public static Grid CapCentred(TextBlock text)", "/// <summary>");
+        StringAssert.Contains(capCentred, "text.TextLineBounds = TextLineBounds.Tight;");
+        StringAssert.Contains(capCentred, "text.LineHeight = 0;", "a style's fixed line height would keep the box a full line high");
+        StringAssert.Contains(capCentred, "text.VerticalAlignment = VerticalAlignment.Center;");
+        StringAssert.Contains(capCentred, "Grid holder = new() { MinHeight = TitleLineHeight, VerticalAlignment = VerticalAlignment.Center };");
+        StringAssert.Contains(presentation, "public const double TitleLineHeight = 20;");
+
+        // Every badge: the label is measured the same way inside its pill, in code and in the Installed apps row template.
+        string badge = Between(presentation, "public static Border Badge(string label, string glyph, string tone = \"neutral\", string? automationName = null)", "AutomationProperties.SetName(badge, automationName ?? label);");
+        StringAssert.Contains(badge, "Style = Style(\"StewardCaptionStyle\"), TextLineBounds = TextLineBounds.Tight, LineHeight = 0,");
+        StringAssert.Contains(badge, "AutomationProperties.SetAutomationId(text, BadgeLabelAutomationId);");
+        StringAssert.Contains(presentation, "public const string BadgeLabelAutomationId = \"StatusBadgeLabel\";");
+        string templates = DesktopSource("Resources/DataTemplates.xaml");
+        StringAssert.Contains(templates, "AutomationProperties.AutomationId=\"StatusBadgeLabel\"");
+        StringAssert.Contains(templates, "TextLineBounds=\"Tight\"");
+
+        // The two places a badge sits beside a title: an update's result card, and a ready row on the Updates page.
+        StringAssert.Contains(source, "StewardWrapPanel title = StewardVisuals.TitleRow();");
+        StringAssert.Contains(source, "title.Children.Add(StewardVisuals.CapCentred(name));");
+        StringAssert.Contains(source, "StewardWrapPanel title = badged ? StewardVisuals.TitleRow() : new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.XSmall };");
+        StringAssert.Contains(source, "title.Children.Add(UpdateRowName(ready.Name, ready.StableProductKey, badged));");
+        StringAssert.Contains(source, "title.Children.Add(badged ? StewardVisuals.CapCentred(versions) : versions);");
+        StringAssert.Contains(source, "Content = besideBadge ? StewardVisuals.CapCentred(label) : label,");
+        Assert.AreEqual(2, Count(source, "badge.VerticalAlignment = VerticalAlignment.Center;") + Count(source, "jump.VerticalAlignment = VerticalAlignment.Center;"), "both badges centre themselves in the line");
+
+        // The Windows launch check measures a badge label's box on a real build.
+        string smoke = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "Test-DesktopLaunchSmokeCI.ps1"));
+        StringAssert.Contains(smoke, "'LAYOUT-BADGE-LABEL where='");
+        StringAssert.Contains(smoke, "Write-BadgeLabel $pane 'details'");
+        StringAssert.Contains(smoke, "' offCentre='");
     }
 
     [TestMethod]
