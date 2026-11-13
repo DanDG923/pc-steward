@@ -3,7 +3,8 @@ using PCSteward.Domain;
 namespace PCSteward.Application;
 
 /// <summary>Fresh, typed evidence prepared by inventory before an update can be reviewed.</summary>
-public sealed record UpdateSelectionPreparation(UpdateJobSelection? Selection, string Message, LiveInventoryObservation? Observation = null);
+public sealed record UpdateSelectionPreparation(UpdateJobSelection? Selection, string Message, LiveInventoryObservation? Observation = null,
+    WingetArchitectureProofRequest? ArchitectureProof = null);
 
 public sealed record UpdateReviewPreparation(UpdateJobReview? Review, string Message, RunningApplicationDetection RunningApplication,
     UpdateProgressMailbox? Progress = null);
@@ -30,6 +31,9 @@ public sealed record ReviewedUpdateExecutionResult(bool Started, string Message,
 /// installer evidence of its own <c>winget download</c> (<paramref name="machineInstallerEvidence"/>, <see cref="WingetMachineReviewedRoute"/>);
 /// Confirm checks the registration again and freezes the whole-PC reviewed operation the elevated runner requires. Without the evidence
 /// source a machine-scope WinGet update is not offered: stage 3 retired helper protocol 1 (ADR-025 transition amendment, closed).
+/// D4b 32-bit-registered apps (design note §3.3–3.4): a preparation that carries an architecture proof request is reviewed only when
+/// <paramref name="architectureProof"/> proves the x64 architecture; its digest binds the 32-bit view the entry was read from, and the
+/// uninstall entry the target manifest declares goes with the approved job to the post-update check.
 /// </summary>
 public sealed class ReviewedUpdateExecutionWorkflow(
     Func<string, CancellationToken, Task<UpdateSelectionPreparation>> prepareSelection,
@@ -39,7 +43,8 @@ public sealed class ReviewedUpdateExecutionWorkflow(
     Func<DateTimeOffset>? utcNow = null,
     Func<IReadOnlyList<string>, IProgress<int>?, CancellationToken, Task<IReadOnlyList<UpdateSelectionPreparation>>>? prepareSelections = null,
     Func<string?>? requestingUserSid = null,
-    IWingetMachineInstallerEvidenceSource? machineInstallerEvidence = null)
+    IWingetMachineInstallerEvidenceSource? machineInstallerEvidence = null,
+    IWingetArchitectureProofSource? architectureProof = null)
 {
     /// <summary>Stage C4 (ADR-025 transition amendment): Chocolatey is never reviewed or run on this route or on protocol 1.</summary>
     public const string ChocolateyNotOnThisRouteMessage = "Chocolatey updates use their own review, so this update can't be started from here.";
@@ -77,6 +82,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
     private readonly Func<IReadOnlyList<string>, IProgress<int>?, CancellationToken, Task<IReadOnlyList<UpdateSelectionPreparation>>>? prepareSelections = prepareSelections;
     private readonly Func<string?>? requestingUserSid = requestingUserSid;
     private readonly IWingetMachineInstallerEvidenceSource? machineInstallerEvidence = machineInstallerEvidence;
+    private readonly IWingetArchitectureProofSource? architectureProof = architectureProof;
 
     public async Task<UpdateReviewPreparation> BeginReviewAsync(string stableProductKey, CancellationToken cancellationToken)
     {
@@ -94,16 +100,32 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         if (UsesMachineRoute(preparation.Selection))
         {
             // D4b stage 2b: the registration from this fresh inventory, then the installer evidence from the review's own download.
+            WingetArchitectureProofRequest? proofRequest = preparation.ArchitectureProof;
+            if (proofRequest is not null && architectureProof is null)
+                return new(null, InventoryWorkflow.ArchitectureNotConfirmedMessage, RunningApplicationDetection.NotDetected);
             if (preparation.Observation is not { } observation ||
-                WingetMachineReviewedRoute.RegistrationDigest(preparation.Selection, observation) is not { } registration)
+                WingetMachineReviewedRoute.RegistrationDigest(preparation.Selection, observation, proofRequest is not null) is not { } registration)
                 return new(null, WingetMachineReviewedRoute.RegistrationNotFoundMessage, RunningApplicationDetection.NotDetected);
             WingetMachineInstallerCheck check = await machineInstallerEvidence!.CheckAsync(preparation.Selection, cancellationToken).ConfigureAwait(false);
             if (check.Evidence is not { } installer || !TryMachineEvidenceId(installer, registration, out string evidenceId))
                 return new(null, check.Message, RunningApplicationDetection.NotDetected);
+            if (proofRequest is not null)
+            {
+                // Design note §3.3: after the target download and before anything is bound, prove x64 from the installed version (P1)
+                // or from WinGet's installer selection for both versions (P2). No proof, no review.
+                WingetArchitectureProofResult proof = await architectureProof!.ProveAsync(preparation.Selection, proofRequest, cancellationToken).ConfigureAwait(false);
+                if (proof is not { Proven: true })
+                    return new(null, proof?.Message ?? InventoryWorkflow.ArchitectureNotConfirmedMessage, RunningApplicationDetection.NotDetected);
+            }
             review = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), preparation.Selection, mode)
             {
                 EvidenceId = evidenceId,
                 EvidenceObservedAt = observation.ObservedAt,
+                // Design note §3.4: only for these apps, the entry the target's installer declares; without one (Build Tools) the
+                // reviewed key at exactly the target version. The post-update check reads it instead of comparing the registry view.
+                ExpectedEntry = proofRequest is null ? null
+                    : installer.DeclaredEntry ?? new ExpectedUninstallEntry(proofRequest.RegistrationKey, preparation.Selection.CandidateVersion),
+                ArchitectureProven = proofRequest is not null,
             };
         }
         else
@@ -160,9 +182,13 @@ public sealed class ReviewedUpdateExecutionWorkflow(
     private bool ReviewedModeStillApplies(UpdateJobReview review, UpdateJobSelection fresh) =>
         TryBindReviewMode(fresh, out ReviewedInstallerMode? mode, out _) && mode == review.InstallerMode;
 
-    /// <summary>D4b stage 2b: the fresh inventory's registration digest equals the one in the review's <c>wgm1</c> evidence.</summary>
+    /// <summary>
+    /// D4b stage 2b: the fresh inventory's registration digest equals the one in the review's <c>wgm1</c> evidence. An app whose
+    /// architecture the review proved must still be prepared for that proof, and the reverse (design note §3.3).
+    /// </summary>
     private static bool RegistrationStillApplies(UpdateJobReview review, UpdateSelectionPreparation preparation) =>
-        preparation.Selection is { } fresh && WingetMachineReviewedRoute.RegistrationDigest(fresh, preparation.Observation) is { } digest &&
+        preparation.Selection is { } fresh && (preparation.ArchitectureProof is not null) == review.ArchitectureProven &&
+        WingetMachineReviewedRoute.RegistrationDigest(fresh, preparation.Observation, review.ArchitectureProven) is { } digest &&
         ReviewedUpdateOperation.TryGetWinGetMachineEvidence(review.EvidenceId, out WinGetMachineEvidence? evidence) && evidence is not null &&
         string.Equals(digest, evidence.RegistrationDigest, StringComparison.Ordinal);
 
@@ -252,7 +278,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         }
         UpdateBatchResult batch = await coordinator.RunAsync(
             [new UpdateBatchItem(job, new UpdateJobExecutionEvidence(preparation.Selection, true, true), runningApplicationWarningAcknowledged, progress,
-                acknowledgedRunningProcesses, reviewedOperation)],
+                acknowledgedRunningProcesses, reviewedOperation, review.ExpectedEntry)],
             cancellationToken).ConfigureAwait(false);
         if (batch.AdmissionRefused)
             return new(false, "The update was not started: another update owns execution or previous owned work is still unresolved.", batch);

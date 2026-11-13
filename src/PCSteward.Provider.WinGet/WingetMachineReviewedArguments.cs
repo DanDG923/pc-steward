@@ -60,9 +60,26 @@ internal static class WingetMachineReviewedArguments
             throw new ArgumentException("The download folder must be a fully qualified path.", nameof(downloadDirectory));
         if (!WingetMachineReviewedRoute.TryGetSelectionArchitecture(selection, out string architecture))
             throw new ArgumentException("The selection is outside the machine WinGet route.", nameof(selection));
+        return BuildReviewDownload(selection.PackageId, selection.CandidateVersion, architecture, downloadDirectory);
+    }
+
+    /// <summary>
+    /// The same fixed review download for an exact package version, also the installed version an architecture proof reads (design note
+    /// §3.3). The version must be a bounded plain version and the architecture one the route knows.
+    /// </summary>
+    internal static ReadOnlyCollection<string> BuildReviewDownload(string packageId, string version, string architecture, string downloadDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(downloadDirectory);
+        if (!Path.IsPathFullyQualified(downloadDirectory))
+            throw new ArgumentException("The download folder must be a fully qualified path.", nameof(downloadDirectory));
+        if (!WingetArchitectureProofRules.IsBoundedVersion(version))
+            throw new ArgumentException("The version must be a bounded plain version.", nameof(version));
+        if (architecture is not ("x64" or "x86" or "arm64"))
+            throw new ArgumentException("The architecture is outside the machine WinGet route.", nameof(architecture));
         return Array.AsReadOnly(new[]
         {
-            "download", "--id", selection.PackageId, "--version", selection.CandidateVersion, "--source", "winget", "--exact",
+            "download", "--id", packageId, "--version", version, "--source", "winget", "--exact",
             "--scope", "machine", "--architecture", architecture, "--download-directory", downloadDirectory, "--disable-interactivity"
         });
     }

@@ -127,6 +127,13 @@ public enum PostUpdateVerificationNote { None, ClientReviewedLeftover }
 public interface IPostUpdateInventory
 {
     Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// As <see cref="ReInventoryAsync(ImmutableUpdateJob, CancellationToken)"/>, with the uninstall entry the review read from the
+    /// target manifest (design note §3.4). Verifiers that don't use it check as before.
+    /// </summary>
+    Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, ExpectedUninstallEntry? expected, CancellationToken cancellationToken) =>
+        ReInventoryAsync(job, cancellationToken);
 }
 
 /// <summary>
@@ -139,7 +146,8 @@ public sealed record UpdateBatchItem(
     bool RunningApplicationWarningAcknowledged = false,
     UpdateProgressMailbox? Progress = null,
     IReadOnlyCollection<string>? AcknowledgedRunningProcesses = null,
-    ReviewedUpdateOperation? Reviewed = null)
+    ReviewedUpdateOperation? Reviewed = null,
+    ExpectedUninstallEntry? ExpectedEntry = null)
 {
     /// <summary>True when <paramref name="running"/> is covered by this item's acknowledgement.</summary>
     public bool Acknowledges(RunningApplicationDetection running) =>
@@ -312,7 +320,7 @@ public sealed class SequentialUpdateBatchCoordinator(
                             item.Progress?.Offer(item.Job.Id, item.Job.CorrelationId, UpdateProgressPhase.Verifying);
                         try
                         {
-                            PostUpdateInventoryResult verification = await inventory.ReInventoryAsync(item.Job, cancellation.Token).ConfigureAwait(false);
+                            PostUpdateInventoryResult verification = await inventory.ReInventoryAsync(item.Job, item.ExpectedEntry, cancellation.Token).ConfigureAwait(false);
                             if (restartReported)
                             {
                                 // Task 51, AC-UPD-07: a typed provider restart result is never Success, even with the version detected.

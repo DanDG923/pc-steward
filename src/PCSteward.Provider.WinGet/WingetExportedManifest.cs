@@ -26,7 +26,20 @@ internal enum WingetManifestRefusal
 /// The facts read from an accepted manifest: the SHA-256 of its exact bytes, the installer SHA-256 it declares (uppercase hex) and its
 /// installer type (one of the route's types).
 /// </summary>
-internal sealed record WingetManifestFacts(string ManifestDigest, string InstallerSha256, WinGetMachineInstallerType InstallerType);
+internal sealed record WingetManifestFacts(string ManifestDigest, string InstallerSha256, WinGetMachineInstallerType InstallerType)
+{
+    /// <summary>The installer's own <c>ProductCode</c>, or null when it declares none or it is not a single-line value.</summary>
+    internal string? ProductCode { get; init; }
+
+    /// <summary>
+    /// The installer's <c>AppsAndFeaturesEntries</c> (D4b 32-bit-registered apps, design note §3.3–3.4): empty when it declares
+    /// none, null when the field is there but not in the exporter's plain layout. Comparison data only; never a refusal reason.
+    /// </summary>
+    internal IReadOnlyList<WingetDeclaredEntry>? DeclaredEntries { get; init; } = [];
+}
+
+/// <summary>One <c>AppsAndFeaturesEntries</c> item: its product code and DisplayVersion when each is a single-line value, else null.</summary>
+internal sealed record WingetDeclaredEntry(string? ProductCode, string? DisplayVersion);
 
 /// <summary>
 /// The values an exported manifest must carry: the WinGet text forms of the identity and the selected installer. A null
@@ -114,7 +127,8 @@ internal static partial class WingetExportedManifest
             !string.Equals(versionText, expected.PackageVersion, StringComparison.Ordinal))
             return WingetManifestRefusal.IdentityMismatch;
 
-        if (!TryReadSingleInstaller(installers, out Dictionary<string, string?> fields)) return WingetManifestRefusal.Malformed;
+        if (!TryReadSingleInstaller(installers, out Dictionary<string, string?> fields, out Dictionary<string, List<string>> bodies))
+            return WingetManifestRefusal.Malformed;
         if (fields.ContainsKey("NestedInstallerType") || fields.ContainsKey("NestedInstallerFiles")) return WingetManifestRefusal.NestedInstaller;
         // WinGet omits Scope when the manifest does not declare it; strict machine scope (design Q1) refuses that.
         if (!fields.ContainsKey("Scope")) return WingetManifestRefusal.ScopeNotMachine;
@@ -128,8 +142,51 @@ internal static partial class WingetExportedManifest
             return WingetManifestRefusal.InstallerMismatch;
         if (!string.Equals(scope, "machine", StringComparison.Ordinal)) return WingetManifestRefusal.ScopeNotMachine;
 
-        facts = new(Convert.ToHexString(SHA256.HashData(bytes)), sha256.ToUpperInvariant(), parsedType);
+        facts = new(Convert.ToHexString(SHA256.HashData(bytes)), sha256.ToUpperInvariant(), parsedType)
+        {
+            ProductCode = TryField(fields, "ProductCode", out string productCode) ? productCode : null,
+            DeclaredEntries = !fields.TryGetValue("AppsAndFeaturesEntries", out string? entriesInline) ? []
+                : entriesInline is null && TryReadEntries(bodies["AppsAndFeaturesEntries"], out List<WingetDeclaredEntry> entries) ? entries
+                : null,
+        };
         return WingetManifestRefusal.None;
+    }
+
+    /// <summary>
+    /// The items of an installer's <c>AppsAndFeaturesEntries</c> in the exporter's layout: each item starts with <c>  - Key: value</c>
+    /// and continues with <c>    Key: value</c> lines (WinGet 1.29.380, owner's PC, 2026-11-13). Any other line, a repeated key or no
+    /// item makes the whole list unreadable. Only <c>ProductCode</c> and <c>DisplayVersion</c> are kept.
+    /// </summary>
+    private static bool TryReadEntries(List<string> body, out List<WingetDeclaredEntry> entries)
+    {
+        entries = [];
+        HashSet<string>? keys = null;
+        string? productCode = null, displayVersion = null;
+        foreach (string line in body)
+        {
+            string content;
+            if (line.StartsWith("  - ", StringComparison.Ordinal))
+            {
+                if (keys is not null) entries.Add(new(productCode, displayVersion));
+                keys = new(StringComparer.Ordinal);
+                productCode = displayVersion = null;
+                content = line[4..];
+            }
+            else if (keys is not null && line.StartsWith("    ", StringComparison.Ordinal) && line.Length > 4 && line[4] != ' ' && line[4] != '-')
+            {
+                content = line[4..];
+            }
+            else
+            {
+                return false;
+            }
+            if (!TryKeyLine(content, out string key, out string? value) || !keys.Add(key)) return false;
+            if (key == "ProductCode") productCode = value is not null && TryScalar(value, out string code) ? code : null;
+            if (key == "DisplayVersion") displayVersion = value is not null && TryScalar(value, out string version) ? version : null;
+        }
+        if (keys is null) return false;
+        entries.Add(new(productCode, displayVersion));
+        return true;
     }
 
     private sealed class RootKey(string? inlineValue)
@@ -209,9 +266,10 @@ internal static partial class WingetExportedManifest
     /// The one <c>Installers</c> item: its first line starts with <c>- </c> in column 0 and no other line does; its fields are that first
     /// line and the lines indented by exactly two spaces; deeper lines belong to the field above them.
     /// </summary>
-    private static bool TryReadSingleInstaller(RootKey installers, out Dictionary<string, string?> fields)
+    private static bool TryReadSingleInstaller(RootKey installers, out Dictionary<string, string?> fields, out Dictionary<string, List<string>> bodies)
     {
         fields = new(StringComparer.Ordinal);
+        bodies = new(StringComparer.Ordinal);
         List<string> body = installers.Body;
         if (body.Count == 0 || !body[0].StartsWith("- ", StringComparison.Ordinal) ||
             body.Skip(1).Any(static line => line.StartsWith("- ", StringComparison.Ordinal)))
@@ -225,12 +283,14 @@ internal static partial class WingetExportedManifest
             if (fieldLine)
             {
                 if (!TryKeyLine(index == 0 ? line : line[2..], out string key, out string? value) || !fields.TryAdd(key, value)) return false;
+                bodies[key] = [];
                 lastField = key;
                 lastFieldContinues = false;
                 continue;
             }
             // A nested or continuation line: it must be indented under a field.
             if (lastField is null || !(line.Length == 0 || line.StartsWith("  ", StringComparison.Ordinal))) return false;
+            bodies[lastField].Add(line);
             if (!lastFieldContinues && fields[lastField] is not null)
             {
                 // The field's inline value continues: it is no longer a single-line value.

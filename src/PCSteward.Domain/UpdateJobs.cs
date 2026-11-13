@@ -110,6 +110,9 @@ public sealed partial class UpdateJobSelection
     private static partial Regex EvidenceVersion();
 }
 
+/// <summary>An uninstall entry a WinGet manifest declares its installer writes: its key (product code) and DisplayVersion.</summary>
+public sealed record ExpectedUninstallEntry(string ProductCode, string DisplayVersion);
+
 /// <summary>
 /// A displayed selection that cannot be executed until explicit confirmation creates an approved job. Stage C4 (FR-UPD-15):
 /// <see cref="InstallerMode"/> is the reviewed installer mode bound when the review was made (null when the selection's route has
@@ -147,6 +150,16 @@ public sealed class UpdateJobReview
 
     /// <summary>D4b stage 2b: when the fresh inventory behind <see cref="EvidenceId"/> was observed, or null.</summary>
     public DateTimeOffset? EvidenceObservedAt { get; init; }
+
+    /// <summary>
+    /// D4b 32-bit-registered apps (design note §3.4): the uninstall entry the reviewed target's x64 installer declares it writes, read
+    /// from the review's own download of the target manifest, or null. Desktop-side post-update evidence only: it is not part of
+    /// <c>wgm1</c>, the reviewed operation or the helper's wire format, and it can only make the post-update check stricter.
+    /// </summary>
+    public ExpectedUninstallEntry? ExpectedEntry { get; init; }
+
+    /// <summary>D4b 32-bit-registered apps: the review proved this x64 selection's architecture (design note §3.3).</summary>
+    public bool ArchitectureProven { get; init; }
 
     public ImmutableUpdateJob Confirm(DateTimeOffset approvedAt)
     {

@@ -225,26 +225,69 @@ public sealed class InventoryWorkflowUpdateSourceTests
     }
 
     [TestMethod]
-    public async Task A32BitRegisteredAppLinkedToAnX64PackageIsOfferedButReviewRefusesUntilTheProofIsBuilt()
+    public async Task A32BitRegisteredAppLinkedToAnX64PackageIsPreparedAsX64WithWhatTheReviewMustProve()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();
-        CanonicalProduct product = new(Guid.NewGuid(), "registry:{4d0027d4-962f-4f65-a01b-f8764a5f4220}", "Contoso Desktop Runtime - 8.0.33 (x64)");
+        const string key = "{4d0027d4-962f-4f65-a01b-f8764a5f4220}";
+        CanonicalProduct product = new(Guid.NewGuid(), "registry:" + key, "Contoso Desktop Runtime - 8.0.33 (x64)");
         // The registry provider records the 32-bit machine view as Machine + x86 (a Burn bundle registers there for an x64 product).
-        InstallationInstance instance = new(Guid.NewGuid(), product.Id, "registry", "{4d0027d4-962f-4f65-a01b-f8764a5f4220}", "8.0.33.36622", "Machine", "x86", "Contoso");
+        InstallationInstance instance = new(Guid.NewGuid(), product.Id, "registry", key, "8.0.33.36622", "Machine", "x86", "Contoso");
         await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [product], [instance], [], [], CancellationToken.None);
         await EnableTrustedSourcesAsync(database);
         SourcePackageRecord package = new("winget", "Contoso.DesktopRuntime.8", "Contoso Desktop Runtime 8", "Contoso", "8.0.33", "8.0.34", "Machine", "x64", "Stable", ProviderSuppliedStableProductKey: product.StableKey);
-        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, [], decisions: database.Store, sourceCache: database.Store,
+        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, [new FixedProvider(new([product], [instance], [], []))],
+            decisions: database.Store, sourceCache: database.Store,
             updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))],
-            structuredUpdateCandidates: new NeverReachedStructuredAuthority());
+            structuredUpdateCandidates: new StructuredCandidateAuthority(new("winget", "Contoso.DesktopRuntime.8", "8.0.33", "8.0.34")));
 
         UpdateIntelligenceItem item = (await workflow.RefreshUpdateIntelligenceAsync(true, CancellationToken.None)).Items.Single();
         UpdateSelectionPreparation preparation = await workflow.PrepareApprovedUpdateSelectionAsync(product.StableKey, CancellationToken.None);
 
         Assert.AreEqual(UpdateIntelligenceStatus.VerifiedUpdate, item.Status);
         CollectionAssert.AreEqual(new[] { MappingReviewReason.ArchitectureCheckedAtReview }, item.Mapping!.ReviewReasons.ToArray());
-        Assert.IsNull(preparation.Selection);
-        Assert.AreEqual(InventoryWorkflow.ArchitectureNotConfirmedMessage, preparation.Message);
+        Assert.IsNotNull(preparation.Selection, preparation.Message);
+        Assert.AreEqual(UpdateArchitecture.X64, preparation.Selection.Architecture, "bound as the package's x64, never the view's x86");
+        Assert.AreEqual(UpdateScope.Machine, preparation.Selection.Scope);
+        Assert.AreEqual("8.0.34", preparation.Selection.CandidateVersion);
+        Assert.AreEqual(new WingetArchitectureProofRequest("8.0.33", key, "8.0.33.36622"), preparation.ArchitectureProof,
+            "WinGet's 8.0.33 and the entry's 8.0.33.36622 are tied together only by the review's proof");
+        Assert.AreEqual(WinGetMachineRegistration.Digest(WinGetMachineRegistrationView.Machine32, key, "8.0.33.36622"),
+            WingetMachineReviewedRoute.RegistrationDigest(preparation.Selection, preparation.Observation, registeredIn32BitView: true));
+        Assert.IsNull(WingetMachineReviewedRoute.RegistrationDigest(preparation.Selection, preparation.Observation));
+    }
+
+    [TestMethod]
+    public async Task ThePostUpdateCheckAcceptsTheEntryTheTargetManifestDeclares()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        const string oldKey = "{4d0027d4-962f-4f65-a01b-f8764a5f4220}";
+        const string newKey = "{de6ce2b1-81f5-406c-a0ca-534ccdf2ad7e}";
+        CanonicalProduct reviewed = new(Guid.NewGuid(), "registry:" + oldKey, "Contoso Desktop Runtime - 8.0.33 (x64)");
+        CanonicalProduct replacement = new(Guid.NewGuid(), "registry:" + newKey, "Contoso Desktop Runtime - 8.0.34 (x64)");
+        InstallationInstance oldEntry = new(Guid.NewGuid(), reviewed.Id, "registry", oldKey, "8.0.33.36622", "Machine", "x86", "Contoso");
+        InstallationInstance newEntry = new(Guid.NewGuid(), replacement.Id, "registry", newKey, "8.0.34.36622", "Machine", "x86", "Contoso");
+        UpdateJobSelection selection = new(reviewed.StableKey, UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.DesktopRuntime.8", "8.0.33.36622", "8.0.34",
+            UpdateScope.Machine, UpdateArchitecture.X64, UpdateChannel.Unknown, "winget-com-v1");
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), selection).Confirm(DateTimeOffset.UtcNow);
+        ExpectedUninstallEntry expected = new(newKey, "8.0.34.36622");
+
+        async Task<bool> CheckAsync(ProviderScanResult after, ExpectedUninstallEntry? entry, bool wingetShowsTarget = true)
+        {
+            using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, [new FixedProvider(after)],
+                postUpdatePackageInventory: new PostUpdatePackageInventory(wingetShowsTarget));
+            return (await workflow.ReInventoryAsync(job, entry, CancellationToken.None)).ExpectedVersionDetected;
+        }
+
+        Assert.IsTrue(await CheckAsync(new([replacement], [newEntry], [], []), expected), "the declared entry, in the 32-bit view");
+        Assert.IsTrue(await CheckAsync(new([replacement], [newEntry], [], []), expected with { ProductCode = newKey.ToUpperInvariant() }));
+        Assert.IsFalse(await CheckAsync(new([replacement], [newEntry], [], []), null), "without the entry the check needs 8.0.34 at x64, as before");
+        Assert.IsFalse(await CheckAsync(new([replacement], [newEntry], [], []), expected, wingetShowsTarget: false), "WinGet must show the target");
+        Assert.IsFalse(await CheckAsync(new([replacement], [newEntry with { Version = "8.0.34.1" }], [], []), expected), "another DisplayVersion");
+        Assert.IsFalse(await CheckAsync(new([replacement], [newEntry with { Scope = "User" }], [], []), expected), "not machine scope");
+        Assert.IsFalse(await CheckAsync(new([reviewed, replacement], [oldEntry, newEntry], [], []), expected), "the old entry is still there");
+        Assert.IsFalse(await CheckAsync(new([reviewed], [oldEntry], [], []), expected), "nothing was updated");
+        Assert.IsTrue(await CheckAsync(new([reviewed], [oldEntry with { Version = "8.0.34" }], [], []), new(oldKey, "8.0.34")),
+            "an entry that keeps its key (Build Tools) at exactly the target version");
     }
 
     [TestMethod]
