@@ -143,6 +143,32 @@ public sealed class WindowsDiagnosticReaderTests
 
     [TestMethod]
     [TestCategory("FR-DIA-01")]
+    public async Task ReliabilityKeepsWindowsInstallerChangesWithAnUnknownResult()
+    {
+        // Stage 5 host check: the owner's PC records Windows Installer changes in Reliability as MsiInstaller 1033 and 1034.
+        FakeReliability wmi = new()
+        {
+            Records =
+            [
+                new("Application", 21, "MsiInstaller", 1033, "20261112080000.000000+000", "Contoso Suite"),
+                new("Application", 22, "MsiInstaller", 1034, "20261111080000.000000+000", "Fabrikam Tool"),
+                new("Application", 23, "MsiInstaller", 1035, "20261110080000.000000+000", "Northwind App")
+            ]
+        };
+        DiagnosticReaderResult result = await new ReliabilityDiagnosticReader(wmi).ReadAsync(new(DiagnosticSourceKind.Reliability, From, Now, 10), CancellationToken.None);
+
+        StringAssert.Contains(wmi.Queries[0], "(SourceName = 'MsiInstaller' AND EventIdentifier = 1033)");
+        StringAssert.Contains(wmi.Queries[0], "(SourceName = 'MsiInstaller' AND EventIdentifier = 1034)");
+        Assert.IsFalse(wmi.Queries[0].Contains("EventIdentifier = 1035", StringComparison.Ordinal), "a reconfiguration is not asked for");
+        Assert.AreEqual(DiagnosticEventKind.SoftwareInstalled, result.Records[0].Kind);
+        Assert.AreEqual(DiagnosticOutcomeKind.Unknown, result.Records[0].Outcome, "success or failure is only in the message, which is never read");
+        Assert.AreEqual("Contoso Suite", result.Records[0].Subject);
+        Assert.AreEqual(DiagnosticEventKind.SoftwareRemoved, result.Records[1].Kind);
+        Assert.AreEqual(DiagnosticOutcomeKind.Unknown, result.Records[1].Outcome);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-DIA-01")]
     [DataRow(true, DisplayName = "WMI enumerates oldest first")]
     [DataRow(false, DisplayName = "WMI enumerates newest first")]
     public async Task ReliabilityKeepsTheNewestRecordsWhateverOrderWmiReturns(bool oldestFirst)
