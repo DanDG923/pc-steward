@@ -163,13 +163,21 @@ function Get-AppIconCount([Windows.Automation.AutomationElement]$Root) {
 
 # Owner report 2026-11-13 (a status badge read lower than the title beside it): a badge's label is measured by its capital
 # letters (TextLineBounds Tight), so centring it puts the letters, not the text box, at the pill's middle. At 100% a one-line
-# 12-size label is about 9 high when that holds and 16 when the full text box is still in use.
+# 12-size label is about 9 high when that holds and 16 when the full text box is still in use. The pill is the label's parent:
+# offCentre is how far the middle of the label's box is below the middle of the pill.
 function Write-BadgeLabel([Windows.Automation.AutomationElement]$Root, [string]$Where) {
     $byLabel = [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty, 'StatusBadgeLabel')
     $labels = @($Root.FindAll([Windows.Automation.TreeScope]::Descendants, $byLabel) | Where-Object { !$_.Current.IsOffscreen -and $_.Current.BoundingRectangle.Height -gt 0 })
     if ($labels.Count -eq 0) { Write-Line ('LAYOUT-BADGE-LABEL where=' + $Where + ' skipped (no badge on screen)'); return }
     $heights = @($labels | ForEach-Object { [Math]::Round($_.Current.BoundingRectangle.Height, 1) } | Sort-Object -Unique)
-    Write-Line ('LAYOUT-BADGE-LABEL where=' + $Where + ' count=' + $labels.Count + ' first="' + $labels[0].Current.Name + '" heights=' + ($heights -join ',') + ' capHeightBox=' + ($heights[0] -le 12))
+    $l = $labels[0].Current.BoundingRectangle
+    $pill = [Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($labels[0])
+    $against = 'pill=(not found)'
+    if ($null -ne $pill) {
+        $p = $pill.Current.BoundingRectangle
+        $against = 'pill=' + ($pill.Current.ControlType.ProgrammaticName -replace '^ControlType\.', '') + ',' + [Math]::Round($p.Top, 1) + ',' + [Math]::Round($p.Height, 1) + ' offCentre=' + [Math]::Round(($l.Top + $l.Height / 2) - ($p.Top + $p.Height / 2), 1)
+    }
+    Write-Line ('LAYOUT-BADGE-LABEL where=' + $Where + ' count=' + $labels.Count + ' first="' + $labels[0].Current.Name + '" heights=' + ($heights -join ',') + ' capHeightBox=' + ($heights[0] -le 12) + ' label=' + [Math]::Round($l.Top, 1) + ',' + [Math]::Round($l.Height, 1) + ' ' + $against)
 }
 function Open-Page([Windows.Automation.AutomationElement]$Root, [string]$Page) {
     $item = Find-Named $Root $Page ([Windows.Automation.ControlType]::ListItem)

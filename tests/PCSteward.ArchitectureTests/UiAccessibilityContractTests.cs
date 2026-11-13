@@ -349,13 +349,14 @@ public sealed partial class UiAccessibilityContractTests
         // Text beside the badge is measured by its capital letters and centred in a holder that is still one text line tall.
         string capCentred = Between(presentation, "public static Grid CapCentred(TextBlock text)", "/// <summary>");
         StringAssert.Contains(capCentred, "text.TextLineBounds = TextLineBounds.Tight;");
+        StringAssert.Contains(capCentred, "text.LineHeight = 0;", "a style's fixed line height would keep the box a full line high");
         StringAssert.Contains(capCentred, "text.VerticalAlignment = VerticalAlignment.Center;");
         StringAssert.Contains(capCentred, "Grid holder = new() { MinHeight = TitleLineHeight, VerticalAlignment = VerticalAlignment.Center };");
         StringAssert.Contains(presentation, "public const double TitleLineHeight = 20;");
 
         // Every badge: the label is measured the same way inside its pill, in code and in the Installed apps row template.
         string badge = Between(presentation, "public static Border Badge(string label, string glyph, string tone = \"neutral\", string? automationName = null)", "AutomationProperties.SetName(badge, automationName ?? label);");
-        StringAssert.Contains(badge, "Style = Style(\"StewardCaptionStyle\"), TextLineBounds = TextLineBounds.Tight,");
+        StringAssert.Contains(badge, "Style = Style(\"StewardCaptionStyle\"), TextLineBounds = TextLineBounds.Tight, LineHeight = 0,");
         StringAssert.Contains(badge, "AutomationProperties.SetAutomationId(text, BadgeLabelAutomationId);");
         StringAssert.Contains(presentation, "public const string BadgeLabelAutomationId = \"StatusBadgeLabel\";");
         string templates = DesktopSource("Resources/DataTemplates.xaml");
@@ -375,6 +376,7 @@ public sealed partial class UiAccessibilityContractTests
         string smoke = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "Test-DesktopLaunchSmokeCI.ps1"));
         StringAssert.Contains(smoke, "'LAYOUT-BADGE-LABEL where='");
         StringAssert.Contains(smoke, "Write-BadgeLabel $pane 'details'");
+        StringAssert.Contains(smoke, "' offCentre='");
     }
 
     [TestMethod]

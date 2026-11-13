@@ -336,12 +336,15 @@ internal static class StewardVisuals
     /// <summary>
     /// Text for a <see cref="TitleRow"/>. A text box leaves room under the letters for descenders, so letters centred by their
     /// box sit high. Here the box is the capital letters' height (<see cref="TextLineBounds.Tight"/>), centred in a holder that
-    /// is still one text line tall, so the letters themselves line up with the middle of a badge on the same line.
+    /// is still one text line tall, so the letters themselves line up with the middle of a badge on the same line. A style's
+    /// fixed line height keeps the box at that height whatever the bounds (measured on a Windows build: a 12-size label with a
+    /// line height of 16 stayed 16 high), so the line height goes back to the font's own.
     /// </summary>
     public static Grid CapCentred(TextBlock text)
     {
         ArgumentNullException.ThrowIfNull(text);
         text.TextLineBounds = TextLineBounds.Tight;
+        text.LineHeight = 0;
         text.VerticalAlignment = VerticalAlignment.Center;
         Grid holder = new() { MinHeight = TitleLineHeight, VerticalAlignment = VerticalAlignment.Center };
         holder.Children.Add(text);
@@ -446,8 +449,9 @@ internal static class StewardVisuals
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 12, Foreground = foreground, VerticalAlignment = VerticalAlignment.Center });
         // Owner report 2026-11-13: the label's box is the capital letters' height, so the letters sit at the pill's middle, level
-        // with the glyph, instead of high in it. The automation id lets the Windows launch check measure that box.
-        TextBlock text = new() { Text = label, Style = Style("StewardCaptionStyle"), TextLineBounds = TextLineBounds.Tight, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = foreground, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        // with the glyph, instead of high in it. The style's fixed line height would keep the box a full line high, so the line
+        // height goes back to the font's own. The automation id lets the Windows launch check measure that box.
+        TextBlock text = new() { Text = label, Style = Style("StewardCaptionStyle"), TextLineBounds = TextLineBounds.Tight, LineHeight = 0, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = foreground, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
         AutomationProperties.SetAutomationId(text, BadgeLabelAutomationId);
         Grid.SetColumn(text, 1);
         content.Children.Add(text);
