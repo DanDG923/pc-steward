@@ -13,6 +13,7 @@ namespace PCSteward.Application.IntegrationTests;
 [TestCategory("FR-UPD-15")]
 public sealed class WingetUserVendorInstallerTests
 {
+    private static readonly string[] WidgetProcess = ["Widget"];
     private const string Sid = "S-1-5-21-11-22-33-1001";
     private static readonly WinGetUserInstaller ExeInstaller = new(WinGetUserInstallerType.Exe, WinGetUserElevation.Unknown);
 
@@ -107,6 +108,33 @@ public sealed class WingetUserVendorInstallerTests
         Assert.IsNull(inventory.Baselines.Single(), "no whole-PC comparison for an MSIX package");
         Assert.AreEqual(AdministratorRequirementPresenter.ForSelection(selection),
             AdministratorRequirementPresenter.ForSelection(selection, preparation.Review.UserInstaller), "no vendor disclosure");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-06")]
+    public async Task AnOpenMsixAppIsNeverUpdatedEvenWhenTheWarningWasAcknowledged()
+    {
+        // MSIX design note §3.6 (owner host check 2026-11-13): Windows registers an app package's update only once the app closes.
+        UpdateJobSelection selection = Selection();
+        RecordingExecutor executor = new();
+        ScriptedSource source = new(WingetUserInstallerRules.Evaluate(Observation("Msix", scope: "Unknown"), selection));
+        ReviewedUpdateExecutionWorkflow workflow = Workflow(selection, new RecordingStore(), executor, source, runningProcesses: WidgetProcess);
+
+        UpdateReviewPreparation preparation = await workflow.BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
+        ReviewedUpdateExecutionResult result = await workflow.ConfirmAndRunAsync(preparation.Review!, true, CancellationToken.None,
+            acknowledgedRunningProcesses: WidgetProcess);
+
+        Assert.IsFalse(result.Started);
+        StringAssert.Contains(result.Message, "Windows finishes updating an app package only after the app is closed");
+        Assert.IsEmpty(executor.Reviewed, "nothing ran");
+        Assert.IsTrue((await workflow.DetectRunningApplicationAsync(selection, CancellationToken.None)).AppearsToBeRunning, "Check again reads the same detection");
+
+        // Another installer type keeps the acknowledged "update anyway".
+        RecordingExecutor exeExecutor = new();
+        ReviewedUpdateExecutionWorkflow exe = Workflow(selection, new RecordingStore(), exeExecutor,
+            new ScriptedSource(WingetUserInstallerRules.Evaluate(Observation("Exe"), selection)), runningProcesses: WidgetProcess);
+        UpdateReviewPreparation exeReview = await exe.BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
+        Assert.IsTrue((await exe.ConfirmAndRunAsync(exeReview.Review!, true, CancellationToken.None, acknowledgedRunningProcesses: WidgetProcess)).Started);
     }
 
     [TestMethod]
@@ -475,9 +503,9 @@ public sealed class WingetUserVendorInstallerTests
 
     private static ReviewedUpdateExecutionWorkflow Workflow(UpdateJobSelection selection, RecordingStore store, RecordingExecutor executor,
         IWingetUserInstallerEvidenceSource? source, IPostUpdateInventory? inventory = null, bool withObservation = true,
-        LiveInventoryObservation? observation = null)
+        LiveInventoryObservation? observation = null, string[]? runningProcesses = null)
     {
-        RunningDetector running = new();
+        RunningDetector running = new() { Running = runningProcesses ?? [] };
         SequentialUpdateBatchCoordinator coordinator = new(executor, inventory ?? new RecordingInventory(), new InMemoryHistory(), running);
         observation ??= withObservation
             ? Observation(Machine("{AAA}", "1.0", "x64", "Alpha"), Machine("{BBB}", "2.0", "x86", "Beta"), User("Contoso.Widget", "1.0.0"))
@@ -582,7 +610,9 @@ public sealed class WingetUserVendorInstallerTests
 
     private sealed class RunningDetector : IRunningApplicationDetector
     {
+        public string[] Running { get; set; } = [];
+
         public Task<RunningApplicationDetection> DetectAsync(UpdateJobSelection selection, CancellationToken cancellationToken) =>
-            Task.FromResult(RunningApplicationDetection.NotDetected);
+            Task.FromResult(Running.Length == 0 ? RunningApplicationDetection.NotDetected : new RunningApplicationDetection(true, Running));
     }
 }

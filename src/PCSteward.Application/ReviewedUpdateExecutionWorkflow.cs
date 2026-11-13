@@ -267,6 +267,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         ImmutableUpdateJob job;
         ReviewedUpdateOperation? reviewedOperation = null;
         WholePcRegistrationSnapshot? wholePcBaseline = null;
+        bool mustBeClosed = RunningApplicationAcknowledgement.MustBeClosed(review.UserInstaller);
         try
         {
             preparation = await prepareSelection(review.Selection.StableProductKey, cancellationToken).ConfigureAwait(false);
@@ -299,6 +300,9 @@ public sealed class ReviewedUpdateExecutionWorkflow(
                 return new(false, WingetUserReviewedRoute.RequesterUnavailableMessage, null);
 
             running = await runningApplications.DetectAsync(preparation.Selection, cancellationToken).ConfigureAwait(false);
+            // MSIX design note §3.6: an app package is updated only once it is closed, whatever was acknowledged.
+            if (mustBeClosed && running.AppearsToBeRunning)
+                return new(false, MustBeClosedMessage(preparation.Selection.PackageId, running), null);
             if (!RunningApplicationAcknowledgement.Covers(runningApplicationWarningAcknowledged, acknowledgedRunningProcesses, running))
             {
                 string changed = runningApplicationWarningAcknowledged
@@ -344,10 +348,12 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         }
         UpdateBatchResult batch = await coordinator.RunAsync(
             [new UpdateBatchItem(job, new UpdateJobExecutionEvidence(preparation.Selection, true, true), runningApplicationWarningAcknowledged, progress,
-                acknowledgedRunningProcesses, reviewedOperation, review.ExpectedEntry, wholePcBaseline)],
+                acknowledgedRunningProcesses, reviewedOperation, review.ExpectedEntry, wholePcBaseline, mustBeClosed)],
             cancellationToken).ConfigureAwait(false);
         if (batch.AdmissionRefused)
             return new(false, "The update was not started: another update owns execution or previous owned work is still unresolved.", batch);
+        if (mustBeClosed && batch.AcknowledgementRequired is { AppearsToBeRunning: true } openPackage)
+            return new(false, MustBeClosedMessage(preparation.Selection.PackageId, openPackage), batch);
         if (batch.AcknowledgementRequired is { AppearsToBeRunning: true } lateRunning)
         {
             return new(
@@ -360,6 +366,24 @@ public sealed class ReviewedUpdateExecutionWorkflow(
             ? "The reviewed update did not produce a final result."
             : $"Update result: {final.Status}. {final.Diagnostic}";
         return new(true, message, batch);
+    }
+
+    /// <summary>
+    /// MSIX design note §3.6: why an app package's update didn't start. Windows finishes such an update only after the app is closed,
+    /// so starting it while the app runs would leave the old version running and the update unverified.
+    /// </summary>
+    public static string MustBeClosedMessage(string packageId, RunningApplicationDetection running) =>
+        $"Package {packageId} is open (detected process: {string.Join(", ", running.ProcessNames)}). Windows finishes updating an app package only " +
+        "after the app is closed, so PC Steward didn't start this update. Close the app, then review the update again.";
+
+    /// <summary>
+    /// The running-app detection for a reviewed selection, read again when the owner chooses "Check again" or "Close it for me" on the
+    /// review. It never closes anything and approves nothing; the confirmation still detects again just before each app starts.
+    /// </summary>
+    public Task<RunningApplicationDetection> DetectRunningApplicationAsync(UpdateJobSelection selection, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return runningApplications.DetectAsync(selection, cancellationToken);
     }
 
     /// <summary>

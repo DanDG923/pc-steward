@@ -164,11 +164,15 @@ public sealed record UpdateBatchItem(
     IReadOnlyCollection<string>? AcknowledgedRunningProcesses = null,
     ReviewedUpdateOperation? Reviewed = null,
     ExpectedUninstallEntry? ExpectedEntry = null,
-    WholePcRegistrationSnapshot? WholePcBaseline = null)
+    WholePcRegistrationSnapshot? WholePcBaseline = null,
+    bool MustBeClosed = false)
 {
-    /// <summary>True when <paramref name="running"/> is covered by this item's acknowledgement.</summary>
+    /// <summary>
+    /// True when <paramref name="running"/> is covered by this item's acknowledgement. An app that <see cref="MustBeClosed"/> (an app
+    /// package) is never covered while it runs.
+    /// </summary>
     public bool Acknowledges(RunningApplicationDetection running) =>
-        RunningApplicationAcknowledgement.Covers(RunningApplicationWarningAcknowledged, AcknowledgedRunningProcesses, running);
+        RunningApplicationAcknowledgement.Covers(RunningApplicationWarningAcknowledged, AcknowledgedRunningProcesses, running, MustBeClosed);
 }
 
 /// <summary>
@@ -178,11 +182,18 @@ public sealed record UpdateBatchItem(
 /// </summary>
 public static class RunningApplicationAcknowledgement
 {
-    public static bool Covers(bool acknowledged, IReadOnlyCollection<string>? acknowledgedProcesses, RunningApplicationDetection running)
+    /// <summary>
+    /// MSIX design note §3.6 (owner host check 2026-11-13): Windows registers an app package's update only once the app is closed, so
+    /// WinGet reports success while the old version keeps running and the update can't be verified. An update whose reviewed installer
+    /// is <c>msix</c> therefore never starts while the app appears to be running, whatever was acknowledged.
+    /// </summary>
+    public static bool MustBeClosed(WinGetUserInstaller? installer) => installer?.Type == WinGetUserInstallerType.Msix;
+
+    public static bool Covers(bool acknowledged, IReadOnlyCollection<string>? acknowledgedProcesses, RunningApplicationDetection running, bool mustBeClosed = false)
     {
         ArgumentNullException.ThrowIfNull(running);
         if (!running.AppearsToBeRunning) return true;
-        if (!acknowledged) return false;
+        if (mustBeClosed || !acknowledged) return false;
         if (acknowledgedProcesses is null) return true;
         HashSet<string> warned = new(acknowledgedProcesses.Where(name => !string.IsNullOrWhiteSpace(name)), StringComparer.OrdinalIgnoreCase);
         return warned.Count != 0 && running.ProcessNames.All(name => warned.Contains(name));
