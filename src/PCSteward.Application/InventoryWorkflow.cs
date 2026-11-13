@@ -95,6 +95,8 @@ public sealed class CompositeStructuredUpdateCandidateAuthority(IEnumerable<IStr
 /// <summary>Application use case for inventory and non-executable update intelligence. It owns no adapter implementation or UI type.</summary>
 public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
 {
+    /// <summary>The design note's refusal when a 32-bit-registered app's architecture can't be proven at review (§3.3).</summary>
+    public const string ArchitectureNotConfirmedMessage = "PC Steward couldn't confirm this app's architecture, so it can't be updated here. Nothing was started.";
     private readonly IInventorySnapshotStore snapshots;
     private readonly IScanDataStore scanData;
     private readonly IConnectorSettingsStore connectorSettings;
@@ -280,14 +282,28 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         {
             return new(null, "This standalone PC Steward package supports user-scope updates only. Machine-scope updates require a separately reviewed protected installation and are not actionable here.");
         }
+        // Design note §3.2–3.3: an app whose uninstall entry is in the 32-bit view and that WinGet links to an x64 package by product
+        // code is prepared as x64, with what the review must prove: WinGet's installed package version and the entry's key and version.
+        bool provenAtReview = item.Mapping.ReviewReasons.Contains(MappingReviewReason.ArchitectureCheckedAtReview);
+        string? registrationKey = null, registrationVersion = null;
+        if (provenAtReview && (!profile.RegisteredIn32BitView || !TryMachine32Registration(evidence.Observation, stableProductKey, out registrationKey, out registrationVersion)))
+        {
+            return new(null, ArchitectureNotConfirmedMessage);
+        }
         StructuredUpdateCandidateEvidence? candidate = structuredUpdateCandidates is null
             ? null
             : await structuredUpdateCandidates.ResolveAsync(item.Mapping.SourceId, item.Mapping.PackageId, cancellationToken).ConfigureAwait(false);
-        if (!IsExactStructuredCandidate(item.Mapping, profile, candidate))
+        if (!IsExactStructuredCandidate(item.Mapping, profile, candidate, installedVersionProvenAtReview: provenAtReview))
         {
             return new(null, "The provider did not supply bounded structured candidate-version evidence for the exact source and package. Display results cannot authorize an update.");
         }
-        if (!TryCreateSelection(profile, item.Mapping, candidate!.CandidateVersion, out UpdateJobSelection? selection, out string message)) return new(null, message);
+        ProductMatchProfile bound = provenAtReview ? profile with { Architecture = "x64" } : profile;
+        if (!TryCreateSelection(bound, item.Mapping, candidate!.CandidateVersion, out UpdateJobSelection? selection, out string message)) return new(null, message);
+        if (provenAtReview)
+        {
+            return new(selection, "Fresh exact source evidence is ready for your review. The app's architecture is checked next.", evidence.Observation,
+                new WingetArchitectureProofRequest(candidate.InstalledVersion, registrationKey!, registrationVersion!));
+        }
         return new(selection, "Fresh exact source evidence is ready for your review.", evidence.Observation);
     }
 
@@ -299,7 +315,17 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     /// are not bound to this job, so the restart evidence comes only from the provider's typed result
     /// (<see cref="UpdateProviderAttemptStatus.RestartReported"/>), which the batch coordinator records as Restart required.
     /// </summary>
-    public async Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken)
+    public Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) =>
+        ReInventoryAsync(job, null, cancellationToken);
+
+    /// <summary>
+    /// The post-update check. With <paramref name="expected"/> (design note §3.4, an app whose x64 architecture the review proved), the
+    /// one machine-scope uninstall entry must be at the expected key, or belong to the reviewed or WinGet-linked product, and show
+    /// exactly the expected DisplayVersion; its registry view is not compared, because the review's manifest proof covers it.
+    /// Otherwise the target version, scope and architecture must match exactly, as before. Either way WinGet's export must show
+    /// exactly the target package version.
+    /// </summary>
+    public async Task<PostUpdateInventoryResult> ReInventoryAsync(ImmutableUpdateJob job, ExpectedUninstallEntry? expected, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(job);
         if (postUpdatePackageInventory is null || !await postUpdatePackageInventory.HasExactExpectedVersionAsync(job, cancellationToken).ConfigureAwait(false)) return new(false, false);
@@ -317,16 +343,34 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
             string.Equals(product.StableKey, job.Selection.StableProductKey, StringComparison.Ordinal) ||
             (linkedKey is not null && string.Equals(product.StableKey, linkedKey, StringComparison.Ordinal))).ToArray();
         HashSet<Guid> productIds = reviewedOrLinked.Select(product => product.Id).ToHashSet();
-        InstallationInstance[] exactLocal = instances.Where(instance =>
-            productIds.Contains(instance.ProductId) &&
-            IsConcreteLocalEvidence(instance) &&
-            string.Equals(instance.Version, job.Selection.CandidateVersion, StringComparison.Ordinal) &&
-            string.Equals(instance.Scope, job.Selection.Scope.ToString(), StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(instance.Architecture, job.Selection.Architecture.ToString(), StringComparison.OrdinalIgnoreCase)).ToArray();
-        bool expectedVersionDetected = exactLocal.Length == 1 && exactLocal.Select(instance => instance.ProductId).Distinct().Count() == 1 &&
-            !reviewedOrLinked.Any(product => product.Id != exactLocal[0].ProductId && instances.Any(instance => instance.ProductId == product.Id && IsConcreteLocalEvidence(instance)));
+        InstallationInstance[] exactLocal;
+        if (expected is not null)
+        {
+            // A runtime patch registers under the new bundle's product code: that entry's product counts too (design note §3.4).
+            productIds.UnionWith(instances.Where(instance => IsRegistryEntry(instance, expected.ProductCode)).Select(instance => instance.ProductId));
+            exactLocal = instances.Where(instance =>
+                productIds.Contains(instance.ProductId) &&
+                string.Equals(instance.Provider, "registry", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(instance.Version, expected.DisplayVersion, StringComparison.Ordinal) &&
+                string.Equals(instance.Scope, nameof(UpdateScope.Machine), StringComparison.OrdinalIgnoreCase)).ToArray();
+        }
+        else
+        {
+            exactLocal = instances.Where(instance =>
+                productIds.Contains(instance.ProductId) &&
+                IsConcreteLocalEvidence(instance) &&
+                string.Equals(instance.Version, job.Selection.CandidateVersion, StringComparison.Ordinal) &&
+                string.Equals(instance.Scope, job.Selection.Scope.ToString(), StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(instance.Architecture, job.Selection.Architecture.ToString(), StringComparison.OrdinalIgnoreCase)).ToArray();
+        }
+        bool expectedVersionDetected = exactLocal.Length == 1 &&
+            !productIds.Any(id => id != exactLocal[0].ProductId && instances.Any(instance => instance.ProductId == id && IsConcreteLocalEvidence(instance)));
         return new(expectedVersionDetected, false);
     }
+
+    private static bool IsRegistryEntry(InstallationInstance instance, string key) =>
+        string.Equals(instance.Provider, "registry", StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(instance.ProviderIdentity?.Trim(), key.Trim(), StringComparison.OrdinalIgnoreCase);
 
     public Task PinCurrentVersionAsync(string stableProductKey, string currentVersion, string? reason, CancellationToken cancellationToken) => RequiredDecisions().PinCurrentVersionAsync(stableProductKey, currentVersion, reason, cancellationToken);
     public Task PinSourcePackageAsync(string stableProductKey, string sourceId, string packageId, string? reason, CancellationToken cancellationToken) => RequiredDecisions().PinSourcePackageAsync(stableProductKey, sourceId, packageId, reason, cancellationToken);
@@ -451,7 +495,8 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
             // cover the same uninstall key name in several registry views; differing installed targets are ambiguous, never picked.
             bool conflictingTargets = wingetInstances.Select(instance => (instance.ProviderIdentity, instance.SourceId, instance.Version, instance.Scope, instance.Architecture, instance.Channel)).Distinct().Skip(1).Any() ||
                 (winget is null && productInstances.Where(IsConcreteLocalEvidence).Select(instance => (Scope: instance.Scope.ToUpperInvariant(), Architecture: instance.Architecture.ToUpperInvariant(), instance.Version)).Distinct().Skip(1).Any());
-            return new ProductMatchProfile(product.StableKey, product.DisplayName, winget?.ProviderIdentity, msix is null ? null : product.StableKey, null, preferred?.Publisher, winget?.Version ?? executionEvidence?.Version, executionEvidence?.Scope ?? "Unknown", executionEvidence?.Architecture ?? "Unknown", preferred?.Channel, InstalledSourceId: winget?.SourceId, HasConflictingTargetInstances: conflictingTargets, HasConcreteLocalEvidence: productInstances.Length == 0 || productInstances.Any(instance => !string.Equals(instance.Provider, "winget", StringComparison.OrdinalIgnoreCase)));
+            return new ProductMatchProfile(product.StableKey, product.DisplayName, winget?.ProviderIdentity, msix is null ? null : product.StableKey, null, preferred?.Publisher, winget?.Version ?? executionEvidence?.Version, executionEvidence?.Scope ?? "Unknown", executionEvidence?.Architecture ?? "Unknown", preferred?.Channel, InstalledSourceId: winget?.SourceId, HasConflictingTargetInstances: conflictingTargets, HasConcreteLocalEvidence: productInstances.Length == 0 || productInstances.Any(instance => !string.Equals(instance.Provider, "winget", StringComparison.OrdinalIgnoreCase)),
+                RegisteredIn32BitView: winget is null && executionEvidence is not null && IsMachine32Registration(executionEvidence));
         }).ToArray();
     }
 
@@ -468,15 +513,41 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
             : candidates.OrderBy(ProviderPriority).ThenBy(instance => instance.ProviderIdentity, StringComparer.Ordinal).FirstOrDefault();
     }
 
+    // RegistryInventoryProvider records the 32-bit machine view, and only that view, as Machine + x86.
+    private static bool IsMachine32Registration(InstallationInstance instance) =>
+        string.Equals(instance.Provider, "registry", StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(instance.Scope, "Machine", StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(instance.Architecture, "x86", StringComparison.OrdinalIgnoreCase);
+
     private static bool IsConcreteLocalEvidence(InstallationInstance instance) => string.Equals(instance.Provider, "registry", StringComparison.OrdinalIgnoreCase) || string.Equals(instance.Provider, "msix", StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsExactStructuredCandidate(PackageMapping mapping, ProductMatchProfile profile, StructuredUpdateCandidateEvidence? candidate)
+    /// <summary>
+    /// The one uninstall entry of <paramref name="stableProductKey"/>'s product in fresh inventory that was read from the 32-bit machine
+    /// view (registry, Machine, x86): its key and DisplayVersion.
+    /// </summary>
+    private static bool TryMachine32Registration(LiveInventoryObservation? observation, string stableProductKey, out string? key, out string? version)
+    {
+        key = version = null;
+        if (observation is null) return false;
+        CanonicalProduct[] products = [.. observation.Products.Where(product => string.Equals(product.StableKey, stableProductKey, StringComparison.Ordinal))];
+        if (products.Length != 1) return false;
+        InstallationInstance[] registrations = [.. observation.Instances.Where(instance => instance.ProductId == products[0].Id && IsMachine32Registration(instance))];
+        if (registrations.Length != 1 || string.IsNullOrWhiteSpace(registrations[0].ProviderIdentity) || string.IsNullOrWhiteSpace(registrations[0].Version)) return false;
+        key = registrations[0].ProviderIdentity;
+        version = registrations[0].Version;
+        return true;
+    }
+
+    // With installedVersionProvenAtReview, WinGet's installed package version may differ from the uninstall entry's DisplayVersion
+    // (8.0.33 against 8.0.33.36622): the review ties the two together from the installed version's own manifest (design note §3.3).
+    private static bool IsExactStructuredCandidate(PackageMapping mapping, ProductMatchProfile profile, StructuredUpdateCandidateEvidence? candidate,
+        bool installedVersionProvenAtReview = false)
     {
         const int maximumVersionLength = 128;
         if (candidate is null ||
             !string.Equals(candidate.SourceId, mapping.SourceId, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(candidate.PackageId, mapping.PackageId, StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(candidate.InstalledVersion, profile.InstalledVersion, StringComparison.Ordinal) ||
+            (!installedVersionProvenAtReview && !string.Equals(candidate.InstalledVersion, profile.InstalledVersion, StringComparison.Ordinal)) ||
             !string.Equals(candidate.CandidateVersion, mapping.CandidateVersion, StringComparison.Ordinal) ||
             string.IsNullOrWhiteSpace(candidate.InstalledVersion) ||
             candidate.InstalledVersion.Length > maximumVersionLength ||

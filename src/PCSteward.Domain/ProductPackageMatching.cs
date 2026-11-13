@@ -39,7 +39,13 @@ public enum MappingReviewReason
     SourceDisagreement,
     MissingScopeEvidence,
     MissingArchitectureEvidence,
-    MissingChannelEvidence
+    MissingChannelEvidence,
+    /// <summary>
+    /// D4b 32-bit-registered apps (design note §3.2): the app's uninstall entry is in the 32-bit registry view (read as x86) and
+    /// WinGet links it to an x64 package by product code. The registration view is not proof of the architecture, so this is
+    /// offered with the architecture proven at review, or refused there. Appended so stored ordinals are unchanged.
+    /// </summary>
+    ArchitectureCheckedAtReview
 }
 
 public sealed record ProductMatchProfile(
@@ -58,7 +64,9 @@ public sealed record ProductMatchProfile(
     string? InstalledSourceId = null,
     bool HasConflictingTargetInstances = false,
     // False only for a product known solely from WinGet's own installed list (no uninstall entry or MSIX package of its own).
-    bool HasConcreteLocalEvidence = true);
+    bool HasConcreteLocalEvidence = true,
+    // True when the installed evidence is a machine uninstall entry read from the 32-bit registry view. Never proof of x86 or x64.
+    bool RegisteredIn32BitView = false);
 
 public sealed record PackageMatchCandidate(
     string SourceId,
@@ -168,7 +176,7 @@ public static class ProductPackageMatching
         }
 
         if (product.HasConflictingTargetInstances) reasons.Add(MappingReviewReason.MultipleInstallationInstanceAmbiguity);
-        AddCompatibilityReasons(product, candidate, reasons);
+        AddCompatibilityReasons(product, candidate, origin, reasons);
         VersionComparisonResult comparison = VersionComparison.Compare(new(product.InstalledVersion, candidate.CandidateVersion, candidate.RequiresConnectorSpecificVersionSemantics));
         // A name-only candidate with incomplete publisher evidence has not established that its
         // version uses the same scheme as the installed product. Keep it review-only without
@@ -179,7 +187,7 @@ public static class ProductPackageMatching
         // Owner decision 2026-11-13: a unique match on the same normalized product name AND publisher (Medium) is as actionable as an
         // exact identity (High), when nothing else needs review. Near names, missing or conflicting publishers (Low) and two equally
         // strong candidates (AmbiguousCandidate in Resolve) still need the owner's confirmation.
-        bool actionable = confidence >= MappingConfidence.Medium && candidate.IsTrustedConnector && reasons.Count == 0 && comparison.Outcome == VersionComparisonOutcome.Newer;
+        bool actionable = confidence >= MappingConfidence.Medium && candidate.IsTrustedConnector && reasons.All(reason => reason == MappingReviewReason.ArchitectureCheckedAtReview) && comparison.Outcome == VersionComparisonOutcome.Newer;
         return new(candidate.SourceId, candidate.PackageId, candidate.CandidateVersion, confidence, origin, Describe(evidence, comparison, reasons, versionEvidenceIsUsable), actionable, reasons.ToArray(), comparison);
     }
 
@@ -260,8 +268,21 @@ public static class ProductPackageMatching
         return new(candidate.SourceId, candidate.PackageId, candidate.CandidateVersion, confidence, origin, Describe(evidence, comparison, reasons, false), false, reasons.ToArray(), comparison);
     }
 
-    private static void AddCompatibilityReasons(ProductMatchProfile product, PackageMatchCandidate candidate, List<MappingReviewReason> reasons)
+    private static void AddCompatibilityReasons(ProductMatchProfile product, PackageMatchCandidate candidate, MappingOrigin origin, List<MappingReviewReason> reasons)
     {
+        // Design note §3.2: only WinGet's own product-code link from a 32-bit-view machine entry to an x64 installer is offered with the
+        // architecture checked at review. Every other architecture difference, and every name match, stays a conflict.
+        if (origin == MappingOrigin.ProviderSupplied && product.RegisteredIn32BitView &&
+            Equal(product.Scope, "Machine") && Equal(product.Architecture, "x86") && Equal(candidate.Architecture, "x64"))
+        {
+            if (!Known(candidate.Scope)) reasons.Add(MappingReviewReason.MissingScopeEvidence);
+            if (!Known(candidate.Channel)) reasons.Add(MappingReviewReason.MissingChannelEvidence);
+            reasons.Add(MappingReviewReason.ArchitectureCheckedAtReview);
+            if (Conflicts(product.Scope, candidate.Scope)) reasons.Add(MappingReviewReason.ScopeConflict);
+            if (Conflicts(product.Channel, candidate.Channel)) reasons.Add(MappingReviewReason.ChannelConflict);
+            return;
+        }
+
         // The installed side counts too: an update can only be bound to an installed scope and architecture that are known.
         if (!Known(candidate.Architecture) || !Known(product.Architecture)) reasons.Add(MappingReviewReason.MissingArchitectureEvidence);
         if (!Known(candidate.Scope) || !Known(product.Scope)) reasons.Add(MappingReviewReason.MissingScopeEvidence);

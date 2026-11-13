@@ -99,10 +99,23 @@ public static class WingetMachineReviewedRoute
     /// x64 the 64-bit view). The digest binds that view, the key name and the version the registry showed; the helper finds the
     /// registration again by it. Null when there is no such single registration or a field is out of bounds.
     /// </summary>
-    public static string? RegistrationDigest(UpdateJobSelection selection, LiveInventoryObservation? observation)
+    public static string? RegistrationDigest(UpdateJobSelection selection, LiveInventoryObservation? observation) =>
+        RegistrationDigest(selection, observation, registeredIn32BitView: false);
+
+    /// <summary>
+    /// As <see cref="RegistrationDigest(UpdateJobSelection, LiveInventoryObservation?)"/>; with <paramref name="registeredIn32BitView"/>
+    /// (design note §3.3, an x64 selection whose architecture the review proves) the registration is the one in the 32-bit view, the
+    /// view it was actually read from, which inventory records as x86. The helper finds it in either view (H6).
+    /// </summary>
+    public static string? RegistrationDigest(UpdateJobSelection selection, LiveInventoryObservation? observation, bool registeredIn32BitView)
     {
         ArgumentNullException.ThrowIfNull(selection);
         if (observation is null || !TryGetSelectionArchitecture(selection, out string architecture)) return null;
+        if (registeredIn32BitView)
+        {
+            if (architecture != "x64") return null;
+            architecture = "x86";
+        }
         WinGetMachineRegistrationView? view = architecture switch
         {
             "x86" => WinGetMachineRegistrationView.Machine32,
@@ -151,7 +164,30 @@ public static class WingetMachineReviewedRoute
 /// update: the installer type WinGet chose, the exported manifest's digest and the installer's SHA-256 (64 uppercase hex each).
 /// Comparison data only; the helper downloads and checks again before it runs anything.
 /// </summary>
-public sealed record WingetMachineInstallerEvidence(WinGetMachineInstallerType InstallerType, string ManifestDigest, string InstallerSha256);
+public sealed record WingetMachineInstallerEvidence(WinGetMachineInstallerType InstallerType, string ManifestDigest, string InstallerSha256)
+{
+    /// <summary>
+    /// The one uninstall entry the target manifest's installer declares (<c>AppsAndFeaturesEntries</c> with a product code and a
+    /// DisplayVersion), or null when it declares none, several, or not in a readable form (design note §3.4).
+    /// </summary>
+    public ExpectedUninstallEntry? DeclaredEntry { get; init; }
+}
+
+/// <summary>
+/// D4b 32-bit-registered apps (design note §3.3): what the review must prove for an app whose uninstall entry is in the 32-bit registry
+/// view and that WinGet links to an x64 package by product code. <see cref="ProviderInstalledVersion"/> is WinGet's installed package
+/// version; <see cref="RegistrationKey"/> and <see cref="RegistrationVersion"/> are the uninstall entry's key and DisplayVersion.
+/// </summary>
+public sealed record WingetArchitectureProofRequest(string ProviderInstalledVersion, string RegistrationKey, string RegistrationVersion);
+
+/// <summary>Whether the architecture was proven (P1 product code or P2 single-architecture package), and the owner-facing words.</summary>
+public sealed record WingetArchitectureProofResult(bool Proven, string Message);
+
+/// <summary>D4b 32-bit-registered apps: proves an x64 selection's architecture at review, without elevation. Must not throw for what it finds.</summary>
+public interface IWingetArchitectureProofSource
+{
+    Task<WingetArchitectureProofResult> ProveAsync(UpdateJobSelection selection, WingetArchitectureProofRequest request, CancellationToken cancellationToken);
+}
 
 /// <summary>The outcome of a review-time check: evidence, or the owner-facing reason the update is not offered (never both).</summary>
 public sealed record WingetMachineInstallerCheck(WingetMachineInstallerEvidence? Evidence, string Message);

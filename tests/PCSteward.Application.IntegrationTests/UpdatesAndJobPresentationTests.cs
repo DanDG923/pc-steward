@@ -640,6 +640,24 @@ public sealed class UpdatesAndJobPresentationTests
         Assert.AreEqual("Delete downloaded files", UpdateJobCleanupText.Heading, "the cleanup button keeps its exact label under the Tidy up row");
     }
 
+    [TestMethod]
+    public void AReadyUpdateWhoseArchitectureIsCheckedAtReviewSaysSo()
+    {
+        InventoryRow[] rows = [Row("runtime", "VerifiedUpdate", "8.0.33.36622"), Row("plain", "VerifiedUpdate", "1.0")];
+        Dictionary<string, UpdateDetail> details = new()
+        {
+            ["runtime"] = Detail("runtime", "8.0.33.36622", "8.0.34", reasons: ["ArchitectureCheckedAtReview"]),
+            ["plain"] = Detail("plain", "1.0", "1.1")
+        };
+
+        UpdatesPagePresentation page = UpdatesPagePresenter.Build(rows, details, true, [], null, Now);
+
+        UpdateRowPresentation runtime = page.Ready.Single(row => row.StableProductKey == "runtime");
+        StringAssert.Contains(runtime.Summary, UpdatesPagePresenter.ArchitectureCheckedAtReviewNote);
+        Assert.IsEmpty(page.Ready.Single(row => row.StableProductKey == "plain").Reasons);
+        StringAssert.Contains(ReviewReasonText.Describe("ArchitectureCheckedAtReview"), "64-bit");
+    }
+
     private static string Reason(UpdatesPagePresentation page, string key) => page.NeedsReview.Single(row => row.StableProductKey == key).ReasonText;
 
     private static string Fact(UpdateReviewSheet sheet, string label) => sheet.Facts.Single(fact => fact.Label == label).Value;
