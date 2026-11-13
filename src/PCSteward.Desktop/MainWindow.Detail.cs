@@ -72,7 +72,8 @@ public sealed partial class MainWindow
         evidence.Children.Add(StewardVisuals.EvidenceRow("Available", detail?.CandidateVersion ?? "Not established"));
         evidence.Children.Add(StewardVisuals.EvidenceRow("Confidence", ReviewReasonText.Confidence(detail?.Confidence)));
         evidence.Children.Add(PageCopy(detail?.Freshness ?? "Local-only — no source check has been run."));
-        Grid.SetColumn(evidence, 1); comparison.Children.Add(Card(evidence));
+        // The column goes on the card itself (the grid's child), so the two cards sit side by side instead of on top of each other.
+        Border evidenceCard = Card(evidence); Grid.SetColumn(evidenceCard, 1); comparison.Children.Add(evidenceCard);
         panel.Children.Add(comparison);
 
         StackPanel why = new() { Spacing = StewardSpacing.Small };
