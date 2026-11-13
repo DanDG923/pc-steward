@@ -1,3 +1,5 @@
+**Microsoft Store and other MSIX app versions, for release 0.1.11 (2026-11-13; code; found on the owner's PC with 0.1.9).** Requirement: `FR-INV-01`. The Updates page showed "Installed Windows.ApplicationModel.PackageVersion" for Elgato Wave Link and Claude. The MSIX inventory (desktop and scheduled host) used `PackageId.Version.ToString()`, which for the WinRT `PackageVersion` struct gives its type name. It now writes `Major.Minor.Build.Revision`, so these apps get a real installed version to compare with the package source. Older records are replaced by the next scan.
+
 **False updates for apps whose uninstall entry numbers a release differently, and the details page cards, for release 0.1.10 (2026-11-13; code and tests; found on the owner's PC with 0.1.8 and 0.1.9).** Requirements: `FR-UPD-01`, `FR-UI-05`.
 
 - **Host check of 0.1.9 (stage 3, first half).** .NET Desktop Runtime 8 was updated through PC Steward from 8.0.33.36622 to 8.0.34 and the post-update check verified it: the 32-bit-view entry 8.0.33 was replaced by 8.0.34.36622, WinGet no longer offers the update, and no review download folder was left.

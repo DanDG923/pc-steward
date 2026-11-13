@@ -45,7 +45,7 @@ internal sealed class ScheduledMsixInventoryProvider(Func<bool> isEnabled) : ILo
             if (string.IsNullOrWhiteSpace(family) || string.IsNullOrWhiteSpace(full)) continue;
             Guid productId = StableGuid("product|" + family);
             products.Add(new CanonicalProduct(productId, family, package.Id.Name ?? family));
-            instances.Add(new InstallationInstance(StableGuid("instance|" + full), productId, "msix", full, package.Id.Version.ToString(), "User", package.Id.Architecture.ToString(), package.Id.PublisherId, null, package.InstalledLocation?.Path, null, "Application"));
+            instances.Add(new InstallationInstance(StableGuid("instance|" + full), productId, "msix", full, $"{package.Id.Version.Major}.{package.Id.Version.Minor}.{package.Id.Version.Build}.{package.Id.Version.Revision}", "User", package.Id.Architecture.ToString(), package.Id.PublisherId, null, package.InstalledLocation?.Path, null, "Application"));
             raw.Add(new RawProviderRecord(Guid.NewGuid(), Guid.Empty, "msix", full, $"family={family};publisher={package.Id.PublisherId};classification=Application"));
         }
         return new ProviderScanResult(products, instances, raw, []);

@@ -18,7 +18,7 @@ internal sealed class WindowsCurrentUserPackageCatalog : ICurrentUserPackageCata
             MsixPackageInfo? record;
             try
             {
-                record = new MsixPackageInfo(package.Id.FamilyName ?? string.Empty, package.Id.FullName ?? string.Empty, package.Id.Name ?? string.Empty, package.Id.Version.ToString() ?? string.Empty, package.Id.Architecture.ToString() ?? string.Empty, package.Id.PublisherId ?? string.Empty, null, package.IsFramework, package.IsResourcePackage, false);
+                record = new MsixPackageInfo(package.Id.FamilyName ?? string.Empty, package.Id.FullName ?? string.Empty, package.Id.Name ?? string.Empty, $"{package.Id.Version.Major}.{package.Id.Version.Minor}.{package.Id.Version.Build}.{package.Id.Version.Revision}", package.Id.Architecture.ToString() ?? string.Empty, package.Id.PublisherId ?? string.Empty, null, package.IsFramework, package.IsResourcePackage, false);
             }
             catch (Exception) { continue; }
             yield return record;
