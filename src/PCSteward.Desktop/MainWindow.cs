@@ -25,7 +25,7 @@ public sealed partial class MainWindow : Window
     private readonly DownloadedArtifactCache downloads;
     private readonly ReviewedUpdateExecutionWorkflow updates;
     // Owner decision 2026-11-13: "Close it for me" on the review asks a running app to close like closing its window; never a force-quit.
-    private readonly IRunningApplicationCloser runningAppCloser = new WindowCloseRunningApplicationCloser();
+    private readonly WindowCloseRunningApplicationCloser runningAppCloser = new();
     private readonly IScheduledCheckSettingsStore scheduleSettingsStore;
     private readonly ScheduledCheckRegistrationService scheduleRegistration;
     private readonly Func<FactoryResetResult>? acknowledgeResetOnboarding;
