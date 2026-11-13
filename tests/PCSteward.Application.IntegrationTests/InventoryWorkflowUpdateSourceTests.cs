@@ -229,7 +229,7 @@ public sealed class InventoryWorkflowUpdateSourceTests
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();
         const string key = "{4d0027d4-962f-4f65-a01b-f8764a5f4220}";
-        CanonicalProduct product = new(Guid.NewGuid(), "registry:" + key, "Contoso Desktop Runtime - 8.0.33 (x64)");
+        CanonicalProduct product = new(Guid.NewGuid(), RegistryKey(key), "Contoso Desktop Runtime - 8.0.33 (x64)");
         // The registry provider records the 32-bit machine view as Machine + x86 (a Burn bundle registers there for an x64 product).
         InstallationInstance instance = new(Guid.NewGuid(), product.Id, "registry", key, "8.0.33.36622", "Machine", "x86", "Contoso");
         await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [product], [instance], [], [], CancellationToken.None);
@@ -262,8 +262,8 @@ public sealed class InventoryWorkflowUpdateSourceTests
         await using TestDatabase database = await TestDatabase.CreateAsync();
         const string oldKey = "{4d0027d4-962f-4f65-a01b-f8764a5f4220}";
         const string newKey = "{de6ce2b1-81f5-406c-a0ca-534ccdf2ad7e}";
-        CanonicalProduct reviewed = new(Guid.NewGuid(), "registry:" + oldKey, "Contoso Desktop Runtime - 8.0.33 (x64)");
-        CanonicalProduct replacement = new(Guid.NewGuid(), "registry:" + newKey, "Contoso Desktop Runtime - 8.0.34 (x64)");
+        CanonicalProduct reviewed = new(Guid.NewGuid(), RegistryKey(oldKey), "Contoso Desktop Runtime - 8.0.33 (x64)");
+        CanonicalProduct replacement = new(Guid.NewGuid(), RegistryKey(newKey), "Contoso Desktop Runtime - 8.0.34 (x64)");
         InstallationInstance oldEntry = new(Guid.NewGuid(), reviewed.Id, "registry", oldKey, "8.0.33.36622", "Machine", "x86", "Contoso");
         InstallationInstance newEntry = new(Guid.NewGuid(), replacement.Id, "registry", newKey, "8.0.34.36622", "Machine", "x86", "Contoso");
         UpdateJobSelection selection = new(reviewed.StableKey, UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.DesktopRuntime.8", "8.0.33.36622", "8.0.34",
@@ -659,6 +659,10 @@ public sealed class InventoryWorkflowUpdateSourceTests
     {
         public void Report(int value) => values.Add(value);
     }
+
+    /// <summary>The product key inventory gives a registry uninstall entry (as the registry provider computes it).</summary>
+    private static string RegistryKey(string keyName) =>
+        InventoryNormalization.ProductFingerprint(new RawInstallEvidence("registry", keyName, keyName, null, null, "Machine", "x86", null, "Application", "registry"));
 
     private static Task EnableTrustedSourcesAsync(TestDatabase database) => database.Store.SaveConnectorStatesAsync(
         new Dictionary<string, ConnectorState>
