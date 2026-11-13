@@ -126,7 +126,8 @@ public sealed class SelfUpdateBoundaryTests
                      "self-update-finish-installs-and-verifies-the-upgrade",
                      "self-update-desktop-reads-the-installed-job-as-updated", "self-update-uninstalls-cleanly",
                      "self-update-private-folder-hidden-from-standard-users", "self-update-finish-restores-the-owners-policy",
-                     "release-install-restores-the-owners-policy",
+                     "release-install-restores-the-owners-policy", "self-update-reopen-refuses-to-run-elevated",
+                     "self-update-reopen-opens-the-installed-desktop-unelevated",
                  })
             StringAssert.Contains(script, "Set-Check '" + check + "'");
         // Mythos review S1: the per-user transform experiment runs, records its outcome, and puts the logging policy back.
@@ -262,6 +263,44 @@ public sealed class SelfUpdateBoundaryTests
         Assert.IsFalse(Regex.IsMatch(files, @"File\.(WriteAll|Copy|Replace|Create\()|Directory\.Delete"), "no other file writes");
         string facade = File.ReadAllText(Path.Combine(execution, "PcStewardSelfUpdate.cs"));
         Assert.IsFalse(Regex.IsMatch(facade, @"Process\.|runas|File\.(Move|Delete|Write)"), "the façade launches and writes only through its pieces");
+    }
+
+    /// <summary>
+    /// ADR-032 revision 2, reopen amendment: nothing elevated starts the desktop. The finish copy still launches nothing; the
+    /// only caller of <c>StartDesktop</c> is the reopen watcher, which refuses an elevated token before it reads anything; the
+    /// desktop starts that watcher with its own unelevated token (no <c>runas</c>, no shell) only after the helper's "ready".
+    /// </summary>
+    [TestMethod]
+    public void OnlyTheUnelevatedWatcherReopensPcSteward()
+    {
+        string root = CompiledIlScanner.FindRepositoryRoot();
+        string execution = Path.Combine(root, "src", "PCSteward.Execution");
+        string finish = File.ReadAllText(Path.Combine(execution, "SelfUpdateFinish.cs"));
+        foreach (string forbidden in new[] { "StartDesktop", "StartReopenWatcher", "Process.", "CreateProcess", "ShellExecute" })
+            Assert.IsFalse(finish.Contains(forbidden, StringComparison.Ordinal), "SelfUpdateFinish.cs: " + forbidden);
+
+        string[] callers = [.. Directory.GetFiles(Path.Combine(root, "src"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Split(Path.DirectorySeparatorChar).Any(part => part is "bin" or "obj"))
+            .Where(path => Regex.IsMatch(File.ReadAllText(path), @"\.StartDesktop\("))
+            .Select(Path.GetFileName)
+            .Order(StringComparer.Ordinal)!];
+        Assert.AreEqual("SelfUpdateReopen.cs", string.Join(',', callers), "the only caller of StartDesktop");
+
+        string reopen = File.ReadAllText(Path.Combine(execution, "SelfUpdateReopen.cs"));
+        int refuse = reopen.IndexOf("if (elevated || !SelfUpdateInstallPolicy.IsWorkFolderName(workFolderLeaf)) return Refused;", StringComparison.Ordinal);
+        Assert.IsTrue(refuse > 0 && refuse < reopen.IndexOf("host.ReadFile(", StringComparison.Ordinal), "the elevated refusal comes before any read");
+        StringAssert.Contains(File.ReadAllText(Path.Combine(execution, "SelfUpdateHelperBootstrap.cs")),
+            "!SelfUpdateHelperProtocol.TryParseReopen(arguments, out string leaf) || IsElevated()");
+
+        string host = File.ReadAllText(Path.Combine(execution, "WindowsSelfUpdateHost.cs"));
+        Assert.IsFalse(Regex.IsMatch(host, "Verb = \"runas\"|UseShellExecute = true|ShellExecuteEx"), "no elevation or shell in the host");
+        Assert.AreEqual(3, Regex.Count(host, @"StartUnelevated\("), "one definition, the watcher start and the desktop start");
+        StringAssert.Contains(host, "inheritHandles: false, flags, IntPtr.Zero, directory, ref startup,");
+        string facade = File.ReadAllText(Path.Combine(execution, "PcStewardSelfUpdate.cs"));
+        int ready = facade.IndexOf("case SelfUpdateLaunchOutcome.Ready when", StringComparison.Ordinal);
+        int watcher = facade.IndexOf("files.StartReopenWatcher(folder)", StringComparison.Ordinal);
+        Assert.IsTrue(ready > 0 && watcher > ready && watcher < facade.IndexOf("case SelfUpdateLaunchOutcome.Refused", StringComparison.Ordinal),
+            "the watcher starts only after the helper's ready answer");
     }
 
     /// <summary>

@@ -82,7 +82,7 @@ internal static class SelfUpdateHelperBootstrap
 /// <summary>
 /// ADR-032 revision 2 §6–§7: the ElevatedHelper composition roots of PC Steward's own update. The session constructs only
 /// the native qualification port (for the peer handle and requester token), the Helper-role install check, the Windows host
-/// and the system clock; the finish copy only the Windows host. A refused parse or a non-Windows host exits with code 20
+/// and the system clock; the finish copy and the unelevated reopen watcher only the Windows host. A refused parse or a non-Windows host exits with code 20
 /// before anything is read; the session also refuses a non-elevated process with 20, and the finish copy reports it the
 /// same way.
 /// </summary>
@@ -91,6 +91,8 @@ public static partial class ElevatedHelperEntryPoint
     internal static bool SelectsSelfUpdate(string[] arguments) => SelfUpdateHelperProtocol.SelectsSession(arguments);
 
     internal static bool SelectsSelfUpdateFinish(string[] arguments) => SelfUpdateHelperProtocol.SelectsFinish(arguments);
+
+    internal static bool SelectsSelfUpdateReopen(string[] arguments) => SelfUpdateHelperProtocol.SelectsReopen(arguments);
 
     private static Task<int> RunSelfUpdateAsync(string[] arguments)
     {
@@ -109,5 +111,15 @@ public static partial class ElevatedHelperEntryPoint
         WindowsSelfUpdateHost? machine = WindowsSelfUpdateHost.TryCreate();
         if (machine is null) return Task.FromResult(SelfUpdateFinish.Refused);
         return SelfUpdateFinish.RunAsync(leaf, IsElevated(), machine, CancellationToken.None);
+    }
+
+    /// <summary>The reopen amendment: the unelevated watcher only. An elevated process is refused with 20 before anything is read.</summary>
+    private static Task<int> RunSelfUpdateReopenAsync(string[] arguments)
+    {
+        if (!OperatingSystem.IsWindows() || !SelfUpdateHelperProtocol.TryParseReopen(arguments, out string leaf) || IsElevated())
+            return Task.FromResult(SelfUpdateReopen.Refused);
+        WindowsSelfUpdateHost? machine = WindowsSelfUpdateHost.TryCreate();
+        if (machine is null) return Task.FromResult(SelfUpdateReopen.Refused);
+        return SelfUpdateReopen.RunAsync(leaf, elevated: false, machine, CancellationToken.None);
     }
 }

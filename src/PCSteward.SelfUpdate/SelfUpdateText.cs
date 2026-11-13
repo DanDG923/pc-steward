@@ -61,6 +61,8 @@ public static class SelfUpdateText
         ArgumentNullException.ThrowIfNull(result);
         return result.Outcome switch
         {
+            PcStewardInstallOutcome.Ready or PcStewardInstallOutcome.ReadyJobNotSaved when result.ReopensWhenDone =>
+                "The update is ready. PC Steward will now close so Windows can install it, and opens again by itself when the install has finished.",
             PcStewardInstallOutcome.Ready or PcStewardInstallOutcome.ReadyJobNotSaved =>
                 "The update is ready. PC Steward will now close so Windows can install it. Open PC Steward again in a few minutes to see the result.",
             PcStewardInstallOutcome.Refused => "The update was stopped before anything was installed. " + DescribeHelperRefusal(result.RefusalCode),

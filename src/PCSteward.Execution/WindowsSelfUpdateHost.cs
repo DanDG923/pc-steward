@@ -17,7 +17,7 @@ namespace PCSteward.Execution;
 /// new with their descriptor set at creation. Processes start from fixed System32 or work folder paths with no shell.
 /// Everything fails closed: any exception is a refusal.
 /// </summary>
-internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, ISelfUpdateFinishHost
+internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, ISelfUpdateFinishHost, ISelfUpdateReopenHost
 {
     private const string ProfileListKey = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\";
     private const string SystemDriveToken = @"%SystemDrive%\";
@@ -438,6 +438,72 @@ internal sealed partial class WindowsSelfUpdateHost : ISelfUpdateSessionHost, IS
         {
             return false;
         }
+    }
+
+    // ---- Reopen watcher (ADR-032 revision 2, reopen amendment) ----
+
+    /// <summary>
+    /// Desktop side, unelevated: starts the job's protected helper copy with the reopen line, as this (unelevated) process's
+    /// own user, with no shell and no window. Only when the work folder and <c>bin</c> are protected and the copy carries the
+    /// same release pin as the installed desktop; false otherwise, and then the owner reopens PC Steward by hand.
+    /// </summary>
+    public bool StartReopenWatcher(string workFolderLeaf)
+    {
+        if (!OperatingSystem.IsWindows() || !SelfUpdateInstallPolicy.IsWorkFolderName(workFolderLeaf)) return false;
+        try
+        {
+            string workFolder = Path.Combine(ProgramFiles, workFolderLeaf);
+            string bin = Path.Combine(workFolder, SelfUpdateHelperProtocol.HelperCopyFolder);
+            string copy = Path.Combine(bin, InstalledHelperLaunchTrust.HelperExecutableName);
+            if (!IsProtectedWorkFolder(workFolder) || !IsProtectedWorkFolder(bin) ||
+                !BothCarrySameReleasePin(Path.Combine(InstallRoot, InstalledHelperLaunchTrust.DesktopExecutableName), copy))
+                return false;
+            return StartUnelevated(copy, SelfUpdateHelperProtocol.ReopenCommandLine(copy, workFolderLeaf), Environment.SystemDirectory, NativeMethods.CreateNoWindow);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return false;
+        }
+    }
+
+    public bool DesktopIsOpen()
+    {
+        string desktop = Path.Combine(InstallRoot, InstalledHelperLaunchTrust.DesktopExecutableName);
+        foreach (Process process in Process.GetProcesses())
+        {
+            using (process)
+            {
+                if (string.Equals(ImagePath(process.Id), desktop, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+        }
+        return false;
+    }
+
+    public bool StartDesktop()
+    {
+        string desktop = Path.Combine(InstallRoot, InstalledHelperLaunchTrust.DesktopExecutableName);
+        // The fixed install path, built from the known Program Files folder only.
+        if (!OperatingSystem.IsWindows() || !Path.IsPathFullyQualified(desktop) || desktop.Contains('"', StringComparison.Ordinal)) return false;
+        try { return StartUnelevated(desktop, "\"" + desktop + "\"", InstallRoot, 0); }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { return false; }
+    }
+
+    public Task PauseAsync(TimeSpan delay, CancellationToken cancellationToken) => Task.Delay(delay, cancellationToken);
+
+    /// <summary>
+    /// <c>CreateProcessW</c> with this process's own token and environment (no <c>runas</c>, no shell, no inherited handles).
+    /// Both callers are unelevated: the desktop, and the reopen watcher, which refuses to run elevated.
+    /// </summary>
+    private static bool StartUnelevated(string image, string commandLine, string directory, uint flags)
+    {
+        char[] line = (commandLine + "\0").ToCharArray();
+        NativeMethods.StartupInfo startup = new() { Size = Marshal.SizeOf<NativeMethods.StartupInfo>() };
+        if (!NativeMethods.CreateProcess(image, line, IntPtr.Zero, IntPtr.Zero, inheritHandles: false, flags, IntPtr.Zero, directory, ref startup,
+                out NativeMethods.ProcessInformation information))
+            return false;
+        NativeMethods.CloseHandle(information.Thread);
+        NativeMethods.CloseHandle(information.Process);
+        return true;
     }
 
     // ---- Finish copy (ADR-032 revision 2 §7) ----

@@ -55,7 +55,7 @@ How does the app learn which CI build a release must match?
 3. "A newer version is available" shows the version, the publish date, the commit and the CI run it was built from (both as links built from compiled parts), the download size, and GitHub's release notes labelled as unchecked text. The owner chooses **Download and check**.
 4. After the download passes section 5, the screen says the MSI is signed with the owner's release key (primary or backup) and matches the CI build, and that installing will close PC Steward and show one UAC prompt from "Unknown publisher" for `PCSteward.ElevatedHelper.exe`. The owner chooses **Install**.
 5. Approval creates an immutable self-update job (ADR-017): job id, from-version, to-version, run id, commit, check-file SHA-256, MSI SHA-256 and approval time. No URL, path or command. The job is revalidated before the helper starts; any difference makes it non-actionable.
-6. The helper re-checks everything (section 6) and answers "ready". PC Steward closes itself. The install finishes in the background in about a minute (section 7). The owner reopens PC Steward from the Start menu, and the new version reports the job as **Updated** only after section 8 passes.
+6. The helper re-checks everything (section 6) and answers "ready". PC Steward closes itself. The install finishes in the background in about a minute (section 7). The owner reopens PC Steward from the Start menu, and the new version reports the job as **Updated** only after section 8 passes. *(Reopen amendment, 2026-11-13: PC Steward now opens again by itself when the install has finished; see section 7a.)*
 
 Nothing is downloaded or installed without the owner's action, and there is no "install automatically" setting.
 
@@ -134,7 +134,20 @@ The helper copy refuses to run unless it is elevated, its own path is `%ProgramF
 3. Records the exit code. 0 continues to step 4. 3010 (restart needed; 1641 cannot occur with `/norestart` and is treated the same) means files may be waiting for the restart to be replaced, so the helper copy skips steps 4 and 5, records "restart needed" with the current boot time, and the post-restart check of section 8 decides the outcome. Any other code is a failed install (section 9).
 4. Verifies the installed tree exactly as `Install-PCStewardRelease.ps1` step 4 does, against `expected-install.json`: the protected install-folder DACL on the folder and every file, every installed file equal to its expected length and SHA-256 and no other file, both executables carrying the same compiled pin, and the installed release manifest equal to the one verified. One installed product, at the new version, owns the folder.
 5. On any difference after `msiexec` changed the install, uninstalls the product (fail closed, as the first install does) and records why.
-6. Writes `result.json` (job id, outcome, versions, exit code, boot time, verified hashes) into the work folder, readable by the owner's account, and exits. Nothing is launched afterwards.
+6. Writes `result.json` (job id, outcome, versions, exit code, boot time, verified hashes) into the work folder, readable by the owner's account, and exits. Nothing is launched afterwards. *(Still true after the reopen amendment: the finish copy launches nothing; section 7a's unelevated watcher does.)*
+
+### 7a. Reopening PC Steward (amendment, 2026-11-13)
+
+The owner asked that PC Steward start again by itself after an in-app update instead of staying closed. Nothing elevated may start the desktop: an elevated process would hand the owner's desktop its administrator token, and starting a program as another user from an elevated process needs token handling this design avoids. So the desktop arranges the reopen itself, unelevated, before it closes:
+
+1. After the helper's "ready" answer (section 6) and the job record, the desktop starts the job's own helper copy, `%ProgramFiles%\PC Steward Update <32 hex>\bin\PCSteward.ElevatedHelper.exe`, with the line `--reopen-after-self-update "<work folder leaf>"`, through `CreateProcessW` with the desktop's own (unelevated) token: no `runas`, no shell, no window, no inherited handles. It does so only when the work folder and `bin` carry the protected descriptor and the copy carries the same compiled release pin as the installed desktop; otherwise it starts nothing and tells the owner to reopen PC Steward by hand, as before. The copy is outside `%ProgramFiles%\PC Steward`, so it does not hold up the install (section 7 step 1 waits only for images under the install root).
+2. The watcher refuses (exit 20, before it reads anything) when its token is elevated, when its own image is not exactly that path, or when the work folder or `bin` is not protected.
+3. It looks for `result.json` every two seconds for at most the section 8 install window (45 minutes), and accepts only a canonical result naming its own job.
+4. It opens PC Steward only after an outcome that leaves a signed release installed unchanged by anything but Windows Installer: **installed**, **install failed** (rolled back), **refused before install** and **PC Steward did not close**. After **restart needed** and the two mismatch outcomes it opens nothing, and the next launch decides them (section 8). It also opens nothing when a process already runs the installed desktop, or when `%ProgramFiles%\PC Steward\PCSteward.Desktop.exe` does not carry the same release pin as the watcher's own image.
+5. Otherwise it starts that fixed path, as itself, with no arguments, from the install folder, and exits. The reopened desktop decides the job exactly as a hand-opened one (section 8); the watcher shows, writes and records nothing.
+
+What this adds: one more unelevated process image from an administrator-only folder, running as the owner for at most 45 minutes. A same-user program that starts the watcher itself gains nothing: the most it can do is open PC Steward as the owner, which it could do anyway. The watcher never runs elevated, never writes, and never reads anything but the protected work folder's `result.json`. The Windows CI MSI job checks both sides on the real install: the watcher refuses an elevated token, and, started as a standard user after a verified install, opens the installed desktop.
+
 
 ### 8. Success
 
@@ -216,7 +229,7 @@ Existing `TM-03`, `TM-04`, `TM-09`, `TM-12`, `TM-13` and `TM-18` also apply.
 
 - The app makes its first network requests (to GitHub only, on the owner's request), and the elevated helper makes two of them during an approved update (owner decision 2). An update cannot be installed while GitHub is unreachable.
 - The UAC prompt says "Unknown publisher" (ADR-034); the owner recognises it by its timing and program name.
-- PC Steward closes during the install and must be reopened by hand: the MSI launches nothing, and an elevated process cannot safely start the desktop as the owner.
+- PC Steward closes during the install. *(Reopen amendment, 2026-11-13: it now opens again by itself through the unelevated watcher of section 7a. It still stays closed after a needed restart, after an install unlike the release, or if the watcher could not be started; then the owner reopens it by hand.)* The MSI launches nothing, and nothing elevated starts the desktop.
 - A mismatch found after install leaves no PC Steward until the owner reinstalls by hand. This is the same fail-closed rule as the first install.
 - Releases become public assets of the public repository (owner decision 1). They contain no personal data (checked before publishing, as for every PR).
 

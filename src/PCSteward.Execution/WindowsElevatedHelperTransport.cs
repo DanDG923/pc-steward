@@ -220,8 +220,9 @@ internal static class ProtectedLaunchLayout
 public static partial class ElevatedHelperEntryPoint
 {
     /// <summary>
-    /// ADR-032 revision 2 §6–§7: the finish line (<c>--finish-self-update &lt;leaf&gt;</c>) and the self-update session line
-    /// (<c>--kind pcsteward-self-update</c>) are selected first, by their exact shapes, so neither reaches another mode.
+    /// ADR-032 revision 2 §6–§7: the finish line (<c>--finish-self-update &lt;leaf&gt;</c>), the unelevated reopen line
+    /// (<c>--reopen-after-self-update &lt;leaf&gt;</c>, reopen amendment) and the self-update session line
+    /// (<c>--kind pcsteward-self-update</c>) are selected first, by their exact shapes, so none reaches another mode.
     /// Task 50 design rev 6 §5.1 and qualification probe spec rev 4 §2 (dispatch order is normative): a ten-argument line with
     /// <c>--kind</c> first goes to the probe bootstrap (<see cref="RunProbeAsync"/>), which never reads a request; otherwise
     /// <c>--protocol 2</c> goes to the reviewed bootstrap (<see cref="RunReviewedAsync"/>); every other command line, protocol 1 included,
@@ -232,6 +233,7 @@ public static partial class ElevatedHelperEntryPoint
     public static Task<int> RunAsync(string[] arguments) =>
         !ElevatedRuntimeEnvironmentGuard.ProcessEnvironmentIsClean() ? Task.FromResult(ElevatedRuntimeEnvironmentGuard.RefusedExitCode) :
         SelectsSelfUpdateFinish(arguments) ? RunSelfUpdateFinishAsync(arguments) :
+        SelectsSelfUpdateReopen(arguments) ? RunSelfUpdateReopenAsync(arguments) :
         SelectsSelfUpdate(arguments) ? RunSelfUpdateAsync(arguments) :
         SelectsProbe(arguments) ? RunProbeAsync(arguments) :
         SelectsProtocol2(arguments) ? RunReviewedAsync(arguments) : Task.FromResult(Protocol1RefusedExitCode);
