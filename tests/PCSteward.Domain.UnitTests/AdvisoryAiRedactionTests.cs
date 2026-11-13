@@ -15,10 +15,10 @@ public sealed class AdvisoryAiRedactionTests
     [TestCategory("FR-AI-02")]
     [DataRow("Authorization: Bearer abcDEF123456.xyz", "abcDEF123456", "Bearer [secret]")]
     [DataRow("password=hunter2 and more", "hunter2", "password=[secret]")]
-    [DataRow("api_key: 1234abcd", "1234abcd", "api_key=[secret]")]
+    [DataRow("api_key: 1234abcd", "1234abcd", "api_key: [secret]")]
     [DataRow("client secret=s3cr3tvalue", "s3cr3tvalue", "=[secret]")]
-    [DataRow("Serial Number: PF3X9K2Q", "PF3X9K2Q", "=[secret]")]
-    [DataRow("S/N: 5CD1234XYZ", "5CD1234XYZ", "=[secret]")]
+    [DataRow("Serial Number: PF3X9K2Q", "PF3X9K2Q", "Serial Number: [secret]")]
+    [DataRow("S/N: 5CD1234XYZ", "5CD1234XYZ", "S/N: [secret]")]
     [DataRow("key sk-proj-ABCDEFGHIJKLMNOPQRSTUVWX was used", "sk-proj-ABCDEFGHIJKLMNOPQRSTUVWX", "[secret]")]
     [DataRow("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123 leaked", "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123", "[secret]")]
     [DataRow("aws AKIAABCDEFGHIJKLMNOP", "AKIAABCDEFGHIJKLMNOP", "[secret]")]
@@ -41,6 +41,22 @@ public sealed class AdvisoryAiRedactionTests
         Assert.IsNotNull(clean);
         Assert.IsFalse(clean.Contains(mustNotRemain, StringComparison.OrdinalIgnoreCase), clean);
         StringAssert.Contains(clean, placeholder);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-02")]
+    [DataRow("{\"password\":\"hunter2\",\"user\":\"x\"}", "hunter2", "{\"password\":\"[secret]\",\"user\":\"x\"}")]
+    [DataRow("password=\"correct horse battery staple\" next", "horse", "password=\"[secret]\" next")]
+    [DataRow("api_key = 'two words' next", "words", "api_key = '[secret]' next")]
+    [DataRow("token: \"never closed and more", "closed", "token: \"[secret]")]
+    [DataRow("{\"client_secret\": \"a, b; c\"}", "a, b; c", "{\"client_secret\": \"[secret]\"}")]
+    public void QuotedNamesAndValuesAreRedactedInFull(string text, string mustNotRemain, string expected)
+    {
+        string? clean = AdvisoryAiRedaction.SanitizeEvidence(text, 2048, Identity).Value;
+        Assert.AreEqual(expected, clean);
+        Assert.IsFalse(clean!.Contains(mustNotRemain, StringComparison.Ordinal));
+        Assert.AreEqual(clean, AdvisoryAiRedaction.SanitizeEvidence(clean, 2048, Identity).Value, "applying it again changes nothing");
+        Assert.AreEqual(expected, AdvisoryAiRedaction.SanitizeAnswer(text, 2048, Identity).Value);
     }
 
     [TestMethod]
@@ -75,7 +91,8 @@ public sealed class AdvisoryAiRedactionTests
         string[] samples =
         [
             "password=x token=y Bearer abcdefghij C:\\Users\\alex\\x.txt alex@example.com {0F3B2C1D-4E5F-6789-ABCD-0123456789EF}",
-            new string('a', 5000), "ABCDE-FGHIJ-KLMNO-PQRST-UVWXY and 00-1A-2B-3C-4D-5E"
+            new string('a', 5000), "ABCDE-FGHIJ-KLMNO-PQRST-UVWXY and 00-1A-2B-3C-4D-5E",
+            "{\"password\": \"a b\", 'secret': 'c d', token=e}"
         ];
         foreach (string sample in samples)
         {
@@ -105,6 +122,23 @@ public sealed class AdvisoryAiRedactionTests
         Assert.AreEqual("What the evidence shows:\n\nThe log at [path] failed.\nRun this: password=[secret]", clean.Value);
         Assert.IsNull(AdvisoryAiRedaction.SanitizeAnswer(" \n\t\n", 100).Value);
         Assert.IsTrue(AdvisoryAiRedaction.SanitizeAnswer(string.Concat(Enumerable.Repeat("word ", 100)), 100).Truncated);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void ALongAnswerLineKeepsEverythingTheLimitAdmitsAndReportsAnyCut()
+    {
+        string line = string.Concat(Enumerable.Repeat("word ", 4000)).TrimEnd();
+        DiagnosticSanitizedText whole = AdvisoryAiRedaction.SanitizeAnswer(line, 30_000);
+        Assert.AreEqual(line, whole.Value);
+        Assert.IsFalse(whole.Truncated);
+
+        DiagnosticSanitizedText cut = AdvisoryAiRedaction.SanitizeAnswer("intro\n" + line + "\nend", 10_000);
+        Assert.IsTrue(cut.Truncated);
+        Assert.AreEqual(10_000, cut.Value!.EnumerateRunes().Count());
+
+        string tooLong = new('a', (int)AdvisoryAiResourcePolicy.MaximumResponseBytes + 1);
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => AdvisoryAiRedaction.SanitizeAnswer(tooLong, 100));
     }
 
     [TestMethod]

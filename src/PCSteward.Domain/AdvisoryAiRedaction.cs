@@ -26,8 +26,10 @@ public static class AdvisoryAiRedaction
     private const RegexOptions Options = RegexOptions.CultureInvariant | RegexOptions.NonBacktracking;
 
     private static readonly Regex Bearer = new(@"(?i)\bbearer\s+[A-Za-z0-9._~+/=\-]{6,}", Options, MatchTimeout);
+    // The name may be quoted (JSON or INI style); a quoted value is consumed whole, spaces included, up to its closing quote or the
+    // end of the text; an unquoted value runs to the next space, comma, semicolon, quote or brace.
     private static readonly Regex NamedSecret = new(
-        @"(?i)\b(password|passwd|pwd|passphrase|secret|client[_\- ]?secret|token|access[_\- ]?token|refresh[_\- ]?token|api[_\- ]?key|access[_\- ]?key|private[_\- ]?key|licen[cs]e[_\- ]?key|product[_\- ]?key|serial[_\- ]?number|serial[_\- ]?no|serial|s/n)\s*[:=]\s*[^\s,;]+",
+        @"(?i)\b(password|passwd|pwd|passphrase|secret|client[_\- ]?secret|token|access[_\- ]?token|refresh[_\- ]?token|api[_\- ]?key|access[_\- ]?key|private[_\- ]?key|licen[cs]e[_\- ]?key|product[_\- ]?key|serial[_\- ]?number|serial[_\- ]?no|serial|s/n)([""']?\s*[:=]\s*)(?:(""[^""]*""?)|('[^']*'?)|([^\s,;""'{}]+))",
         Options, MatchTimeout);
     private static readonly Regex PrefixedKey = new(
         @"\b(?:sk|rk|pk)-[A-Za-z0-9_\-]{16,}|\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bAKIA[0-9A-Z]{16}\b|\bxox[abprs]-[A-Za-z0-9\-]{10,}|\bAIza[0-9A-Za-z_\-]{30,}",
@@ -53,13 +55,8 @@ public static class AdvisoryAiRedaction
         ArgumentOutOfRangeException.ThrowIfGreaterThan(maximumScalars, MaximumInputScalars);
         if (string.IsNullOrWhiteSpace(text)) return new(null, false);
         (string bounded, bool cut) = Bound(text);
-        string? cleaned = DiagnosticTextSanitizer.Sanitize(bounded, MaximumInputScalars, context).Value;
-        if (cleaned is null) return new(null, false);
-        string value = RedactSecrets(cleaned);
-        value = Spaces.Replace(value, " ").Trim();
-        if (value.Length == 0) return new(null, false);
-        DiagnosticSanitizedText result = Truncate(value, maximumScalars);
-        return result with { Truncated = result.Truncated || cut };
+        DiagnosticSanitizedText result = Clean(bounded, maximumScalars, context);
+        return result with { Truncated = result.Value is not null && (result.Truncated || cut) };
     }
 
     /// <summary>
@@ -71,28 +68,43 @@ public static class AdvisoryAiRedaction
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumScalars, 2);
         if (string.IsNullOrWhiteSpace(text)) return new(null, false);
+        // The response reader admits at most MaximumResponseBytes, so a longer answer is a caller error, never something to cut
+        // silently. No line is cut at the evidence bound: each is cleaned whole and the joined answer is cut once, at the limit.
+        ArgumentOutOfRangeException.ThrowIfGreaterThan((long)text.Length, AdvisoryAiResourcePolicy.MaximumResponseBytes, nameof(text));
         List<string> lines = [];
         bool blankPending = false;
+        bool truncated = false;
         foreach (string line in text.Replace("\r\n", "\n", StringComparison.Ordinal).Split(['\n', '\r', '\u2028', '\u2029', '\u0085']))
         {
-            string? clean = line.Length == 0 ? null : SanitizeEvidence(line.Length > MaximumInputScalars ? line[..MaximumInputScalars] : line, MaximumInputScalars, context).Value;
-            if (clean is null)
+            DiagnosticSanitizedText clean = line.Length == 0 ? new(null, false) : Clean(line, maximumScalars, context);
+            truncated |= clean.Truncated;
+            if (clean.Value is null)
             {
                 blankPending = lines.Count > 0;
                 continue;
             }
             if (blankPending) lines.Add(string.Empty);
             blankPending = false;
-            lines.Add(clean);
+            lines.Add(clean.Value);
         }
         if (lines.Count == 0) return new(null, false);
-        return Truncate(string.Join('\n', lines), maximumScalars);
+        DiagnosticSanitizedText joined = Truncate(string.Join('\n', lines), maximumScalars);
+        return joined with { Truncated = joined.Truncated || truncated };
+    }
+
+    /// <summary>Sanitizes, redacts and collapses spaces in one line of text, then cuts it to <paramref name="maximumScalars"/>.</summary>
+    private static DiagnosticSanitizedText Clean(string text, int maximumScalars, DiagnosticRedactionContext? context)
+    {
+        string? cleaned = DiagnosticTextSanitizer.Sanitize(text, int.MaxValue, context, text.Length + 1).Value;
+        if (cleaned is null) return new(null, false);
+        string value = Spaces.Replace(RedactSecrets(cleaned), " ").Trim();
+        return value.Length == 0 ? new(null, false) : Truncate(value, maximumScalars);
     }
 
     private static string RedactSecrets(string value)
     {
         value = Bearer.Replace(value, "Bearer " + SecretPlaceholder);
-        value = NamedSecret.Replace(value, "$1=" + SecretPlaceholder);
+        value = NamedSecret.Replace(value, RedactNamedValue);
         value = PrefixedKey.Replace(value, SecretPlaceholder);
         value = JsonWebToken.Replace(value, SecretPlaceholder);
         value = DeviceInstancePath.Replace(value, IdPlaceholder);
@@ -102,6 +114,14 @@ public static class AdvisoryAiRedaction
         value = LongHex.Replace(value, SecretPlaceholder);
         value = LongBase64.Replace(value, SecretPlaceholder);
         return value;
+    }
+
+    private static string RedactNamedValue(Match match)
+    {
+        string quote = match.Groups[3].Success ? "\"" : match.Groups[4].Success ? "'" : string.Empty;
+        string value = match.Groups[3].Success ? match.Groups[3].Value : match.Groups[4].Value;
+        bool closed = quote.Length > 0 && value.Length > 1 && value.EndsWith(quote, StringComparison.Ordinal);
+        return match.Groups[1].Value + match.Groups[2].Value + quote + SecretPlaceholder + (closed ? quote : string.Empty);
     }
 
     private static (string Value, bool Cut) Bound(string text)
