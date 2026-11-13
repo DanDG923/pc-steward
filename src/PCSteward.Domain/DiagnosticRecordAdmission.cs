@@ -68,15 +68,24 @@ public static class DiagnosticTextSanitizer
     private static readonly Regex Email = new(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", Options, MatchTimeout);
     private static readonly Regex Whitespace = new(@"\s+", Options, MatchTimeout);
 
-    public static DiagnosticSanitizedText Sanitize(string? text, int maximumScalars, DiagnosticRedactionContext? context = null)
+    public static DiagnosticSanitizedText Sanitize(string? text, int maximumScalars, DiagnosticRedactionContext? context = null) =>
+        Sanitize(text, maximumScalars, context, 16 * 1024);
+
+    /// <summary>
+    /// The same sanitizer with a caller-chosen working bound (in UTF-16 units) for the cleaned text, which the public overload fixes at
+    /// 16 Ki. Advisory AI passes a bound above the text's own length, so a long evidence item or answer line is cleaned whole and only
+    /// its own scalar limit (which reports truncation) can shorten it.
+    /// </summary>
+    internal static DiagnosticSanitizedText Sanitize(string? text, int maximumScalars, DiagnosticRedactionContext? context, int maximumCleanedChars)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumScalars, 2);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumCleanedChars, 1);
         if (string.IsNullOrWhiteSpace(text)) return new(null, false);
 
-        StringBuilder cleaned = new(Math.Min(text.Length, 16 * 1024));
+        StringBuilder cleaned = new(Math.Min(text.Length, maximumCleanedChars));
         foreach (Rune rune in text.EnumerateRunes())
         {
-            if (cleaned.Length >= 16 * 1024) break;
+            if (cleaned.Length >= maximumCleanedChars) break;
             UnicodeCategory category = Rune.GetUnicodeCategory(rune);
             if (Rune.IsWhiteSpace(rune) || category is UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator) cleaned.Append(' ');
             else if (category is UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.Surrogate or UnicodeCategory.OtherNotAssigned) continue;
