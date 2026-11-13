@@ -30,6 +30,15 @@ public sealed class DiagnosticRecordAdmissionTests
 
     [TestMethod]
     [TestCategory("FR-DIA-03")]
+    public void RedactsSingleCharacterIdentityTokensAsWholeWords()
+    {
+        DiagnosticRedactionContext shortName = new(["x"]);
+        Assert.AreEqual("User [redacted] signed in", DiagnosticTextSanitizer.Sanitize("User x signed in", 512, shortName).Value);
+        Assert.AreEqual("Box xylophone stays", DiagnosticTextSanitizer.Sanitize("Box xylophone stays", 512, shortName).Value);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-DIA-03")]
     public void RemovesControlFormatAndBidirectionalCharactersAndCollapsesWhitespace()
     {
         string hostile = "Line1\r\n\tLine2\u0000\u0007 \u202Eevil\u202C \u200Bzero\u2028next   end";
@@ -150,6 +159,40 @@ public sealed class DiagnosticRecordAdmissionTests
         Assert.AreEqual(
             "{\"source\":\"SystemEventLog\",\"id\":\"System:1234\",\"utc\":\"2026-11-12T09:00:00.0000000Z\",\"offsetMinutes\":0,\"time\":\"Known\",\"kind\":\"UnexpectedShutdown\",\"outcome\":\"NotApplicable\",\"eventId\":41,\"code\":2147942405}",
             DiagnosticRecordJson.Serialize(record));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-DIA-03")]
+    public void StoredRecordsRoundTripOnlyInExactCanonicalForm()
+    {
+        DiagnosticRecord record = DiagnosticRecordAdmission.Admit(Candidate(DiagnosticSourceKind.Reliability, DiagnosticEventKind.ApplicationHang) with
+        {
+            SourceRecordId = null,
+            Subject = "Contoso \"Widget\" \u00e9\U0001F600",
+            Summary = new string('x', 600),
+            ResultCode = -2147024891
+        }).Record!;
+        string json = DiagnosticRecordJson.Serialize(record);
+
+        Assert.IsTrue(DiagnosticRecordJson.TryParse(json, out DiagnosticRecord? parsed));
+        Assert.AreEqual(record, parsed);
+
+        string[] refused =
+        [
+            json.Replace("{\"source\"", "{ \"source\"", StringComparison.Ordinal),
+            json.Replace("\"kind\":\"ApplicationHang\"", "\"kind\":\"1\"", StringComparison.Ordinal),
+            json.Replace("\"kind\":\"ApplicationHang\"", "\"kind\":\"applicationhang\"", StringComparison.Ordinal),
+            json.Replace("{\"source\"", "{\"extra\":true,\"source\"", StringComparison.Ordinal),
+            json.Replace("{\"source\":\"Reliability\"", "{\"source\":\"Reliability\",\"source\":\"Reliability\"", StringComparison.Ordinal),
+            json.Replace("\"kind\":\"ApplicationHang\"", "\"kind\":\"PcStewardUpdate\"", StringComparison.Ordinal),
+            json.Replace("Z\"", "+00:00\"", StringComparison.Ordinal),
+            json.Replace("\"subject\":\"Contoso", "\"subject\":\"C:\\\\Users\\\\x Contoso", StringComparison.Ordinal),
+            "[]",
+            "",
+            "{" + new string(' ', 5000) + "}"
+        ];
+        foreach (string value in refused)
+            Assert.IsFalse(DiagnosticRecordJson.TryParse(value, out _), value.Length > 200 ? value[..200] : value);
     }
 
     private static DiagnosticRecordCandidate Candidate(DiagnosticSourceKind source, DiagnosticEventKind kind) =>

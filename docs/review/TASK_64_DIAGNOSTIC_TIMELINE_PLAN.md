@@ -1,6 +1,6 @@
 # Task 64 — Bounded local diagnostic timeline: staged build plan and interfaces
 
-**Status:** In progress (stage 1 of 5). Owner started Phase F on 2026-11-13 alongside the D4b update work; that instruction is the explicit order exception the Phase F brief requires (Phases D installs and E removals are paused by the owner). ADR-027 is Accepted; nothing here widens it.
+**Status:** In progress (stages 1–2 of 5 built). Owner started Phase F on 2026-11-13 alongside the D4b update work; that instruction is the explicit order exception the Phase F brief requires (Phases D installs and E removals are paused by the owner). ADR-027 is Accepted; nothing here widens it.
 
 **Owner choices (2026-11-13):** the timeline lives on a new **Diagnostics** page in the navigation, not on Activity. Reliability is read through one narrow, time-filtered, cancellable WMI query unless the owner prefers it shown as unsupported in v1.
 
@@ -32,9 +32,16 @@ Application (`src/PCSteward.Application/DiagnosticCollection.cs`):
 - `DiagnosticCollectionConsent` — selected sources, lookback (≤ 7 days), disclosed policy version; spent by one collection.
 - `DiagnosticCollectionOrchestrator.CollectAsync` — sequential readers, app history first (≤ 15 s), OS readers with equal slots and time shares, per-reader deadline through `TimeProvider`, results from a reader that overran its share discarded, owner cancellation returns no snapshot, every source reported. It writes nothing.
 
-## Stage 2 schema (proposed)
+## Stage 2 storage (implemented, schema 13)
 
-`diagnostic_snapshots(id, policy_version, collected_at, expires_at, lookback_from, payload_bytes)` and `diagnostic_source_results(snapshot_id, source, outcome, reason, …)` and `diagnostic_records(snapshot_id, ordinal, source, record_id, json)` with `ON DELETE CASCADE` from the snapshot only. No foreign key to `update_job_history`: captured app-history rows are snapshot-owned copies (ADR-027 R1). Expired snapshots are excluded before display/export even if deletion fails.
+`src/PCSteward.Application/DiagnosticSnapshots.cs`, `src/PCSteward.Persistence.Sqlite/SqliteDiagnosticSnapshots.cs`:
+
+- Tables `diagnostic_snapshots` (one row per snapshot, fixed-width UTC text, `payload_bytes`), `diagnostic_source_results` (one row per source, closed names, counts) and `diagnostic_records` (snapshot id, ordinal, source, record id, canonical JSON). Records and source results cascade only from their snapshot. No foreign key to `update_job_history`: captured app-history rows are snapshot-owned copies (ADR-027 R1).
+- `IDiagnosticSnapshotStore.SaveDiagnosticSnapshotAsync(snapshot, now, protectedIds)` — one transaction: delete expired, insert, then delete the oldest snapshots not protected until the total is at most 64 MiB; if only protected snapshots would remain over the limit, nothing changes (`CapacityHeldByProtectedSnapshots`). The result reports expired and capacity-pruned counts so the UI can disclose shortened retention.
+- `List`/`Load` exclude snapshots whose expiry has passed, even if not yet deleted. `Load` is whole or nothing: each row must re-serialize byte-identically (`DiagnosticRecordJson.TryParse`) and pass `DiagnosticRecordAdmission.IsValidStored`; counts and `payload_bytes` must match, otherwise `Unreadable`.
+- `DeleteExpiredDiagnosticSnapshotsAsync` is bounded opportunistic maintenance at start or use; there is no scheduler.
+- Clear scan data deletes all three tables and counts snapshots; Clear update history leaves them; factory reset deletes the database file set.
+- `IDiagnosticAppHistorySource` + `PcStewardHistoryDiagnosticReader`: update history in `[from, to]` newest first, limited to the record slot plus one to detect more; subject is the current display name, falling back to the package ID.
 
 ## Out of scope here
 

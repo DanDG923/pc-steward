@@ -161,9 +161,16 @@ public sealed class DiagnosticCollectionOrchestrator
         long readStarted = clock.GetTimestamp();
         using CancellationTokenSource readerDeadline = new(budget, clock);
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, readerDeadline.Token);
+        DiagnosticReadRequest request = new(source, from, to, allowed);
+        // The reader is started on the thread pool so that one doing synchronous work before its first await (or blocking
+        // outright) cannot hold the collection: the wait below is bounded by what is left of the share, measured from the
+        // start of the invocation, and an abandoned reader is cancelled and its eventual fault observed.
+        Task<DiagnosticReaderResult> read = Task.Run(() => reader.ReadAsync(request, linked.Token), CancellationToken.None);
         try
         {
-            answer = await reader.ReadAsync(new(source, from, to, allowed), linked.Token).WaitAsync(budget, clock, cancellationToken).ConfigureAwait(false);
+            TimeSpan remaining = budget - clock.GetElapsedTime(readStarted);
+            if (remaining <= TimeSpan.Zero) throw new TimeoutException();
+            answer = await read.WaitAsync(remaining, clock, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -182,6 +189,10 @@ public sealed class DiagnosticCollectionOrchestrator
 #pragma warning restore CA1031
         {
             return Done(DiagnosticSourceOutcome.Failed, DiagnosticSourceReason.ReaderFault);
+        }
+        finally
+        {
+            if (!read.IsCompleted) Abandon(read, linked);
         }
 
         // A reader that returns only after its share has passed (for example by blocking instead of honouring cancellation) is
@@ -222,6 +233,20 @@ public sealed class DiagnosticCollectionOrchestrator
     }
 
     private static TimeSpan Min(TimeSpan left, TimeSpan right) => left < right ? left : right;
+
+    private static void Abandon(Task<DiagnosticReaderResult> read, CancellationTokenSource linked)
+    {
+        try
+        {
+            linked.Cancel();
+        }
+        catch (AggregateException)
+        {
+            // A reader's own cancellation callback failed; the reader is abandoned either way.
+        }
+
+        _ = read.ContinueWith(static task => _ = task.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    }
 
     private sealed record SourceRun(DiagnosticSourceResult Result, bool CancelledByOwner);
 

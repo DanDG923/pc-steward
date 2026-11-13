@@ -198,6 +198,34 @@ public sealed class DiagnosticCollectionTests
 
     [TestMethod]
     [TestCategory("FR-DIA-03")]
+    public async Task AReaderThatBlocksSynchronouslyIsAbandonedAtItsDeadline()
+    {
+        ManualTimeProvider clock = new(Now);
+        FakeReader[] readers = Readers(clock);
+        using ManualResetEventSlim release = new(false);
+        using ManualResetEventSlim started = new(false);
+        readers[2].BlockSynchronously = (started, release);
+
+        try
+        {
+            Task<DiagnosticCollectionResult> collection = new DiagnosticCollectionOrchestrator(readers, DiagnosticRedactionContext.None, clock).CollectAsync(Consent(), CancellationToken.None);
+            Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(10)), "the blocking reader was started");
+            clock.Advance(TimeSpan.FromSeconds(16));
+            DiagnosticSnapshot snapshot = (await collection.WaitAsync(TimeSpan.FromSeconds(10))).Snapshot!;
+
+            Assert.AreEqual(DiagnosticSourceOutcome.TimedOut, snapshot.Sources[2].Outcome);
+            Assert.AreEqual(DiagnosticSourceReason.ReaderDeadline, snapshot.Sources[2].Reason);
+            Assert.AreEqual(DiagnosticSourceOutcome.Empty, snapshot.Sources[3].Outcome, "later readers still run in the remaining time");
+            Assert.IsFalse(release.IsSet, "the collection finished while the reader was still blocked");
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-DIA-03")]
     public async Task AHangingReaderIsAbandonedAtItsDeadline()
     {
         ManualTimeProvider clock = new(Now);
@@ -298,6 +326,7 @@ public sealed class DiagnosticCollectionTests
         public TimeSpan Consumes { get; set; }
         public bool IgnoresCancellation { get; set; }
         public TaskCompletionSource? Hang { get; set; }
+        public (ManualResetEventSlim Started, ManualResetEventSlim Release)? BlockSynchronously { get; set; }
         public Action? OnRead { get; set; }
         public DiagnosticReadRequest? LastRequest { get; private set; }
 
@@ -306,6 +335,11 @@ public sealed class DiagnosticCollectionTests
             LastRequest = request;
             requests?.Add(request);
             OnRead?.Invoke();
+            if (BlockSynchronously is { } block)
+            {
+                block.Started.Set();
+                block.Release.Wait(TimeSpan.FromSeconds(30), CancellationToken.None);
+            }
             if (Hang is not null)
             {
                 Hang.TrySetResult();

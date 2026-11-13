@@ -74,7 +74,7 @@ public static class DiagnosticTextSanitizer
 
         string value = cleaned.ToString();
         foreach (string token in (context ?? DiagnosticRedactionContext.None).IdentityTokens
-            .Where(token => !string.IsNullOrWhiteSpace(token) && token.Trim().Length >= 2)
+            .Where(token => !string.IsNullOrWhiteSpace(token))
             .Select(token => token.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(token => token.Length)
@@ -203,6 +203,29 @@ public static class DiagnosticRecordAdmission
         _ => false
     };
 
+    /// <summary>
+    /// FR-DIA-03: re-checks a record read back from storage. It must satisfy every admission rule and its text must already be in
+    /// sanitized form, so a stored row cannot carry anything admission would have changed or refused.
+    /// </summary>
+    public static bool IsValidStored(DiagnosticRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        if (!Enum.IsDefined(record.Source) || !Enum.IsDefined(record.Kind) || !Enum.IsDefined(record.Outcome) || record.Occurrence is null ||
+            !Enum.IsDefined(record.Occurrence.Quality) || !KindAllowed(record.Source, record.Kind) || !IsValidRecordId(record.SourceRecordId) ||
+            record.EventId is < 0 or > ushort.MaxValue)
+            return false;
+        bool hasTime = record.Occurrence.Utc is not null;
+        bool needsTime = record.Occurrence.Quality is DiagnosticTimeQuality.Known or DiagnosticTimeQuality.Future or DiagnosticTimeQuality.Conflicting;
+        if (hasTime != needsTime || (hasTime && record.Occurrence.Utc!.Value.Offset != TimeSpan.Zero)) return false;
+        return IsSanitized(record.Subject, DiagnosticCollectionPolicy.MaximumSubjectScalars) &&
+            IsSanitized(record.Detail, DiagnosticCollectionPolicy.MaximumDetailScalars) &&
+            IsSanitized(record.Summary, DiagnosticCollectionPolicy.MaximumSummaryScalars) &&
+            DiagnosticRecordJson.ByteCount(record) <= DiagnosticCollectionPolicy.MaximumRecordBytes;
+    }
+
+    private static bool IsSanitized(string? value, int maximumScalars) =>
+        value is null || string.Equals(DiagnosticTextSanitizer.Sanitize(value, maximumScalars).Value, value, StringComparison.Ordinal);
+
     public static bool IsValidRecordId(string value) =>
         value.Length is > 0 and <= DiagnosticCollectionPolicy.MaximumSourceRecordIdLength &&
         value.All(character => char.IsAsciiLetterOrDigit(character) || character is '.' or '_' or ':' or '-' or '{' or '}');
@@ -261,5 +284,103 @@ public static class DiagnosticRecordJson
         if (record.Summary is not null) writer.WriteString("summary", record.Summary);
         if (record.TextTruncated) writer.WriteBoolean("textTruncated", true);
         writer.WriteEndObject();
+    }
+
+    private static readonly string[] KnownProperties = ["source", "id", "weakId", "utc", "offsetMinutes", "time", "kind", "outcome", "eventId", "code", "subject", "detail", "summary", "textTruncated"];
+
+    /// <summary>
+    /// FR-DIA-03: reads a stored record strictly. Unknown, duplicate or mistyped properties, numeric enum names and anything that does
+    /// not serialize back to exactly the same bytes are refused, and the result must pass <see cref="DiagnosticRecordAdmission.IsValidStored"/>.
+    /// </summary>
+    public static bool TryParse(string? json, out DiagnosticRecord? record)
+    {
+        record = null;
+        if (string.IsNullOrEmpty(json) || Encoding.UTF8.GetByteCount(json) > DiagnosticCollectionPolicy.MaximumRecordBytes) return false;
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 2, AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow });
+            JsonElement root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return false;
+            HashSet<string> seen = new(StringComparer.Ordinal);
+            foreach (JsonProperty property in root.EnumerateObject())
+                if (!KnownProperties.Contains(property.Name, StringComparer.Ordinal) || !seen.Add(property.Name)) return false;
+
+            if (!TryEnum(root, "source", out DiagnosticSourceKind source) || !TryEnum(root, "time", out DiagnosticTimeQuality quality) ||
+                !TryEnum(root, "kind", out DiagnosticEventKind kind) || !TryEnum(root, "outcome", out DiagnosticOutcomeKind outcome) ||
+                !TryString(root, "id", required: true, out string? id))
+                return false;
+            DateTimeOffset? utc = null;
+            if (root.TryGetProperty("utc", out JsonElement utcElement))
+            {
+                if (utcElement.ValueKind != JsonValueKind.String ||
+                    !DateTime.TryParseExact(utcElement.GetString(), "O", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTime parsed) ||
+                    parsed.Kind != DateTimeKind.Utc)
+                    return false;
+                utc = new DateTimeOffset(parsed);
+            }
+            TimeSpan? offset = null;
+            if (root.TryGetProperty("offsetMinutes", out JsonElement offsetElement))
+            {
+                if (offsetElement.ValueKind != JsonValueKind.Number || !offsetElement.TryGetInt32(out int minutes) || minutes is < -14 * 60 or > 14 * 60) return false;
+                offset = TimeSpan.FromMinutes(minutes);
+            }
+            if (!TryBool(root, "weakId", out bool weak) || !TryBool(root, "textTruncated", out bool truncated) ||
+                !TryInt(root, "eventId", out int? eventId) || !TryLong(root, "code", out long? code) ||
+                !TryString(root, "subject", required: false, out string? subject) || !TryString(root, "detail", required: false, out string? detail) ||
+                !TryString(root, "summary", required: false, out string? summary))
+                return false;
+
+            DiagnosticRecord candidate = new(source, id!, weak, new(utc, offset, quality), kind, outcome, eventId, code, subject, detail, summary, truncated);
+            if (!DiagnosticRecordAdmission.IsValidStored(candidate) || !string.Equals(Serialize(candidate), json, StringComparison.Ordinal)) return false;
+            record = candidate;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryEnum<TEnum>(JsonElement root, string name, out TEnum value) where TEnum : struct, Enum
+    {
+        value = default;
+        return root.TryGetProperty(name, out JsonElement element) && element.ValueKind == JsonValueKind.String &&
+            Enum.GetNames<TEnum>().Contains(element.GetString(), StringComparer.Ordinal) && Enum.TryParse(element.GetString(), false, out value);
+    }
+
+    private static bool TryString(JsonElement root, string name, bool required, out string? value)
+    {
+        value = null;
+        if (!root.TryGetProperty(name, out JsonElement element)) return !required;
+        if (element.ValueKind != JsonValueKind.String) return false;
+        value = element.GetString();
+        return true;
+    }
+
+    private static bool TryBool(JsonElement root, string name, out bool value)
+    {
+        value = false;
+        if (!root.TryGetProperty(name, out JsonElement element)) return true;
+        if (element.ValueKind != JsonValueKind.True) return false;
+        value = true;
+        return true;
+    }
+
+    private static bool TryInt(JsonElement root, string name, out int? value)
+    {
+        value = null;
+        if (!root.TryGetProperty(name, out JsonElement element)) return true;
+        if (element.ValueKind != JsonValueKind.Number || !element.TryGetInt32(out int parsed)) return false;
+        value = parsed;
+        return true;
+    }
+
+    private static bool TryLong(JsonElement root, string name, out long? value)
+    {
+        value = null;
+        if (!root.TryGetProperty(name, out JsonElement element)) return true;
+        if (element.ValueKind != JsonValueKind.Number || !element.TryGetInt64(out long parsed)) return false;
+        value = parsed;
+        return true;
     }
 }
