@@ -162,6 +162,19 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    [DataRow("Use this:\npassword:\nhunter2\nthen restart.", "Use this:\npassword:\n[secret]\nthen restart.")]
+    [DataRow("token =\r\n  hunter2", "token =\n[secret]")]
+    [DataRow("{\"password\": \"line one\nhunter2 line two\"}\nNext.", "{\"password\": \"[secret]\"}\nNext.")]
+    [DataRow("Authorization: Bearer\nabcDEF123456xyz", "Authorization: Bearer [secret]")]
+    public void ASecretSplitAcrossAnswerLinesIsStillRemoved(string answer, string expected)
+    {
+        DiagnosticSanitizedText clean = AdvisoryAiRedaction.SanitizeAnswer(answer, 4000);
+        Assert.AreEqual(expected, clean.Value);
+        Assert.IsFalse(clean.Value!.Contains("hunter2", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     public void LinksInAnAnswerCannotBeOpened() =>
         Assert.AreEqual("Download the fix from [link] now.", AdvisoryAiRedaction.SanitizeAnswer("Download the fix from https://evil.example/fix.exe now.", 1000).Value);
 }

@@ -74,7 +74,10 @@ public static class AdvisoryAiRedaction
         List<string> lines = [];
         bool blankPending = false;
         bool truncated = false;
-        foreach (string line in text.Replace("\r\n", "\n", StringComparison.Ordinal).Split(['\n', '\r', '\u2028', '\u2029', '\u0085']))
+        // Secrets are matched across the whole answer first, so a value on the line after its label ("password:" then "hunter2")
+        // or a quoted value spanning lines is removed before the answer is split into lines. Each line is then cleaned again.
+        string whole = RedactSecrets(text.Replace("\r\n", "\n", StringComparison.Ordinal));
+        foreach (string line in whole.Split(['\n', '\r', '\u2028', '\u2029', '\u0085']))
         {
             DiagnosticSanitizedText clean = line.Length == 0 ? new(null, false) : Clean(line, maximumScalars, context);
             truncated |= clean.Truncated;
