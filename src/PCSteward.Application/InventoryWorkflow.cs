@@ -8,6 +8,12 @@ public sealed record RepositoryIdentityConfirmationResult(int Confirmed, int Ski
 public interface IPostUpdatePackageInventory
 {
     Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The product key of the Windows uninstall entry the provider itself links to the updated package now, when an update replaced
+    /// the entry (an MSI upgrade gets a new product code); null when there is no single such link.
+    /// </summary>
+    Task<string?> GetLinkedProductKeyAfterUpdateAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => Task.FromResult<string?>(null);
 }
 
 /// <summary>Normalized bounded result returned only by a provider-owned protected machine operation.</summary>
@@ -289,15 +295,22 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
         if (hasCurrentLocalInventoryProviders && (observation is null || observation.CorrelationId != scan.CorrelationId)) return new(false, false);
         IReadOnlyCollection<CanonicalProduct> products = observation is null ? await snapshots.GetLastKnownGoodProductsAsync(cancellationToken).ConfigureAwait(false) : observation.Products;
         IReadOnlyCollection<InstallationInstance> instances = observation is null ? await snapshots.GetLastKnownGoodInstancesAsync(cancellationToken).ConfigureAwait(false) : observation.Instances;
-        CanonicalProduct[] selectedProducts = products.Where(product => string.Equals(product.StableKey, job.Selection.StableProductKey, StringComparison.Ordinal)).ToArray();
-        HashSet<Guid> productIds = selectedProducts.Select(product => product.Id).ToHashSet();
+        // An MSI upgrade can replace the reviewed uninstall entry with a new one (new product code, so a new product key). The
+        // provider's own link after the update names it; the old product then has no instance at the target version, and the
+        // checks below still need exactly one product and exactly one exact instance across both.
+        string? linkedKey = await postUpdatePackageInventory.GetLinkedProductKeyAfterUpdateAsync(job, cancellationToken).ConfigureAwait(false);
+        CanonicalProduct[] reviewedOrLinked = products.Where(product =>
+            string.Equals(product.StableKey, job.Selection.StableProductKey, StringComparison.Ordinal) ||
+            (linkedKey is not null && string.Equals(product.StableKey, linkedKey, StringComparison.Ordinal))).ToArray();
+        HashSet<Guid> productIds = reviewedOrLinked.Select(product => product.Id).ToHashSet();
         InstallationInstance[] exactLocal = instances.Where(instance =>
             productIds.Contains(instance.ProductId) &&
             IsConcreteLocalEvidence(instance) &&
             string.Equals(instance.Version, job.Selection.CandidateVersion, StringComparison.Ordinal) &&
             string.Equals(instance.Scope, job.Selection.Scope.ToString(), StringComparison.OrdinalIgnoreCase) &&
             string.Equals(instance.Architecture, job.Selection.Architecture.ToString(), StringComparison.OrdinalIgnoreCase)).ToArray();
-        bool expectedVersionDetected = exactLocal.Length == 1 && selectedProducts.Length == 1;
+        bool expectedVersionDetected = exactLocal.Length == 1 && exactLocal.Select(instance => instance.ProductId).Distinct().Count() == 1 &&
+            !reviewedOrLinked.Any(product => product.Id != exactLocal[0].ProductId && instances.Any(instance => instance.ProductId == product.Id && IsConcreteLocalEvidence(instance)));
         return new(expectedVersionDetected, false);
     }
 

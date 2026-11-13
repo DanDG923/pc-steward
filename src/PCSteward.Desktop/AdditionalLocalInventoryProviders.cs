@@ -50,5 +50,7 @@ internal sealed class MsixLocalInventoryProvider(Func<bool> enabled) : ILocalInv
 internal sealed class WingetPostUpdatePackageInventory : IPostUpdatePackageInventory
 {
     private readonly WingetInstalledInventoryProvider provider = new();
+    private readonly WingetPostUpdateRegistryLink link = new();
     public Task<bool> HasExactExpectedVersionAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => provider.HasExactExpectedVersionAsync(job, cancellationToken);
+    public Task<string?> GetLinkedProductKeyAfterUpdateAsync(ImmutableUpdateJob job, CancellationToken cancellationToken) => link.ResolveAsync(job, cancellationToken);
 }
