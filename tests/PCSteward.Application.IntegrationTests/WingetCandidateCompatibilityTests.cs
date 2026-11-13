@@ -20,7 +20,7 @@ public sealed class WingetCandidateCompatibilityTests
     {
         WingetCandidateCompatibility? evidence = WingetCandidateCompatibilityRules.Evaluate(Observation(), "winget", "Contoso.Cli", "2.0.0", "2.1.0");
 
-        Assert.AreEqual(new WingetCandidateCompatibility("Machine", "X64", "Stable"), evidence);
+        Assert.AreEqual(new WingetCandidateCompatibility("Machine", "X64", "Stable", "Contoso, Inc.", null), evidence);
     }
 
     [TestMethod]
@@ -66,6 +66,53 @@ public sealed class WingetCandidateCompatibilityTests
             Assert.IsNull(WingetCandidateCompatibilityRules.Evaluate(observation, "winget", "Contoso.Cli", "2.0.0", "2.1.0"), observation.ToString());
         }
         Assert.IsNull(WingetCandidateCompatibilityRules.Evaluate(null, "winget", "Contoso.Cli", "2.0.0", "2.1.0"));
+    }
+
+    [TestMethod]
+    public void WinGetsSingleInstalledProductCodeBecomesTheRegistryProductKeyAndThePublisherIsKept()
+    {
+        WingetCandidateCompatibility evidence = WingetCandidateCompatibilityRules.Evaluate(Observation() with { InstalledProductCodes = [" {A1B2C3D4-0000-1111-2222-333344445555} "] }, "winget", "Contoso.Cli", "2.0.0", "2.1.0")!;
+
+        Assert.AreEqual(RegistryKey("{A1B2C3D4-0000-1111-2222-333344445555}"), evidence.RegistryProductKey);
+        Assert.AreEqual("Contoso, Inc.", evidence.Publisher);
+    }
+
+    [TestMethod]
+    public void NoneSeveralOrUnboundedProductCodesGiveNoRegistryProductKey()
+    {
+        string[][] refused = [[], ["{A}", "{B}"], ["{A}", ""], [new string('x', 256)], ["{A}\u0001B"]];
+        foreach (string[] codes in refused)
+        {
+            Assert.IsNull(WingetCandidateCompatibilityRules.Evaluate(Observation() with { InstalledProductCodes = codes }, "winget", "Contoso.Cli", "2.0.0", "2.1.0")!.RegistryProductKey, string.Join("|", codes));
+        }
+        Assert.AreEqual(RegistryKey("{A}"), WingetCandidateCompatibilityRules.Evaluate(Observation() with { InstalledProductCodes = ["{A}", "{a}"] }, "winget", "Contoso.Cli", "2.0.0", "2.1.0")!.RegistryProductKey);
+        Assert.IsNull(WingetCandidateCompatibilityRules.Evaluate(Observation() with { CandidatePublisher = "  " }, "winget", "Contoso.Cli", "2.0.0", "2.1.0")!.Publisher);
+    }
+
+    [TestMethod]
+    public async Task TheWindowsEntryWinGetLinksIsOfferedWithoutConfirmation()
+    {
+        SourceSnapshot snapshot = await new WingetUpdateSourceConnector(Process(), "winget", new FakeCompatibility(_ => [Observation() with { InstalledProductCodes = ["ContosoCliKey"] }])).RefreshAsync(CancellationToken.None);
+        // A registry product whose name and publisher do not match the package: only WinGet's own link can match it.
+        ProductMatchProfile product = new(RegistryKey("ContosoCliKey"), "Contoso Command Line", null, null, null, "Someone Else", "2.0.0", "Machine", "x64", null);
+
+        UpdateIntelligenceItem item = UpdateIntelligence.Assess([product], [snapshot]).Items.Single();
+
+        Assert.AreEqual(UpdateIntelligenceStatus.VerifiedUpdate, item.Status, item.Explanation);
+        Assert.AreEqual(MappingOrigin.ProviderSupplied, item.Mapping!.Origin);
+    }
+
+    [TestMethod]
+    public async Task ASameNameSamePublisherWindowsEntryIsOfferedWithoutConfirmation()
+    {
+        SourceSnapshot snapshot = await new WingetUpdateSourceConnector(Process(), "winget", new FakeCompatibility(_ => [Observation()])).RefreshAsync(CancellationToken.None);
+        ProductMatchProfile sameName = new("registry:contoso-cli", "Contoso CLI", null, null, null, "Contoso Inc", "2.0.0", "Machine", "x64", null);
+        ProductMatchProfile otherPublisher = sameName with { StableProductKey = "registry:other", Publisher = "Fabrikam" };
+
+        UpdateIntelligenceSummary summary = UpdateIntelligence.Assess([sameName, otherPublisher], [snapshot]);
+
+        Assert.AreEqual(UpdateIntelligenceStatus.VerifiedUpdate, summary.Items.Single(item => item.StableProductKey == sameName.StableProductKey).Status);
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, summary.Items.Single(item => item.StableProductKey == otherPublisher.StableProductKey).Status);
     }
 
     [TestMethod]
@@ -141,7 +188,10 @@ public sealed class WingetCandidateCompatibilityTests
     }
 
     private static WinGetCandidateCompatibilityObservation Observation() => new(
-        "Contoso.Cli", true, true, true, 1, false, "Contoso.Cli", "2.0.0", "2.1.0", "winget", true, "Machine", true, "System", "X64", "");
+        "Contoso.Cli", true, true, true, 1, false, "Contoso.Cli", "2.0.0", "2.1.0", "winget", true, "Machine", true, "System", "X64", "", "Contoso, Inc.", []);
+
+    private static string RegistryKey(string keyName) =>
+        InventoryNormalization.ProductFingerprint(new RawInstallEvidence("registry", keyName, "Contoso CLI", "Contoso", "2.0.0", "Machine", "x64", null, "Application", "fixture"));
 
     private static SequenceProcess Process() => new(
     [

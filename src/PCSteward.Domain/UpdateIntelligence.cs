@@ -93,7 +93,7 @@ public static class UpdateIntelligence
     }
 
     private static bool IsVerifiedCurrent(PackageMapping mapping) =>
-        mapping.Confidence == MappingConfidence.High &&
+        mapping.Confidence >= MappingConfidence.Medium &&
         mapping.VersionComparison.Outcome == VersionComparisonOutcome.Equal &&
         mapping.ReviewReasons.All(reason => reason == MappingReviewReason.CandidateIsCurrent);
 

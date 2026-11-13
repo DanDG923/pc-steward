@@ -60,8 +60,9 @@ public sealed class ProductPackageMatchingTests
     }
 
     [TestMethod]
-    public void ProductAndPublisherAliasesAreReviewOnlyWithoutStableIdentity()
+    public void ProductAndPublisherAliasesAreActionableWithoutStableIdentity()
     {
+        // Owner decision 2026-11-13: a unique same-name, same-publisher match with complete evidence no longer needs confirmation.
         ProductMatchProfile product = Product(providerPackageId: null, aliases: ["Contoso Widget"]);
         PackageMatchCandidate candidate = Candidate(packageId: "Contoso.Widget", aliases: ["Contoso Widget"]);
 
@@ -69,7 +70,31 @@ public sealed class ProductPackageMatchingTests
 
         Assert.IsNotNull(result.Mapping);
         Assert.AreEqual(MappingConfidence.Medium, result.Mapping.Confidence);
-        Assert.IsFalse(result.Mapping.IsActionable);
+        Assert.IsTrue(result.Mapping.IsActionable);
+    }
+
+    [TestMethod]
+    public void TwoEquallyStrongNameAndPublisherCandidatesStillNeedReview()
+    {
+        ProductMatchProfile product = Product(providerPackageId: null, aliases: ["Contoso Widget"]);
+
+        ProductPackageMatchResult result = ProductPackageMatching.Resolve(product, [Candidate(packageId: "Contoso.Widget", aliases: ["Contoso Widget"]), Candidate(packageId: "Contoso.WidgetClassic", aliases: ["Contoso Widget"])]);
+
+        Assert.IsNull(result.Mapping);
+        CollectionAssert.Contains(result.ReviewReasons.ToArray(), MappingReviewReason.AmbiguousCandidate);
+    }
+
+    [TestMethod]
+    [DataRow("Unknown", "x64", MappingReviewReason.MissingScopeEvidence)]
+    [DataRow("Machine", "Unknown", MappingReviewReason.MissingArchitectureEvidence)]
+    public void UnknownInstalledScopeOrArchitectureIsReviewOnly(string scope, string architecture, MappingReviewReason reason)
+    {
+        ProductMatchProfile product = Product() with { Scope = scope, Architecture = architecture };
+
+        PackageMapping mapping = ProductPackageMatching.Resolve(product, [Candidate()]).Mapping!;
+
+        CollectionAssert.Contains(mapping.ReviewReasons.ToArray(), reason);
+        Assert.IsFalse(mapping.IsActionable);
     }
 
     [TestMethod]
@@ -99,7 +124,7 @@ public sealed class ProductPackageMatchingTests
     }
 
     [TestMethod]
-    public void SupportedTrustedUserMappingIsActionableAndRemovingItRestoresReviewOnlyMatching()
+    public void SupportedTrustedUserMappingIsActionableAndRemovingItFallsBackToNameAndPublisherMatching()
     {
         ProductMatchProfile product = Product(providerPackageId: null, aliases: ["Contoso Widget"]);
         PackageMatchCandidate candidate = Candidate(aliases: ["Contoso Widget"]);
@@ -113,7 +138,7 @@ public sealed class ProductPackageMatchingTests
         Assert.IsTrue(mapped.Mapping.IsActionable);
         Assert.IsNotNull(removed.Mapping);
         Assert.AreEqual(MappingConfidence.Medium, removed.Mapping.Confidence);
-        Assert.IsFalse(removed.Mapping.IsActionable);
+        Assert.IsTrue(removed.Mapping.IsActionable, "a same-name, same-publisher match is actionable on its own (owner decision 2026-11-13)");
     }
 
     [TestMethod]

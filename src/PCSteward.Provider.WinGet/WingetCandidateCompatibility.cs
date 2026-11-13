@@ -1,4 +1,5 @@
 using Microsoft.Management.Deployment;
+using PCSteward.Domain;
 
 namespace PCSteward.Provider.WinGet;
 
@@ -8,8 +9,11 @@ namespace PCSteward.Provider.WinGet;
 /// display table names none of them. This is comparison evidence for the match only: it never selects what runs. The
 /// reviewed job still binds the installed app's own scope and architecture, the reviewed routes check the installer again
 /// at review, and the post-update check needs the exact version, scope and architecture.
+/// <para><see cref="Publisher"/> is the catalog publisher of the update, so a same-name, same-publisher installed app can be matched
+/// (owner decision 2026-11-13). <see cref="RegistryProductKey"/> is the product key of the one Windows uninstall entry that WinGet
+/// itself links to the installed package (its product code), so that entry is matched to the package without a name guess.</para>
 /// </summary>
-internal sealed record WingetCandidateCompatibility(string Scope, string Architecture, string Channel);
+internal sealed record WingetCandidateCompatibility(string Scope, string Architecture, string Channel, string? Publisher = null, string? RegistryProductKey = null);
 
 /// <summary>What WinGet's structured API reported for one exact package ID. Plain values only, so the rules are testable.</summary>
 internal sealed record WinGetCandidateCompatibilityObservation(
@@ -28,7 +32,9 @@ internal sealed record WinGetCandidateCompatibilityObservation(
     bool HasApplicableInstaller,
     string InstallerScope,
     string InstallerArchitecture,
-    string? Channel);
+    string? Channel,
+    string? CandidatePublisher = null,
+    IReadOnlyList<string>? InstalledProductCodes = null);
 
 internal interface IWinGetCandidateCompatibilityQuery
 {
@@ -42,6 +48,7 @@ internal interface IWinGetCandidateCompatibilityQuery
 internal static class WingetCandidateCompatibilityRules
 {
     private const int MaximumVersionLength = 128;
+    private const int MaximumTextLength = 255;
 
     /// <summary>
     /// Returns the compatibility evidence for one display-table update row, or null when WinGet's structured answer is not
@@ -83,7 +90,30 @@ internal static class WingetCandidateCompatibilityRules
 
         string installerScope = Scope(observation.InstallerScope);
         string scope = installerScope != "Unknown" ? installerScope : Scope(observation.InstalledScope);
-        return new(scope, Architecture(observation.InstallerArchitecture), string.IsNullOrEmpty(observation.Channel) ? "Stable" : "Unknown");
+        return new(
+            scope,
+            Architecture(observation.InstallerArchitecture),
+            string.IsNullOrEmpty(observation.Channel) ? "Stable" : "Unknown",
+            BoundedText(observation.CandidatePublisher),
+            RegistryProductKey(observation.InstalledProductCodes));
+    }
+
+    /// <summary>
+    /// The registry product key (<see cref="InventoryNormalization.ProductFingerprint"/> of provider <c>registry</c> and the uninstall
+    /// key name) for WinGet's single installed product code. None, several or an unbounded code give no key.
+    /// </summary>
+    private static string? RegistryProductKey(IReadOnlyList<string>? productCodes)
+    {
+        if (productCodes is null || productCodes.Any(code => BoundedText(code) is null)) return null;
+        string[] codes = productCodes.Select(code => code.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (codes.Length != 1) return null;
+        return InventoryNormalization.ProductFingerprint(new RawInstallEvidence("registry", codes[0], codes[0], null, null, "Unknown", "Unknown", null, "Application", "winget-com"));
+    }
+
+    private static string? BoundedText(string? value)
+    {
+        string? trimmed = value?.Trim();
+        return string.IsNullOrEmpty(trimmed) || trimmed.Length > MaximumTextLength || trimmed.Any(char.IsControl) ? null : trimmed;
     }
 
     private static string Scope(string? value) => value?.Trim().ToUpperInvariant() switch
@@ -195,7 +225,9 @@ internal sealed class WinGetComCandidateCompatibilityQuery : IWinGetCandidateCom
                 installer is not null,
                 installer is null ? "Unknown" : installer.Scope.ToString(),
                 installer is null ? "Unknown" : installer.Architecture.ToString(),
-                candidate.Channel));
+                candidate.Channel,
+                candidate.Publisher,
+                [.. installed.ProductCodes]));
         }
 
         return observations;

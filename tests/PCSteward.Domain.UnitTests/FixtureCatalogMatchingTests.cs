@@ -22,7 +22,9 @@ public sealed class FixtureCatalogMatchingTests
         foreach (FixtureRecord edge in edges)
         {
             PackageMapping? mapping = ResolveMapping(edge, "Contoso.Edge." + edge.FixtureId[5..]);
-            bool expectedActionable = string.Equals(edge.ExpectedMapping, "exact", StringComparison.Ordinal);
+            // Owner decision 2026-11-13: a unique same-name, same-publisher match with complete evidence is actionable too, so the
+            // name-only controls (medium-review, runtime-policy) are now offered; unmatched, low-confidence, review and conflict edges are not.
+            bool expectedActionable = edge.ExpectedMapping is "exact" or "medium-review" or "runtime-policy";
             Assert.AreEqual(expectedActionable, mapping?.IsActionable == true, $"{edge.FixtureId}: {edge.ExpectedMapping}");
         }
 
@@ -32,7 +34,7 @@ public sealed class FixtureCatalogMatchingTests
     private static PackageMapping? ResolveMapping(FixtureRecord record, string packageId)
     {
         bool exact = record.ExpectedMapping is "exact" or "channel-conflict" or "incomparable-version" or "architecture-conflict";
-        string installedVersion = record.ExpectedMapping == "incomparable-version" ? "release-candidate" : record.Version ?? "1.0.0";
+        string? installedVersion = record.ExpectedMapping == "incomparable-version" ? "release-candidate" : record.ExpectedMapping == "review" ? record.Version : record.Version ?? "1.0.0";
         string candidateVersion = record.ExpectedMapping == "incomparable-version" ? "2026-R2" : "99.0.0";
         string productArchitecture = record.ExpectedMapping == "architecture-conflict" ? "x64" : record.Architecture ?? "x64";
         string candidateArchitecture = record.ExpectedMapping == "architecture-conflict" ? "x86" : productArchitecture;
@@ -40,7 +42,8 @@ public sealed class FixtureCatalogMatchingTests
         string candidateChannel = record.ExpectedMapping == "channel-conflict" ? "Preview" : productChannel;
         string? publisher = record.ExpectedMapping is "false-match-reject" or "low-confidence" ? null : "Contoso";
         ProductMatchProfile product = new("fixture:" + record.FixtureId, record.DisplayName ?? "Unknown", exact ? packageId : null, null, null, publisher, installedVersion, record.Scope ?? "Machine", productArchitecture, productChannel, [record.DisplayName ?? string.Empty], publisher is null ? null : [publisher], exact ? "winget" : null);
-        PackageMatchCandidate candidate = new("winget", packageId, record.DisplayName ?? "Unknown", null, null, record.ExpectedMapping == "false-match-reject" ? "Fabrikam" : publisher, candidateVersion, record.Scope ?? "Machine", candidateArchitecture, candidateChannel, true, ProductAliases: [record.DisplayName ?? string.Empty], PublisherAliases: publisher is null ? ["Fabrikam"] : [publisher]);
+        string candidateName = record.ExpectedMapping == "unmatched" ? "Unrelated package " + packageId : record.DisplayName ?? "Unknown";
+        PackageMatchCandidate candidate = new("winget", packageId, candidateName, null, null, record.ExpectedMapping == "false-match-reject" ? "Fabrikam" : publisher, candidateVersion, record.Scope ?? "Machine", candidateArchitecture, candidateChannel, true, ProductAliases: [candidateName], PublisherAliases: publisher is null ? ["Fabrikam"] : [publisher]);
         return ProductPackageMatching.Resolve(product, [candidate]).Mapping;
     }
 
