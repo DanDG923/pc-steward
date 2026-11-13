@@ -244,7 +244,9 @@ public sealed class UpdatesAndJobPresentationTests
         CollectionAssert.Contains(sheet.ConfidenceEvidence.ToArray(), "Exact package ID and publisher match.");
         Assert.IsTrue(sheet.ConfidenceEvidence.Any(line => line.Contains("fixture-evidence", StringComparison.Ordinal)));
         CollectionAssert.AreEqual(RiskOrder, sheet.Risks.Select(risk => risk.Kind).ToArray());
-        StringAssert.Contains(sheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.RunningApplication).Message, "never closes apps");
+        StringAssert.Contains(sheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.RunningApplication).Message, "If you know it's open, close it first");
+        Assert.IsFalse(sheet.OffersCloseForMe, "nothing is running: no Close it for me");
+        Assert.IsTrue(sheet.CanConfirm);
         StringAssert.Contains(sheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.Restart).Message, "never restarts your PC");
         Assert.AreEqual(AdministratorRequirementPresenter.ForSelection(machine).Label, sheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.Administrator).Title);
         Assert.IsTrue(sheet.ShowsAdministratorShield, "machine-wide: the shield is shown");
@@ -265,7 +267,11 @@ public sealed class UpdatesAndJobPresentationTests
         Assert.IsFalse(userSheet.ShowsAdministratorShield, "current-user: no shield");
         Assert.AreEqual("Update 1 app anyway", userSheet.PrimaryButtonLabel, "a running app needs an explicit 'anyway'");
         StringAssert.Contains(userSheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.RunningApplication).Message, "widget.exe");
-        StringAssert.Contains(userSheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.RunningApplication).Message, "will not close it");
+        StringAssert.Contains(userSheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.RunningApplication).Message, "Close Contoso Widget for me");
+        StringAssert.Contains(userSheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.RunningApplication).Message, "never force-quits");
+        Assert.IsTrue(userSheet.OffersCloseForMe);
+        Assert.AreEqual("Close Contoso Widget for me", userSheet.CloseForMeLabel);
+        Assert.IsTrue(userSheet.CanConfirm, "an app that isn't an app package can still be updated anyway");
         Assert.AreEqual(StatusTone.Attention, userSheet.Risks.Single(risk => risk.Kind == ReviewRiskKind.RunningApplication).Tone);
         Assert.AreEqual("Current user", Fact(userSheet, "Scope"));
         Assert.AreEqual("Not stated by the source", Fact(userSheet, "Channel"));

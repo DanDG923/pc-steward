@@ -24,6 +24,8 @@ public sealed partial class MainWindow : Window
     private readonly InventoryExperienceViewModel viewModel;
     private readonly DownloadedArtifactCache downloads;
     private readonly ReviewedUpdateExecutionWorkflow updates;
+    // Owner decision 2026-11-13: "Close it for me" on the review asks a running app to close like closing its window; never a force-quit.
+    private readonly WindowCloseRunningApplicationCloser runningAppCloser = new();
     private readonly IScheduledCheckSettingsStore scheduleSettingsStore;
     private readonly ScheduledCheckRegistrationService scheduleRegistration;
     private readonly Func<FactoryResetResult>? acknowledgeResetOnboarding;
@@ -137,7 +139,17 @@ public sealed partial class MainWindow : Window
     private sealed class UpdateJobSession(IReadOnlyList<InventoryRow> rows, UpdateReviewSheet sheet)
     {
         public IReadOnlyList<InventoryRow> Rows { get; } = rows;
-        public UpdateReviewSheet Sheet { get; } = sheet;
+        public UpdateReviewSheet Sheet { get; set; } = sheet;
+        /// <summary>Rebuilds the review sheet with fresh running-app detections, one per app, in sheet order ("Check again").</summary>
+        public Func<IReadOnlyList<RunningApplicationDetection>, UpdateReviewSheet>? RebuildSheet { get; init; }
+        /// <summary>Each app's reviewed selection, in sheet order, read again only for running-app detection.</summary>
+        public IReadOnlyList<PCSteward.Domain.UpdateJobSelection> Selections { get; init; } = [];
+        /// <summary>The frozen review to confirm, with the running-app warnings the sheet now shows (set again by "Check again").</summary>
+        public UpdateBatchReviewPreparation? Review { get; set; }
+        /// <summary>The line shown after "Close it for me" or "Check again", or null.</summary>
+        public string? RunningCheckLine { get; set; }
+        /// <summary>True while "Close it for me" or "Check again" is working; the review's buttons wait for it.</summary>
+        public bool CheckingRunningApps { get; set; }
         public UpdateJobStep Step { get; set; } = UpdateJobStep.Review;
         public UpdateJobCompletion? Completion { get; set; }
         public int CurrentIndex { get; set; } = -1;
