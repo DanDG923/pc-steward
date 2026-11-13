@@ -96,6 +96,12 @@ public sealed class WingetArchitectureProofReviewTests
         Assert.IsFalse((await Source(process, root, new(null)).ProveAsync(Selection(), buildTools, CancellationToken.None)).Proven, "no answer");
         Assert.IsFalse((await Source(process, root, new(null) { Throws = true }).ProveAsync(Selection(), buildTools, CancellationToken.None)).Proven,
             "the query failed");
+
+        WingetMachineInstallerEvidenceSource stalled = new(process, root, new RecordingQuery(Proving("8.0.33", "8.0.34")) { Stalls = true }, () => true)
+        {
+            ArchitectureQueryBudget = TimeSpan.FromMilliseconds(200),
+        };
+        Assert.IsFalse((await stalled.ProveAsync(Selection(), buildTools, CancellationToken.None)).Proven, "a stalled catalog is no proof");
     }
 
     [TestMethod]
@@ -296,6 +302,7 @@ public sealed class WingetArchitectureProofReviewTests
         internal string? PackageId { get; private set; }
         internal IReadOnlyList<string>? Versions { get; private set; }
         internal bool Throws { get; init; }
+        internal bool Stalls { get; init; }
 
         public Task<WinGetInstallerArchitectureObservation?> QueryAsync(string packageId, IReadOnlyList<string> versions, CancellationToken cancellationToken)
         {
@@ -303,7 +310,8 @@ public sealed class WingetArchitectureProofReviewTests
             PackageId = packageId;
             Versions = versions;
             if (Throws) throw new InvalidOperationException("COM failed");
-            return Task.FromResult(observation);
+            // A stalled catalog that also ignores cancellation: only the budget ends the wait.
+            return Stalls ? new TaskCompletionSource<WinGetInstallerArchitectureObservation?>().Task : Task.FromResult(observation);
         }
     }
 

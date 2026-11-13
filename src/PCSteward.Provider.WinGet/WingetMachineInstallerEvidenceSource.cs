@@ -45,6 +45,9 @@ public sealed class WingetMachineInstallerEvidenceSource : IWingetMachineInstall
     public const string ArchitectureNotConfirmedMessage = InventoryWorkflow.ArchitectureNotConfirmedMessage;
 
     private static readonly TimeSpan SourceBudget = TimeSpan.FromSeconds(30);
+
+    /// <summary>How long P2's structured query may take; past it the architecture is not confirmed.</summary>
+    internal TimeSpan ArchitectureQueryBudget { get; init; } = TimeSpan.FromSeconds(30);
     private readonly IWingetProcess process;
     private readonly IReviewDownloadFolders folders;
     private readonly IWinGetInstallerArchitectureQuery architectures;
@@ -99,7 +102,12 @@ public sealed class WingetMachineInstallerEvidenceSource : IWingetMachineInstall
         WinGetInstallerArchitectureObservation? observation;
         try
         {
-            observation = await architectures.QueryAsync(selection.PackageId, versions, cancellationToken).ConfigureAwait(false);
+            // Bounded like the structured candidate query: a stalled catalog connection or search is no proof.
+            using CancellationTokenSource queryTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            queryTimeout.CancelAfter(ArchitectureQueryBudget);
+            Task<WinGetInstallerArchitectureObservation?> query = Task.Run(
+                () => architectures.QueryAsync(selection.PackageId, versions, queryTimeout.Token), CancellationToken.None);
+            observation = await query.WaitAsync(ArchitectureQueryBudget, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
