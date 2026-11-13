@@ -30,6 +30,10 @@ public static class ReliabilityDiagnosticCatalog
         new("MsiInstaller", 11707, DiagnosticEventKind.SoftwareInstalled, DiagnosticOutcomeKind.Succeeded),
         new("MsiInstaller", 11708, DiagnosticEventKind.SoftwareInstalled, DiagnosticOutcomeKind.Failed),
         new("MsiInstaller", 11724, DiagnosticEventKind.SoftwareRemoved, DiagnosticOutcomeKind.Succeeded),
+        // Stage 5 host check: Reliability records Windows Installer changes as 1033 (installed) and 1034 (removed). Their success
+        // or failure is only in the message text, which is never read, so the outcome stays unknown.
+        new("MsiInstaller", 1033, DiagnosticEventKind.SoftwareInstalled, DiagnosticOutcomeKind.Unknown),
+        new("MsiInstaller", 1034, DiagnosticEventKind.SoftwareRemoved, DiagnosticOutcomeKind.Unknown),
         new("Microsoft-Windows-WindowsUpdateClient", 19, DiagnosticEventKind.WindowsUpdate, DiagnosticOutcomeKind.Succeeded),
         new("Microsoft-Windows-WindowsUpdateClient", 20, DiagnosticEventKind.WindowsUpdate, DiagnosticOutcomeKind.Failed)
     ];
