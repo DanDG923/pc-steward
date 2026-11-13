@@ -115,11 +115,12 @@ public sealed record WinGetMachineEvidence(WinGetMachineInstallerType InstallerT
 }
 
 /// <summary>
-/// D7 design §3 (per-user vendor installers): the installer types a per-user <c>winget</c>-source update may bind at review. MSIX and
-/// Store installers keep the C4 evidence (their own stage); anything else WinGet reports is refused. Evidence and argument text is
-/// the lowercase name WinGet uses (<c>--installer-type</c>).
+/// D7 design §3 (per-user vendor installers): the installer types a per-user <c>winget</c>-source update may bind at review.
+/// <see cref="Msix"/> is bound too, so an MSIX app's update can only run an MSIX installer (MSIX stage residual); a Store-type
+/// installer keeps the C4 evidence; anything else WinGet reports is refused. Evidence and argument text is the lowercase name WinGet
+/// uses (<c>--installer-type</c>).
 /// </summary>
-public enum WinGetUserInstallerType { Msi, Wix, Exe, Inno, Nullsoft, Burn, Portable, Zip }
+public enum WinGetUserInstallerType { Msi, Wix, Exe, Inno, Nullsoft, Burn, Portable, Zip, Msix }
 
 /// <summary>
 /// D7 design §3 item 2 (owner answer Q1-B, 2026-11-13): the elevation requirement the installer's manifest declares, bound at review.
@@ -136,6 +137,10 @@ public sealed record WinGetUserInstaller(WinGetUserInstallerType Type, WinGetUse
 {
     /// <summary>True when the installer's manifest says it will ask Windows for administrator permission (owner answer Q1-B).</summary>
     public bool ExpectsElevation => Elevation is WinGetUserElevation.Required or WinGetUserElevation.ElevatesSelf;
+
+    /// <summary>True for a vendor installer (not an MSIX package): the review discloses what PC Steward can't control, and the update
+    /// is compared with the whole-PC entries afterwards.</summary>
+    public bool IsVendor => Type != WinGetUserInstallerType.Msix;
 }
 
 /// <summary>Where the inventory observation named by a <c>wgu1</c> identity came from (data only).</summary>
@@ -163,6 +168,7 @@ public sealed record WinGetUserEvidence(WinGetUserInstallerType InstallerType, W
         WinGetUserInstallerType.Burn => "burn",
         WinGetUserInstallerType.Portable => "portable",
         WinGetUserInstallerType.Zip => "zip",
+        WinGetUserInstallerType.Msix => "msix",
         _ => throw new ArgumentOutOfRangeException(nameof(type)),
     };
 

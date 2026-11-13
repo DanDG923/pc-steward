@@ -135,7 +135,8 @@ public sealed class ReviewedUpdateExecutionWorkflow(
         }
         else if (ReadsUserInstaller(preparation.Selection))
         {
-            // D7 design §3 item 1: the vendor installer WinGet would use is read and bound at review; MSIX keeps the C4 evidence.
+            // D7 design §3 item 1: the installer WinGet would use is read and bound at review (vendor or MSIX); a Store-type installer
+            // keeps the C4 evidence.
             WingetUserInstallerCheck check = await ReadUserInstallerAsync(preparation.Selection, cancellationToken).ConfigureAwait(false);
             if (!check.IsMsix && check.Installer is null)
                 return new(null, check.Message, RunningApplicationDetection.NotDetected);
@@ -287,7 +288,7 @@ public sealed class ReviewedUpdateExecutionWorkflow(
                 return new(false, WingetUserInstallerText.ChangedMessage, null);
             // D7 design §3 item 4 (Q3-A): a vendor installer's update is compared afterwards with the whole-PC entries of this fresh
             // inventory, taken just before launch. Without it, nothing starts.
-            if (review.UserInstaller is not null)
+            if (review.UserInstaller is { IsVendor: true })
             {
                 if (preparation.Observation is null) return new(false, WingetUserInstallerText.NoBaselineMessage, null);
                 wholePcBaseline = WholePcRegistrationSnapshot.From(preparation.Observation);

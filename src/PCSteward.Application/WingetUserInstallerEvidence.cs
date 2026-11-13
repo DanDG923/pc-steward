@@ -4,12 +4,12 @@ namespace PCSteward.Application;
 
 /// <summary>
 /// D7 design §3 item 1: the answer of one read of the installer WinGet would use for a per-user <c>winget</c>-source update.
-/// <see cref="IsMsix"/>: an MSIX installer, which keeps the stage C4 evidence (its own stage). Otherwise <see cref="Installer"/> is the
-/// vendor installer to bind, or null with <see cref="Message"/> saying why nothing can be reviewed.
+/// <see cref="IsMsix"/>: a Store-type installer, which keeps the stage C4 evidence. Otherwise <see cref="Installer"/> is the installer
+/// to bind (an MSIX package or a vendor installer), or null with <see cref="Message"/> saying why nothing can be reviewed.
 /// </summary>
 public sealed record WingetUserInstallerCheck(bool IsMsix, WinGetUserInstaller? Installer, string Message)
 {
-    /// <summary>An MSIX installer: no vendor binding.</summary>
+    /// <summary>A Store-type installer: no binding (C4 evidence).</summary>
     public static WingetUserInstallerCheck Msix() => new(true, null, string.Empty);
 
     /// <summary>A vendor installer to bind.</summary>
@@ -62,6 +62,7 @@ public static class WingetUserInstallerText
     public static string Disclosure(WinGetUserInstaller installer)
     {
         ArgumentNullException.ThrowIfNull(installer);
+        // The review sheet never asks this for an MSIX package: AdministratorRequirementPresenter shows the C4 text for it.
         return installer.ExpectsElevation ? ElevationWarning : NoElevationDisclosure;
     }
 
@@ -76,6 +77,7 @@ public static class WingetUserInstallerText
         WinGetUserInstallerType.Burn => "Vendor installer (WiX Burn bundle)",
         WinGetUserInstallerType.Portable => "Portable app placed by WinGet",
         WinGetUserInstallerType.Zip => "Zip archive unpacked by WinGet",
+        WinGetUserInstallerType.Msix => "MSIX package",
         _ => "Vendor installer",
     };
 }

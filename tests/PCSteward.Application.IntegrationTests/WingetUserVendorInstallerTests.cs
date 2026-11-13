@@ -73,11 +73,11 @@ public sealed class WingetUserVendorInstallerTests
     }
 
     [TestMethod]
-    public async Task AnMsixInstallerKeepsTheC4EvidenceAndCommandLine()
+    public async Task AStoreTypeInstallerKeepsTheC4EvidenceAndCommandLine()
     {
         UpdateJobSelection selection = Selection();
         RecordingExecutor executor = new();
-        ScriptedSource source = new(WingetUserInstallerRules.Evaluate(Observation("Msix", scope: "Unknown"), selection));
+        ScriptedSource source = new(WingetUserInstallerRules.Evaluate(Observation("MSStore", scope: "Unknown"), selection));
         ReviewedUpdateExecutionWorkflow workflow = Workflow(selection, new RecordingStore(), executor, source);
 
         UpdateReviewPreparation preparation = await workflow.BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
@@ -86,6 +86,27 @@ public sealed class WingetUserVendorInstallerTests
         ReviewedUpdateOperation reviewed = executor.Reviewed.Single()!;
         StringAssert.StartsWith(reviewed.EvidenceId, "inventory:");
         Assert.AreEqual("--silent", WingetReviewedUpdateArguments.Build(reviewed)[^1], "no installer-type argument");
+    }
+
+    [TestMethod]
+    public async Task AnMsixInstallerIsPinnedToMsixWithoutTheVendorChecks()
+    {
+        // MSIX stage residual (accepted on this condition): an MSIX app's update runs only an MSIX installer.
+        UpdateJobSelection selection = Selection();
+        RecordingExecutor executor = new();
+        RecordingInventory inventory = new();
+        ScriptedSource source = new(WingetUserInstallerRules.Evaluate(Observation("Msix", scope: "Unknown"), selection));
+        ReviewedUpdateExecutionWorkflow workflow = Workflow(selection, new RecordingStore(), executor, source, inventory);
+
+        UpdateReviewPreparation preparation = await workflow.BeginReviewAsync(selection.StableProductKey, CancellationToken.None);
+        Assert.AreEqual(new WinGetUserInstaller(WinGetUserInstallerType.Msix, WinGetUserElevation.Unknown), preparation.Review!.UserInstaller);
+        Assert.IsTrue((await workflow.ConfirmAndRunAsync(preparation.Review, false, CancellationToken.None)).Started);
+        ReviewedUpdateOperation reviewed = executor.Reviewed.Single()!;
+        StringAssert.StartsWith(reviewed.EvidenceId, "wgu1:msix:");
+        CollectionAssert.AreEqual(MsixTail, WingetReviewedUpdateArguments.Build(reviewed).TakeLast(3).ToArray());
+        Assert.IsNull(inventory.Baselines.Single(), "no whole-PC comparison for an MSIX package");
+        Assert.AreEqual(AdministratorRequirementPresenter.ForSelection(selection),
+            AdministratorRequirementPresenter.ForSelection(selection, preparation.Review.UserInstaller), "no vendor disclosure");
     }
 
     [TestMethod]
@@ -172,6 +193,8 @@ public sealed class WingetUserVendorInstallerTests
     {
         UpdateJobSelection selection = Selection();
         Assert.IsTrue(WingetUserInstallerRules.Evaluate(Observation("MSStore", scope: "Unknown"), selection).IsMsix);
+        Assert.AreEqual(new WinGetUserInstaller(WinGetUserInstallerType.Msix, WinGetUserElevation.Unknown),
+            WingetUserInstallerRules.Evaluate(Observation("Msix", scope: "Unknown"), selection).Installer, "WinGet places MSIX packages itself");
         Assert.AreEqual(new WinGetUserInstaller(WinGetUserInstallerType.Portable, WinGetUserElevation.Unknown),
             WingetUserInstallerRules.Evaluate(Observation("Portable", scope: "Unknown"), selection).Installer, "WinGet places portable apps itself");
         Assert.AreEqual(new WinGetUserInstaller(WinGetUserInstallerType.Zip, WinGetUserElevation.Unknown),
@@ -248,7 +271,7 @@ public sealed class WingetUserVendorInstallerTests
                  {
                      "WGU1:inno:elevatesself:inventory:0d7e0000-0000-4000-8000-000000000001",
                      "wgu1:Inno:elevatesself:inventory:0d7e0000-0000-4000-8000-000000000001",
-                     "wgu1:msix:unknown:inventory:0d7e0000-0000-4000-8000-000000000001",
+                     "wgu1:msstore:unknown:inventory:0d7e0000-0000-4000-8000-000000000001",
                      "wgu1:inno:required:inventory:0D7E0000-0000-4000-8000-000000000001",
                      "wgu1:inno:required:inventory:00000000-0000-0000-0000-000000000000",
                      "wgu1:inno:required:cache:0d7e0000-0000-4000-8000-000000000001",
@@ -309,7 +332,7 @@ public sealed class WingetUserVendorInstallerTests
         WholePcRegistrationSnapshot baseline = inventory.Baselines.Single()!;
         Assert.AreEqual(2, baseline.Count, "the fixture's two whole-PC entries; the per-user one is not counted");
 
-        // MSIX keeps the C4 path: no baseline is taken.
+        // A Store-type installer keeps the C4 path: no baseline is taken.
         RecordingInventory msixInventory = new();
         ReviewedUpdateExecutionWorkflow msix = Workflow(selection, new RecordingStore(), new RecordingExecutor(),
             new ScriptedSource(WingetUserInstallerCheck.Msix()), msixInventory);
@@ -399,6 +422,7 @@ public sealed class WingetUserVendorInstallerTests
             "whole-pc-change-check-unavailable; target-version-detected", 0, "1.1.0").Summary, "couldn't check whether it also changed");
     }
 
+    private static readonly string[] MsixTail = ["--silent", "--installer-type", "msix"];
     private static readonly string[] ExpectedChanged = ["Alpha", "Beta", "Delta", "Gamma"];
     private static readonly Guid FixtureObservationId = Guid.Parse("0d7e0000-0000-4000-8000-0000000000aa");
 

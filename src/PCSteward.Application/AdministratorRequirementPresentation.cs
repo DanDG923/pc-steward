@@ -38,7 +38,7 @@ public static class AdministratorRequirementPresenter
     public static AdministratorRequirementPresentation ForSelection(UpdateJobSelection selection, WinGetUserInstaller? installer)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        if (installer is null || selection.Provider != UpdateProvider.WinGet || selection.Scope != UpdateScope.User) return ForSelection(selection);
+        if (installer is not { IsVendor: true } || selection.Provider != UpdateProvider.WinGet || selection.Scope != UpdateScope.User) return ForSelection(selection);
         return installer.ExpectsElevation
             ? new(AdministratorRequirementStatus.Required, "Windows will ask for administrator permission", WingetUserInstallerText.ElevationWarning)
             : new(AdministratorRequirementStatus.NotExpected, "Administrator approval not expected", WingetUserInstallerText.NoElevationDisclosure);
@@ -62,7 +62,7 @@ public static class AdministratorRequirementPresenter
         WinGetUserInstaller? InstallerAt(int index) => installers?[index];
         if (selections.Count == 1) return ForSelection(selections[0], InstallerAt(0));
         int elevatingUserApps = selections.Where((selection, index) =>
-            selection.Scope == UpdateScope.User && InstallerAt(index) is { ExpectsElevation: true }).Count();
+            selection.Scope == UpdateScope.User && InstallerAt(index) is { IsVendor: true, ExpectsElevation: true }).Count();
         if (elevatingUserApps > 0)
         {
             int needing = selections.Where((selection, index) => ForSelection(selection, InstallerAt(index)).Status == AdministratorRequirementStatus.Required).Count();
@@ -71,7 +71,7 @@ public static class AdministratorRequirementPresenter
                 "are current-user apps whose own installer asks for it; PC Steward itself never asks for those and keeps running without administrator rights. " +
                 "If you allow it, that installer can change things for every user of this PC.");
         }
-        bool vendorUserApps = installers?.Any(installer => installer is not null) == true;
+        bool vendorUserApps = installers?.Any(installer => installer is { IsVendor: true }) == true;
         AdministratorRequirementStatus[] statuses = [.. selections.Select(selection => ForSelection(selection).Status)];
         int required = statuses.Count(status => status == AdministratorRequirementStatus.Required);
         int unknown = statuses.Count(status => status == AdministratorRequirementStatus.Unknown);

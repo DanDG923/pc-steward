@@ -35,9 +35,9 @@ internal static class WingetUserInstallerRules
 {
     /// <summary>
     /// The check for <paramref name="observation"/>: the trusted predefined <c>winget</c> catalog, one exact package with the selection's
-    /// ID, exactly one catalog version with the target version text, and one applicable installer. MSIX and Store installers keep the C4
-    /// evidence. A vendor type needs a declared user scope, unless WinGet places it itself (portable, or a zip around a portable app),
-    /// exactly as the command line's <c>--scope user</c> selects. Anything else is refused.
+    /// ID, exactly one catalog version with the target version text, and one applicable installer. An MSIX installer is bound as msix; a
+    /// Store-type installer keeps the C4 evidence. A vendor type needs a declared user scope, unless WinGet places it itself (MSIX,
+    /// portable, or a zip around a portable app), exactly as the command line's <c>--scope user</c> selects. Anything else is refused.
     /// </summary>
     internal static WingetUserInstallerCheck Evaluate(WinGetUserInstallerObservation? observation, UpdateJobSelection selection)
     {
@@ -49,7 +49,7 @@ internal static class WingetUserInstallerRules
             !string.Equals(observation.PackageId, selection.PackageId, StringComparison.OrdinalIgnoreCase) ||
             observation.InstallerType is null)
             return unreadable;
-        if (observation.InstallerType is "Msix" or "MSStore") return WingetUserInstallerCheck.Msix();
+        if (observation.InstallerType is "MSStore") return WingetUserInstallerCheck.Msix();
         WinGetUserInstallerType? type = observation.InstallerType switch
         {
             "Msi" => WinGetUserInstallerType.Msi,
@@ -60,10 +60,11 @@ internal static class WingetUserInstallerRules
             "Burn" => WinGetUserInstallerType.Burn,
             "Portable" => WinGetUserInstallerType.Portable,
             "Zip" => WinGetUserInstallerType.Zip,
+            "Msix" => WinGetUserInstallerType.Msix,
             _ => null,
         };
         if (type is not { } bound) return WingetUserInstallerCheck.Refused(WingetUserInstallerText.UnsupportedTypeMessage);
-        bool placedByWinGet = bound == WinGetUserInstallerType.Portable ||
+        bool placedByWinGet = bound is WinGetUserInstallerType.Portable or WinGetUserInstallerType.Msix ||
             (bound == WinGetUserInstallerType.Zip && observation.NestedInstallerType == "Portable");
         if (bound == WinGetUserInstallerType.Zip && observation.NestedInstallerType is "Msix" or "MSStore" or "Font" or "Unknown" or null)
             return WingetUserInstallerCheck.Refused(WingetUserInstallerText.UnsupportedTypeMessage);
