@@ -297,7 +297,7 @@ public sealed class UpdateDispatchClaimTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         ReviewedUpdateDraft draft = await fixture.SaveAsync();
-        await fixture.ExecuteAsync("DROP TABLE update_dispatch_claims; DROP TABLE diagnostic_records; DROP TABLE diagnostic_source_results; DROP TABLE diagnostic_snapshots; DELETE FROM schema_migrations WHERE version IN (11,12,13); CREATE TRIGGER reject_eleven BEFORE INSERT ON schema_migrations WHEN NEW.version=11 BEGIN SELECT RAISE(ABORT,'fixture migration fault'); END;");
+        await fixture.ExecuteAsync("DROP TABLE update_dispatch_claims; DROP TABLE diagnostic_records; DROP TABLE diagnostic_source_results; DROP TABLE diagnostic_snapshots; DROP TABLE ai_explanations; DROP TABLE ai_requests; DROP TABLE ai_tariffs; DROP TABLE ai_accounting_state; DROP TABLE ai_settings; DELETE FROM schema_migrations WHERE version IN (11,12,13,14); CREATE TRIGGER reject_eleven BEFORE INSERT ON schema_migrations WHEN NEW.version=11 BEGIN SELECT RAISE(ABORT,'fixture migration fault'); END;");
         await Assert.ThrowsExactlyAsync<SqliteException>(() => fixture.Store.MigrateAsync(CancellationToken.None));
         Assert.AreEqual(10L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
         Assert.AreEqual(0L, await fixture.ScalarAsync("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('update_dispatch_claims','ix_update_dispatch_unresolved');"));

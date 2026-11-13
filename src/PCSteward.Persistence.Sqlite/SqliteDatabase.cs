@@ -83,9 +83,12 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
             await CreateReviewedArchitectureSchemaAsync(connection, transaction, cancellationToken);
         if (await MigrationRequiredAsync(connection, transaction, 13, cancellationToken))
             await CreateDiagnosticSnapshotSchemaAsync(connection, transaction, cancellationToken);
+        if (await MigrationRequiredAsync(connection, transaction, 14, cancellationToken))
+            await CreateAdvisoryAiSchemaAsync(connection, transaction, cancellationToken);
         await ValidateReviewedOperationsSchemaAsync(connection, transaction, cancellationToken);
         await ValidateUpdateDispatchSchemaAsync(connection, transaction, cancellationToken);
         await ValidateDiagnosticSnapshotSchemaAsync(connection, transaction, cancellationToken);
+        await ValidateAdvisoryAiSchemaAsync(connection, transaction, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -346,6 +349,9 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
             foreach (string table in new[] { "raw_provider_records", "scan_provider_timings", "update_candidates", "scan_runs", "installation_instances", "canonical_products" }) deleted += await ExecuteCountAsync(connection, $"DELETE FROM {table};", transaction, cancellationToken);
             // FR-DIA-04 (ADR-027): diagnostic snapshots are scan data; their records and source results go with them in the same transaction.
             foreach (string table in DiagnosticTables) deleted += await ExecuteCountAsync(connection, $"DELETE FROM {table};", transaction, cancellationToken);
+            // ADR-027 F5 (owner choice): explanations of diagnostic timelines are scan data too; failed-update explanations and the
+            // spending ledger are kept.
+            deleted += await ExecuteCountAsync(connection, "DELETE FROM ai_explanations WHERE source = 'DiagnosticTimeline';", transaction, cancellationToken);
             await ExecuteAsync(connection, "DELETE FROM app_metadata WHERE key = 'scan_last_completed';", cancellationToken, transaction);
             await ExecuteAsync(connection, "INSERT INTO app_metadata(key, value) VALUES ('scan_data_last_cleared', $cleared) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$cleared", DateTimeOffset.UtcNow));
             await transaction.CommitAsync(cancellationToken);
@@ -359,11 +365,13 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
 
     public Task<AdvancedDataClearResult> ClearSourceMetadataAsync(CancellationToken cancellationToken) => ClearAdvancedAsync("Source metadata", ["source_package_cache", "source_snapshots"], ["source."], cancellationToken);
 
-    public Task<AdvancedDataClearResult> ClearUpdateHistoryAsync(CancellationToken cancellationToken) => ClearAdvancedAsync("Update history", ["update_job_history", "update_job_execution_state"], ["history."], cancellationToken);
+    /// <remarks>ADR-027 F5 (owner choice): failed-update AI explanations go with update history; diagnostic-timeline ones and the spending ledger stay.</remarks>
+    public Task<AdvancedDataClearResult> ClearUpdateHistoryAsync(CancellationToken cancellationToken) => ClearAdvancedAsync("Update history", ["update_job_history", "update_job_execution_state"], ["history."], cancellationToken,
+        "DELETE FROM ai_explanations WHERE source = 'FailedUpdate';");
 
     public Task<AdvancedDataClearResult> ClearMappingsAndPoliciesAsync(CancellationToken cancellationToken) => ClearAdvancedAsync("Mappings and policies", ["manual_mappings", "stable_decisions"], [], cancellationToken);
 
-    private async Task<AdvancedDataClearResult> ClearAdvancedAsync(string category, IReadOnlyCollection<string> tables, IReadOnlyCollection<string> metadataPrefixes, CancellationToken cancellationToken)
+    private async Task<AdvancedDataClearResult> ClearAdvancedAsync(string category, IReadOnlyCollection<string> tables, IReadOnlyCollection<string> metadataPrefixes, CancellationToken cancellationToken, string? alsoDelete = null)
     {
         try
         {
@@ -371,6 +379,7 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
             int deleted = 0;
             foreach (string table in tables) deleted += await ExecuteCountAsync(connection, $"DELETE FROM {table};", transaction, cancellationToken);
             foreach (string prefix in metadataPrefixes) deleted += await ExecuteCountAsync(connection, "DELETE FROM app_metadata WHERE key LIKE $prefix;", transaction, cancellationToken, ("$prefix", prefix + "%"));
+            if (alsoDelete is not null) deleted += await ExecuteCountAsync(connection, alsoDelete, transaction, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return new(category, true, deleted, deleted == 0 ? $"No {category.ToLowerInvariant()} was stored." : $"{category} was cleared.");
         }

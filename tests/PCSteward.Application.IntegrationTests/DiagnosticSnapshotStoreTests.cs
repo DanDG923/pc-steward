@@ -249,13 +249,13 @@ public sealed class DiagnosticSnapshotStoreTests
 
     [TestMethod]
     [TestCategory("FR-DIA-03")]
-    public async Task FreshDatabaseIsAtSchemaThirteenAndRefusesAFutureSchema()
+    public async Task FreshDatabaseIsAtTheCurrentSchemaAndRefusesAFutureSchema()
     {
         await using Fixture fixture = await Fixture.CreateAsync();
-        Assert.AreEqual(13L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(14L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
         await fixture.Store.MigrateAsync(CancellationToken.None);
-        Assert.AreEqual(13L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"), "migration is idempotent");
-        await fixture.ExecuteAsync("INSERT INTO schema_migrations(version) VALUES(14);");
+        Assert.AreEqual(14L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"), "migration is idempotent");
+        await fixture.ExecuteAsync("INSERT INTO schema_migrations(version) VALUES(15);");
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => fixture.Store.SaveDiagnosticSnapshotAsync(Snapshot(Collected, ("x", -1)), Collected, [], CancellationToken.None));
     }
 

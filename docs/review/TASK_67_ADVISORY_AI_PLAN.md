@@ -1,6 +1,6 @@
 # Phase G — Advisory AI: staged build plan and interfaces (Tasks 67–71)
 
-**Status:** In progress (stage 1 of 6 built). The owner started Phase G on 2026-11-13 after Phase F's timeline stages merged, keeping the agreed order (Phases D installs and E removals stay paused by the owner). ADR-027, ADR-028 and ADR-029 are Accepted; nothing here widens them. OpenAI is the first provider (D2).
+**Status:** In progress (stages 1 and 2 of 6 built). The owner started Phase G on 2026-11-13 after Phase F's timeline stages merged, keeping the agreed order (Phases D installs and E removals stay paused by the owner). ADR-027, ADR-028 and ADR-029 are Accepted; nothing here widens them. OpenAI is the first provider (D2).
 
 **What stays true at every stage:** AI is off by default and optional; every core feature works without a key. Nothing is sent without the owner approving an exact preview of that request. No model is chosen from memory: a model becomes usable only with the Task 69 evidence for it. Paid requests stay disabled by build policy until the Task 70 review passes, and the first live call (Task 71) needs the owner's separate approval inside the cumulative $1 envelope.
 
@@ -51,11 +51,36 @@ Application (`src/PCSteward.Application/AdvisoryAi.cs`):
 
 Tests: `AdvisoryAiPolicyTests`, `AdvisoryAiRedactionTests`, `AdvisoryAiRequestTests`, `AdvisoryAiResponseTests` (Domain), `AdvisoryAiApplicationTests` (Application), `AdvisoryAiBoundaryTests` (architecture).
 
+## Stage 2 interfaces (implemented)
+
+Domain (`src/PCSteward.Domain/AdvisoryAiBudget.cs`, pure):
+
+- `AdvisoryAiTariff` — one owner-confirmed rate card (input, cached input, output per million tokens) for one exact model and tier; current only in `[confirmed, confirmed + 24 h)`; `Validate` refuses a zero rate, another model or tier, or a version below 1.
+- `AdvisoryAiCost` — `Charge` = ceil(tokens × rate ÷ 1,000,000) in 128-bit checked arithmetic; `Reservation` = every input token at the higher of the two input rates plus every allowed output token; `Actual` from reliable usage (reasoning is part of output, never added twice).
+- `AdvisoryAiPeriod` — the UTC calendar month, with a checked stored key.
+- `AdvisoryAiRequestState` and `AdvisoryAiRequestStates` — Reserved → NotSent or DispatchClaimed; DispatchClaimed → Settled or Uncertain; nothing else.
+- `AdvisoryAiLedgerSnapshot` and `AdvisoryAiReservationRule.Check` — in order: build policy, zero limits, a request already in flight, a review block, a full ledger, continuity (not established, prior use unknown, and unknown first-live-test spending after a fresh month), the clock (moved backwards, or a new month not yet confirmed), the tariff, then `R ≤ request cap`, `settled + outstanding + R ≤ monthly budget` and, in first-live-test mode, `test settled + test outstanding + R ≤ $1`. Exactly at a cap passes; one micro-dollar over does not.
+- `AdvisoryAiClock` — backwards, same month, or a new month needing confirmation; and the 24-hour forward-jump test against monotonic time (wired in stage 4, where the app has a monotonic clock).
+- `AdvisoryAiSettlementRule.Decide` — only a well-formed response with reliable usage settles, at the frozen rates; everything else keeps the whole reservation with a typed reason. A charge above the reservation, usage above the approved bounds, or unreliable usage that would cost more is recorded in full and stops paid requests for review.
+
+Application:
+
+- `AdvisoryAiAccounting.cs` — `IAdvisoryAiSettingsStore` (settings with separate settings, consent and credential versions; immutable tariff versions), `IAdvisoryAiLedger` (reserve, claim, release, settle, recovery, continuity answer, new-month confirmation, clock acceptance, review acknowledgement, spending summary) and `IAdvisoryAiExplanationStore`.
+- `AdvisoryAiRequestWorkflow.SendAsync` — the only order: connected → reviewed model → confirmed prices → approval still matches a fresh preview and the current versions → reserve → read the key → claim → send once → read strictly → settle → redact the answer → save it. A refusal before the claim costs nothing; no failure before the claim reaches the transport; after the claim, ledger writes ignore cancellation and a transport exception is recorded as uncertain. The caller runs it inside the exclusive data-operation lease after recovery.
+
+SQLite (`src/PCSteward.Persistence.Sqlite/SqliteAdvisoryAi.cs`, migration 14): `ai_settings`, `ai_accounting_state`, `ai_tariffs`, `ai_requests`, `ai_explanations`, each with CHECK constraints. Every ledger change is one immediate (write-locked) transaction, so the commitment check and the insert cannot interleave across processes. Rows read back are validated; a bad row blocks paid requests rather than granting them. Clear scan data removes diagnostic-timeline explanations, Clear update history removes failed-update explanations, neither touches the ledger, and factory reset deletes the database. Explanations: 30 days, 4 MiB each, 8 MiB in total (oldest go first), redacted again when read.
+
+Tests: `AdvisoryAiBudgetTests` (Domain); `AdvisoryAiLedgerTests` (the SQLite store, including eight concurrent reservations from separate connections, and the workflow end to end over it with a counting fake transport and fake credentials).
+
+Left for later stages, by design: the 12-month compaction of settled rows (the 10,000-row ceiling blocks new requests first, and a full row is well under 1 KiB, so the 16 MiB logical ceiling cannot be reached before it); the monotonic forward-jump check and the owner screens for the continuity question, a new month, a clock review and a breach review (stage 4); deleting the credential on factory reset (stages 3–4).
+
 ## Decisions taken inside the accepted ADRs (recorded for review)
 
 - **Token bound.** ADR-028 F7 needs a verified tokenizer or a separately evidenced conservative upper bound. Stage 1 uses the byte-level BPE property (tokens ≤ UTF-8 bytes) plus a per-model framing allowance; a profile must assert the tokenizer is byte-level, and Task 69 must evidence that and the framing allowance for the exact model. A plain byte count with a guessed margin is not used.
 - **Response bound.** The Responses object can echo the instructions, so `ResponseBytes` counts the input allowance as well as the output (ADR-028 F1 names only the output; this is stricter).
 - **Request fields.** `truncation: "disabled"` (the provider must not silently drop input) and an explicit `service_tier` (the tariff states that tier's prices) are added to the minimal body. Task 69 checks both against the current API.
+- **A transport "not sent" after the claim is still uncertain.** ADR-029 allows NotSent only with transactional proof that no claim was committed; the workflow checks everything it can before the claim, so a transport that later reports nothing was sent leaves the request Uncertain (reason `NotSentAfterClaim`).
+- **One provider response, one request.** A response ID already used by another request makes the second settlement uncertain, keeps the larger figure and stops paid requests for review.
 - **Malformed but well-formed bodies.** A response with an output item the request did not allow is untrusted: its text is discarded and its usage is never settlement evidence, but the usage is kept so a charge above the reservation is recorded in full (ADR-029).
 
 ## Out of scope here

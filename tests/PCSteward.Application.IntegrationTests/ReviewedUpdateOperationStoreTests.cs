@@ -60,7 +60,7 @@ public sealed class ReviewedUpdateOperationStoreTests
         Assert.AreEqual("DispatchClaimed", await database.ScalarAsync("SELECT state FROM update_dispatch_claims;"));
         await database.ExecuteAsync("DROP TRIGGER reject_twelve;");
         await database.Store.MigrateAsync(CancellationToken.None);
-        Assert.AreEqual(13L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(14L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
         OperationOwnership owner = new(operation.RequestingUserSid, OperationGateContract.NamePrefix + operation.RequestingUserSid, true);
         Assert.IsTrue(await database.Store.HasUnresolvedDispatchesAsync(owner, CancellationToken.None));
         Assert.AreEqual(1, await database.Store.RecoverUnfinishedDispatchesAsync(owner, operation.ReviewedAt.AddMinutes(1), CancellationToken.None));
@@ -221,7 +221,7 @@ public sealed class ReviewedUpdateOperationStoreTests
         Assert.AreEqual(legacy.Digest, (await database.Store.GetApprovedJobAsync(legacy.Id, CancellationToken.None))!.Digest);
         Assert.HasCount(1, await database.Store.GetHistoryForProductAsync(legacy.Selection.StableProductKey, CancellationToken.None));
         Assert.IsNull(await database.Store.GetReviewedOperationAsync(legacy.Id, CancellationToken.None));
-        Assert.AreEqual(13L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(14L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
     }
 
     [TestMethod]
@@ -280,10 +280,10 @@ public sealed class ReviewedUpdateOperationStoreTests
     public async Task FutureSchemaIsRefusedBeforeMigrationMutation()
     {
         await using Fixture database = await Fixture.CreateAsync();
-        await database.ExecuteAsync("INSERT INTO schema_migrations(version) VALUES(14);");
+        await database.ExecuteAsync("INSERT INTO schema_migrations(version) VALUES(15);");
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => database.Store.MigrateAsync(CancellationToken.None));
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => database.Store.SaveReviewedOperationAsync(Operation(), CancellationToken.None));
-        Assert.AreEqual(14L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(15L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
         Assert.IsNull(await database.Store.GetReviewedOperationAsync(Guid.NewGuid(), CancellationToken.None));
     }
 
@@ -293,7 +293,7 @@ public sealed class ReviewedUpdateOperationStoreTests
         await using Fixture database = await Fixture.CreateAsync();
         await database.ExecuteAsync("DROP TABLE reviewed_update_operations;");
         await Assert.ThrowsExactlyAsync<SqliteException>(() => database.Store.MigrateAsync(CancellationToken.None));
-        Assert.AreEqual(13L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(14L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
     }
 
     [TestMethod]
@@ -329,8 +329,8 @@ public sealed class ReviewedUpdateOperationStoreTests
             await fixture.Store.MigrateAsync(CancellationToken.None);
             return fixture;
         }
-        internal Task RemoveNineAsync() => ExecuteAsync("DROP TABLE update_dispatch_claims; DROP TABLE reviewed_update_operations; DROP TABLE diagnostic_records; DROP TABLE diagnostic_source_results; DROP TABLE diagnostic_snapshots; DELETE FROM schema_migrations WHERE version IN (9,10,11,12,13);");
-        internal Task RemoveTenAsync() => ExecuteAsync("DROP TABLE update_dispatch_claims; ALTER TABLE reviewed_update_operations DROP COLUMN draft_generation; DROP TABLE diagnostic_records; DROP TABLE diagnostic_source_results; DROP TABLE diagnostic_snapshots; DELETE FROM schema_migrations WHERE version IN (10,11,12,13);");
+        internal Task RemoveNineAsync() => ExecuteAsync("DROP TABLE update_dispatch_claims; DROP TABLE reviewed_update_operations; DROP TABLE diagnostic_records; DROP TABLE diagnostic_source_results; DROP TABLE diagnostic_snapshots; DROP TABLE ai_explanations; DROP TABLE ai_requests; DROP TABLE ai_tariffs; DROP TABLE ai_accounting_state; DROP TABLE ai_settings; DELETE FROM schema_migrations WHERE version IN (9,10,11,12,13,14);");
+        internal Task RemoveTenAsync() => ExecuteAsync("DROP TABLE update_dispatch_claims; ALTER TABLE reviewed_update_operations DROP COLUMN draft_generation; DROP TABLE diagnostic_records; DROP TABLE diagnostic_source_results; DROP TABLE diagnostic_snapshots; DROP TABLE ai_explanations; DROP TABLE ai_requests; DROP TABLE ai_tariffs; DROP TABLE ai_accounting_state; DROP TABLE ai_settings; DELETE FROM schema_migrations WHERE version IN (10,11,12,13,14);");
         internal Task RevertToElevenAsync() => ExecuteAsync("""
             CREATE TABLE reviewed_update_operations_old (
                 job_id TEXT NOT NULL PRIMARY KEY CHECK(length(job_id)=36),
@@ -343,7 +343,8 @@ public sealed class ReviewedUpdateOperationStoreTests
             DROP TABLE reviewed_update_operations;
             ALTER TABLE reviewed_update_operations_old RENAME TO reviewed_update_operations;
             DROP TABLE diagnostic_records; DROP TABLE diagnostic_source_results; DROP TABLE diagnostic_snapshots;
-            DELETE FROM schema_migrations WHERE version IN (12,13);
+            DROP TABLE ai_explanations; DROP TABLE ai_requests; DROP TABLE ai_tariffs; DROP TABLE ai_accounting_state; DROP TABLE ai_settings;
+            DELETE FROM schema_migrations WHERE version IN (12,13,14);
             """);
         internal async Task ExecuteAsync(string sql, params (string Name, object Value)[] parameters)
         {
