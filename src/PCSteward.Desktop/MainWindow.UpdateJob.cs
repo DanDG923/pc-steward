@@ -58,10 +58,13 @@ public sealed partial class MainWindow
     /// UI polish phase 3 (approved targets): the three job steps as numbered circles joined by short lines. A finished step shows a
     /// tick, the current step is outlined in the accent colour with a bold label, and later steps are plain. Each step's accessible
     /// name says its number, label and state, so the state never relies on colour.
+    /// Owner report 2026-11-13 (release 0.1.14): the joining lines sat level with the top of the circles and the numbers sat
+    /// high inside them. Everything on the row's line now has the line's height, so each joining line is at the circles' middle,
+    /// and a number is centred by its own shape (top of the digit to its baseline), not by a line of text with room for tails.
     /// </summary>
     private static Grid BuildJobStepIndicator(UpdateJobStep current)
     {
-        StewardWrapPanel row = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.Small };
+        StewardWrapPanel row = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.Small, LevelLines = true };
         bool first = true;
         foreach (UpdateJobStepPresentation step in UpdateJobSteps.For(current))
         {
@@ -79,7 +82,7 @@ public sealed partial class MainWindow
                 Background = StewardVisuals.Brush(now ? "StewardInfoSurfaceBrush" : done ? "StewardIconWellBrush" : "StewardSurfaceBrush"),
                 Child = done
                     ? new FontIcon { Glyph = "\uE73E", FontSize = 12, Foreground = StewardVisuals.Brush("StewardSuccessBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
-                    : new TextBlock { Text = step.Number.ToString(CultureInfo.CurrentCulture), FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = StewardVisuals.Brush(now ? "StewardInfoBrush" : "StewardSecondaryTextBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                    : new TextBlock { Text = step.Number.ToString(CultureInfo.CurrentCulture), TextLineBounds = TextLineBounds.Tight, FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = StewardVisuals.Brush(now ? "StewardInfoBrush" : "StewardSecondaryTextBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
             };
             StackPanel entry = new() { Orientation = Orientation.Horizontal, Spacing = StewardSpacing.Small };
             entry.Children.Add(dot);

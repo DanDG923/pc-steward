@@ -306,6 +306,11 @@ public sealed partial class UiAccessibilityContractTests
         // "Check for updates" (with an icon) is level with "Update all N…" beside it. Rows of text and chips do not.
         StringAssert.Contains(presentation, "ActionRow(double spacing = StewardSpacing.Small) => new() { HorizontalSpacing = spacing, VerticalSpacing = spacing, LevelLines = true };");
         Assert.AreEqual(1, Count(presentation, "LevelLines = true"));
+        // The same report: the update steps' joining lines are at the circles' middle, and a step's number is centred by its shape.
+        string steps = Between(DesktopSource("MainWindow.cs"), "private static Grid BuildJobStepIndicator(", "private static string RiskGlyph(");
+        StringAssert.Contains(steps, "StewardWrapPanel row = new() { HorizontalSpacing = StewardSpacing.Medium, VerticalSpacing = StewardSpacing.Small, LevelLines = true };");
+        StringAssert.Contains(steps, "new Border { Width = 40, Height = 1, Background = StewardVisuals.Brush(\"StewardBorderStrongBrush\"), VerticalAlignment = VerticalAlignment.Center }");
+        StringAssert.Contains(steps, "TextLineBounds = TextLineBounds.Tight, FontSize = 12,");
         StringAssert.Contains(presentation, "PlaceBesideOrBelow(grid, action, NarrowHeaderWidth, StewardSpacing.XLarge);");
         StringAssert.Contains(presentation, "PlaceBesideOrBelow(row, control, NarrowRowWidth, StewardSpacing.Large);");
         string source = DesktopSource("MainWindow.cs");
