@@ -6,7 +6,7 @@ namespace PCSteward.Provider.WinGet;
 /// <summary>
 /// D4b stage 2b (design §7; owner answers Q1 and Q3, 2026-11-12): the review-time installer evidence of a whole-PC WinGet update,
 /// read without elevation. It checks that the effective <c>winget</c> source is the trusted default, runs one
-/// <c>winget download</c> of the exact reviewed package and version (<see cref="WingetMachineReviewedArguments.BuildReviewDownload"/>)
+/// <c>winget download</c> of the exact reviewed package and version (<see cref="WingetMachineReviewedArguments.BuildReviewDownload(UpdateJobSelection, string)"/>)
 /// into a fresh folder under PC Steward's own download cache, reads that folder with <see cref="WingetDownloadFolder"/> and has it
 /// deleted. Storage creates and deletes the folder (<see cref="IReviewDownloadFolders"/>): this class never deletes a path itself.
 /// Agreements stop the download itself (PC Steward never accepts them), and declared dependencies, an installer that does not say it
