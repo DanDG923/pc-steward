@@ -22,6 +22,9 @@ public sealed partial class MainWindow
     private bool diagnosticSelectedLoading;
     private string? diagnosticsNotice;
     private CancellationTokenSource? diagnosticsCollection;
+    // Codex review on #105: bumped when scan data is cleared. A collection saves only if no clear began since it started, and the
+    // check runs inside the same exclusive data lease as the clear, so a clear can never be followed by older diagnostic data.
+    private int diagnosticsGeneration;
 
     /// <summary>
     /// FR-DIA-01–05 (Task 64 stage 4, ADR-027): the local diagnostic timeline. "Collect a timeline…" asks for consent each time,
@@ -49,6 +52,13 @@ public sealed partial class MainWindow
             progress.Children.Add(text);
             progress.Children.Add(stop);
             panel.Children.Add(Card(progress));
+        }
+        // FR-DIA-03 (Codex review on #105): a timeline that expired while it was open is never shown again from memory.
+        if (diagnosticSelected is { } open && open.IsExpired(DateTimeOffset.UtcNow))
+        {
+            diagnosticSelected = null;
+            diagnosticSnapshots = null;
+            diagnosticsNotice = DiagnosticsPresenter.UnavailableText;
         }
         if (diagnosticsNotice is not null)
             panel.Children.Add(StewardVisuals.InformationBanner(DiagnosticsPresenter.Title, diagnosticsNotice, "neutral"));
@@ -171,9 +181,14 @@ public sealed partial class MainWindow
         return expander;
     }
 
-    /// <summary>Clear scan data deleted every saved timeline (FR-DIA-04), so the page reads the list again when it is next shown.</summary>
+    /// <summary>
+    /// FR-DIA-04 (Codex review on #105): called when the owner confirms Clear scan data, before the clear starts. A collection that
+    /// is running is stopped and can no longer save, and the page reads the list again when it is next shown.
+    /// </summary>
     private void ForgetDiagnosticTimelines()
     {
+        Interlocked.Increment(ref diagnosticsGeneration);
+        diagnosticsCollection?.Cancel();
         diagnosticSnapshots = null;
         diagnosticSelected = null;
         diagnosticsNotice = null;
@@ -252,6 +267,7 @@ public sealed partial class MainWindow
         if (selected.Length == 0 || windowClosed) return;
 
         DiagnosticCollectionConsent consent = new(selected, DiagnosticCollectionPolicy.Lookback, DiagnosticCollectionPolicy.Version);
+        int generation = Volatile.Read(ref diagnosticsGeneration);
         using CancellationTokenSource cancellation = new();
         diagnosticsCollection = cancellation;
         diagnosticsNotice = null;
@@ -266,9 +282,11 @@ public sealed partial class MainWindow
             {
                 Guid[] protectedIds = diagnosticSelected is { } viewing ? [viewing.Id] : [];
                 DiagnosticSnapshot snapshot = result.Snapshot;
-                DiagnosticSnapshotSaveResult save = await DataOperationLease.RunAsync(token => diagnostics.Store.SaveDiagnosticSnapshotAsync(snapshot, DateTimeOffset.UtcNow, protectedIds, token), CancellationToken.None);
-                diagnosticsNotice = DiagnosticsPresenter.SaveNote(save);
-                if (save.Saved) saved = snapshot;
+                DiagnosticSnapshotSaveResult? save = await DataOperationLease.RunAsync<DiagnosticSnapshotSaveResult?>(async token =>
+                    windowClosed || Volatile.Read(ref diagnosticsGeneration) != generation ? null
+                        : await diagnostics.Store.SaveDiagnosticSnapshotAsync(snapshot, DateTimeOffset.UtcNow, protectedIds, token), CancellationToken.None);
+                diagnosticsNotice = save is null ? DiagnosticsPresenter.CancelledText : DiagnosticsPresenter.SaveNote(save);
+                if (save?.Saved == true) saved = snapshot;
             }
         }
         catch (OperationCanceledException) { diagnosticsNotice = DiagnosticsPresenter.CancelledText; }
@@ -286,6 +304,7 @@ public sealed partial class MainWindow
     /// </summary>
     private async Task ExportDiagnosticSnapshotAsync(DiagnosticSnapshot snapshot)
     {
+        if (snapshot.IsExpired(DateTimeOffset.UtcNow)) { Render(); return; }
         DiagnosticsExportPreview preview = DiagnosticsPresenter.ExportPreview(snapshot);
         StackPanel body = new() { Spacing = StewardSpacing.Small };
         foreach (string line in preview.Lines) body.Children.Add(new TextBlock { Text = line, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
@@ -307,9 +326,22 @@ public sealed partial class MainWindow
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
         StorageFile? file = await picker.PickSaveFileAsync();
         if (file is null) return;
+        // FR-DIA-03/05 (Codex review on #105): the file is written from the store as it is now, never from memory, so a timeline that
+        // expired or was cleared while the dialogs were open is not exported.
+        DiagnosticSnapshotLoad current;
+        try { current = await DataOperationLease.RunReadAsync(token => diagnostics.Store.LoadDiagnosticSnapshotAsync(snapshot.Id, DateTimeOffset.UtcNow, token), CancellationToken.None); }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { current = new(DiagnosticSnapshotLoadStatus.Unreadable, null); }
+        if (current.Status != DiagnosticSnapshotLoadStatus.Loaded || current.Snapshot is null)
+        {
+            diagnosticsNotice = current.Status == DiagnosticSnapshotLoadStatus.Unavailable ? DiagnosticsPresenter.UnavailableText : DiagnosticsPresenter.UnreadableText;
+            diagnosticSelected = null;
+            diagnosticSnapshots = null;
+            if (!windowClosed && navigation.Current == ShellPage.Diagnostics) Render();
+            return;
+        }
         try
         {
-            await FileIO.WriteBytesAsync(file, DiagnosticSnapshotExport.Serialize(snapshot));
+            await FileIO.WriteBytesAsync(file, DiagnosticSnapshotExport.Serialize(current.Snapshot));
             diagnosticsNotice = $"Exported to {file.Name}.";
         }
         catch (Exception exception) when (exception is not OutOfMemoryException) { diagnosticsNotice = "The timeline couldn't be saved there. Nothing else was changed; try another place."; }
