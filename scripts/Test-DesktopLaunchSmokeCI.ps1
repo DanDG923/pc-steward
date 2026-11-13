@@ -202,9 +202,22 @@ if ($failures.Count -eq 0 -and !$process.HasExited) {
         if (Open-Page $window 'Home') {
             Start-Sleep -Seconds $PageSettleSeconds
             $homeButtons = @($window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Button)) |
-                Where-Object { $_.Current.ClassName -eq 'Button' -and !$_.Current.IsOffscreen -and $_.Current.Name -match '^(Turn on|See updates|Check for|Scan again|Scan this PC)' })
+                Where-Object { $_.Current.ClassName -eq 'Button' -and !$_.Current.IsOffscreen -and $_.Current.Name -match '^(Turn on|See updates|Check for|Scan again|Scan this PC|Look for updates online|Not now)' })
             if ($homeButtons.Count -ge 2) { Write-SameLine $homeButtons[0] $homeButtons[1] 'home-hero' } else { Write-Line ('LAYOUT-ROW home-hero skipped (buttons found: ' + $homeButtons.Count + ')') }
             Save-Screenshot $handle '09-Home-after-scan'
+            # UI review 2026-11-13 (item 21): after the first scan Home asks the one first-run question; its words are in this tree.
+            $unnamedTotal += Write-Tree $window 'Home after scan'
+        }
+        # UI review 2026-11-13 (item 19): a page of text and switches is a column of about 1,000 units, not the window's width.
+        if (Open-Page $window 'Settings') {
+            Start-Sleep -Seconds $PageSettleSeconds
+            $switch = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ClassNameProperty, 'ToggleSwitch'))
+            $nav = Find-Named $window 'Settings' ([Windows.Automation.ControlType]::ListItem)
+            if ($null -ne $switch -and $null -ne $nav) {
+                $sw = $switch.Current.BoundingRectangle; $nv = $nav.Current.BoundingRectangle
+                [void][SmokeWin32]::GetWindowRect($handle, [ref]$r)
+                Write-Line ('LAYOUT-READING-COLUMN window=' + ($r.Right - $r.Left) + ' navigationRight=' + [int]$nv.Right + ' switchRight=' + [int]$sw.Right + ' columnFromNavigation=' + [int]($sw.Right - $nv.Right))
+            } else { Write-Line 'LAYOUT-READING-COLUMN skipped (control not found)' }
         }
         Open-Page $window 'Activity' | Out-Null
         Start-Sleep -Seconds $PageSettleSeconds

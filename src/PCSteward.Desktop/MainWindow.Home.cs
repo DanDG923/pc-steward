@@ -47,7 +47,9 @@ public sealed partial class MainWindow
             Button start = StewardVisuals.PrimaryButton("Scan this PC", "(reads the installed apps; nothing is changed)");
             start.IsEnabled = !HasActiveOperation;
             start.Click += async (_, _) => { NavigateTo(ShellPage.Scan); await StartScanAsync(); };
-            panel.Children.Add(StewardVisuals.EmptyState("\uE721", "See what is installed", "The first scan reads the list of installed apps that Windows keeps. It doesn't go online, ask for administrator permission or change any software.", start));
+            // UI review 2026-11-13 (item 21): step 1 of the guided first run. It is numbered only while update checks are off.
+            FirstRunStep scanStep = FirstRunPresenter.ScanStep(viewModel.IsUpdateSourceEnabled);
+            panel.Children.Add(StewardVisuals.EmptyState("\uE721", scanStep.Heading, scanStep.Message, start));
             panel.Children.Add(StewardVisuals.InformationBanner("Private by default", "What PC Steward finds stays on this PC. It looks for updates online only after you turn that on."));
             return panel;
         }
@@ -57,7 +59,9 @@ public sealed partial class MainWindow
         if (SelfUpdateHomeBanner() is { } selfUpdateBanner) panel.Children.Add(selfUpdateBanner);
         foreach (HomeNotice notice in home.Notices) panel.Children.Add(HomeNoticeBar(notice));
         panel.Children.Add(StewardVisuals.PageTitle("Home"));
-        panel.Children.Add(HomeStatusCard(home));
+        // UI review 2026-11-13 (item 21): straight after the first scan, the one question of the guided first run stands where
+        // the status card would say the same thing ("update checks are off"). Once answered, the status card is back.
+        panel.Children.Add(AsksAboutUpdates ? FirstRunQuestionCard() : HomeStatusCard(home));
         if (activityHistoryUnavailable)
             panel.Children.Add(StewardVisuals.InformationBanner("Update history unavailable", "PC Steward couldn't read its recorded update history just now, so restart and attention counts may be incomplete. Nothing was changed.", "neutral"));
 
@@ -116,6 +120,39 @@ public sealed partial class MainWindow
             panel.Children.Add(recent);
         }
         return panel;
+    }
+
+    // UI review 2026-11-13 (item 21): the guided first run asks its question once, in the session where this PC was first scanned.
+    private bool firstScanThisSession;
+    private bool firstRunQuestionAnswered;
+
+    private bool AsksAboutUpdates => FirstRunPresenter.AsksAboutUpdates(firstScanThisSession, viewModel.AllRows.Count > 0, viewModel.IsUpdateSourceEnabled, firstRunQuestionAnswered);
+
+    /// <summary>
+    /// Step 2 of the guided first run: "Look for updates online?". Yes opens the one existing consent dialog, which shows what is
+    /// shared and keeps "Keep off" as its default; only if the owner approves there does PC Steward look for updates, which is
+    /// what they asked for. "Not now" changes nothing. Neither button approves, selects or installs an update (FR-UPD-01).
+    /// </summary>
+    private Border FirstRunQuestionCard()
+    {
+        FirstRunStep step = FirstRunPresenter.LookOnlineStep(viewModel.AllRows.Count);
+        Button look = StewardVisuals.PrimaryButton(step.PrimaryLabel, step.PrimaryHelp);
+        look.IsEnabled = !HasActiveOperation;
+        look.Click += async (_, _) =>
+        {
+            await ChangeWinGetTrustedSourcesAsync(true);
+            if (windowClosed || !viewModel.IsUpdateSourceEnabled) return;
+            firstRunQuestionAnswered = true;
+            if (HasActiveOperation) { Render(); return; }
+            await CheckUpdateSourcesAsync();
+        };
+        Button notNow = StewardVisuals.ActionButton(step.SecondaryLabel ?? FirstRunPresenter.NotNowLabel);
+        string notNowHelp = step.SecondaryHelp ?? FirstRunPresenter.NotNowHelp;
+        AutomationProperties.SetHelpText(notNow, notNowHelp);
+        ToolTipService.SetToolTip(notNow, notNowHelp);
+        notNow.IsEnabled = !HasActiveOperation;
+        notNow.Click += (_, _) => { firstRunQuestionAnswered = true; Render(); };
+        return StewardVisuals.EmptyState("\uE774", step.Heading, step.Message, look, notNow);
     }
 
     /// <summary>

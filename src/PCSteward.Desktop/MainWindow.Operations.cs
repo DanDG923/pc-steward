@@ -88,6 +88,8 @@ public sealed partial class MainWindow
         // Independent review L6: a request while a scan or another operation is active starts nothing and never replaces the
         // active scan's cancellation source.
         if (HasActiveOperation) { Render(); return; }
+        // UI review 2026-11-13 (item 21): a scan of a PC that has no app list yet is the first scan; Home asks about updates after it.
+        bool nothingScannedYet = viewModel.LastScanAt is null && viewModel.AllRows.Count == 0;
         CancellationTokenSource cancellation = new();
         scanCancellation = cancellation;
         DateTimeOffset startedAt = DateTimeOffset.UtcNow;
@@ -105,9 +107,10 @@ public sealed partial class MainWindow
             // What the next scan's time left is estimated from.
             if (completed.Succeeded) lastScanDuration = DateTimeOffset.UtcNow - startedAt;
             LoadSavedInventory();
+            if (completed.Succeeded && nothingScannedYet) firstScanThisSession = true;
         }
         catch (InvalidOperationException) { await ShowDataOperationUnavailableAsync(); }
-        finally { scanStartedAt = null; if (ReferenceEquals(scanCancellation, cancellation)) scanCancellation = null; cancellation.Dispose(); if (completed?.Succeeded == true && navigation.Current == ShellPage.Scan) NavigateTo(ShellPage.InstalledApps); else Render(); }
+        finally { scanStartedAt = null; if (ReferenceEquals(scanCancellation, cancellation)) scanCancellation = null; cancellation.Dispose(); if (completed?.Succeeded == true && navigation.Current == ShellPage.Scan) NavigateTo(FirstRunPresenter.AfterScan(AsksAboutUpdates)); else Render(); }
         if (completed is not null && !windowClosed) AnnounceCompletion(OperationAnnouncements.ScanFinished(completed.Succeeded, completed.Cancelled, viewModel.AllRows.Count), "scan-finished");
     }
 

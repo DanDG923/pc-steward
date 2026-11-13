@@ -22,10 +22,10 @@ public sealed partial class MainWindow
     private StackPanel BuildOnboardingPage()
     {
         StackPanel panel = CreatePagePanel();
-        panel.Children.Add(StewardVisuals.PageHeader("Start fresh with PC Steward", "Factory reset is complete. No scan or source connection was started automatically.", "Fresh local state"));
-        panel.Children.Add(StewardVisuals.InformationBanner("PC Steward data was removed", "Inventory, source evidence, settings, decisions, history, app-owned downloads, logs, and the scheduled check were included in the reset.", "success"));
-        panel.Children.Add(StewardVisuals.EmptyState("\uE721", "Build a new local inventory", "When you continue, PC Steward first verifies the fresh state and then opens the read-only inventory screen. It does not start the scan for you."));
-        Button continueButton = StewardVisuals.PrimaryButton("Continue to local inventory", "after factory reset (local only)");
+        panel.Children.Add(StewardVisuals.PageHeader(FirstRunPresenter.AfterResetTitle, FirstRunPresenter.AfterResetDescription, FirstRunPresenter.AfterResetEyebrow));
+        panel.Children.Add(StewardVisuals.InformationBanner(FirstRunPresenter.AfterResetRemovedTitle, FirstRunPresenter.AfterResetRemovedMessage, "success"));
+        panel.Children.Add(StewardVisuals.EmptyState("\uE721", FirstRunPresenter.AfterResetNextTitle, FirstRunPresenter.AfterResetNextMessage));
+        Button continueButton = StewardVisuals.PrimaryButton(FirstRunPresenter.AfterResetContinueLabel, FirstRunPresenter.AfterResetContinueHelp);
         continueButton.Click += async (_, _) =>
         {
             if (onboardingAcknowledging) return;
@@ -54,7 +54,7 @@ public sealed partial class MainWindow
             }
             if (!outcome.ScanNavigationRequested)
             {
-                await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Fresh state could not be loaded", Content = "PC Steward could not confirm and reload the fresh local state. No scan was started.", CloseButtonText = "Close" }.ShowAsync();
+                await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "PC Steward couldn't start fresh", Content = "PC Steward couldn't confirm that the reset left it with a clean start. Nothing was scanned. Close PC Steward and open it again.", CloseButtonText = "Close" }.ShowAsync();
                 onboardingAcknowledging = false;
                 continueButton.IsEnabled = true;
                 return;
