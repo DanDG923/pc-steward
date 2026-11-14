@@ -122,9 +122,13 @@ public sealed class AdvisoryAiRequestWorkflow
 
         // T70-04: a wall clock that jumped forward while PC Steward was running stops paid requests for review before anything is
         // reserved; the reservation below then refuses because of the stored review block.
-        if (clockWatch?.JumpedForward() == true &&
-            await ledger.FlagClockJumpAsync(CancellationToken.None).ConfigureAwait(false) == AdvisoryAiAccountingWrite.StorageFailed)
-            return AdvisoryAiSendOutcome.Refused(AdvisoryAiSendRefusal.LedgerUnavailable, reservation: reservation);
+        // The jump stays pending in the watch until the block is stored, so a failed write refuses this and every later attempt.
+        if (clockWatch?.JumpedForward() == true)
+        {
+            if (await ledger.FlagClockJumpAsync(CancellationToken.None).ConfigureAwait(false) != AdvisoryAiAccountingWrite.Done)
+                return AdvisoryAiSendOutcome.Refused(AdvisoryAiSendRefusal.LedgerUnavailable, reservation: reservation);
+            clockWatch.JumpRecorded();
+        }
 
         AdvisoryAiReservationRequest request = new(approval.RequestId, model.ModelId, model.ProfileVersion, current.BindingFor(tariff),
             preview.InputTokenUpperBound, preview.Limits.MaximumOutputTokens, reservation, mode == AdvisoryAiPaidRequestMode.FirstLiveTest, utcNow());

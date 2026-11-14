@@ -648,6 +648,35 @@ public sealed class AdvisoryAiLedgerTests
     }
 
     [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public async Task AClockJumpWhoseBlockCannotBeStoredIsNotForgotten()
+    {
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        DateTimeOffset wall = Now;
+        TimeSpan tick = TimeSpan.FromHours(5);
+        AdvisoryAiClockWatch watch = new(() => wall, () => tick);
+        wall = wall.AddHours(25);
+        tick += TimeSpan.FromMinutes(1);
+        FakeTransport transport = new(_ => Received(Body("Synthetic advice.")));
+        (AdvisoryAiRequestWorkflow workflow, _) = fixture.Workflow(transport, clockWatch: watch);
+        await fixture.ExecuteAsync("CREATE TRIGGER fail_review_block BEFORE UPDATE ON ai_accounting_state WHEN NEW.review_block=1 BEGIN SELECT RAISE(ABORT,'fixture write fault'); END;");
+        (AdvisoryAiApproval approval, AdvisoryAiRequestPreview preview) = await fixture.ApproveAsync();
+
+        Assert.AreEqual(AdvisoryAiSendRefusal.LedgerUnavailable, (await workflow.SendAsync(approval, preview, null, CancellationToken.None)).Refusal);
+
+        // Storage recovers and time moves on normally: the jump is still pending, so it is stored now and the send is refused for review.
+        await fixture.ExecuteAsync("DROP TRIGGER fail_review_block;");
+        wall = wall.AddMinutes(1);
+        tick += TimeSpan.FromMinutes(1);
+        (approval, preview) = await fixture.ApproveAsync();
+        AdvisoryAiSendOutcome outcome = await workflow.SendAsync(approval, preview, null, CancellationToken.None);
+        Assert.AreEqual(AdvisoryAiReservationProblem.LedgerNeedsReview, outcome.ReservationProblem);
+        Assert.AreEqual(0, transport.Calls, "nothing is sent");
+        Assert.IsTrue((await fixture.Store.GetAccountingStateAsync(CancellationToken.None)).ReviewBlock);
+        Assert.IsFalse(watch.JumpedForward(), "once stored, the watch starts fresh");
+    }
+
+    [TestMethod]
     [TestCategory("FR-AI-04")]
     public async Task AnApprovedRequestIsSentOnceSettledRedactedAndSaved()
     {

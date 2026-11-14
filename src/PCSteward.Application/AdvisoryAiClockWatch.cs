@@ -16,6 +16,7 @@ public sealed class AdvisoryAiClockWatch
     private readonly Func<TimeSpan> monotonic;
     private DateTimeOffset lastWall;
     private TimeSpan lastMonotonic;
+    private bool pending;
 
     /// <summary>Starts watching now: the first observation is compared with this moment.</summary>
     public AdvisoryAiClockWatch(Func<DateTimeOffset> utcNow, Func<TimeSpan> monotonic)
@@ -30,17 +31,26 @@ public sealed class AdvisoryAiClockWatch
     public static AdvisoryAiClockWatch ForSystem() =>
         new(() => DateTimeOffset.UtcNow, () => TimeSpan.FromMilliseconds(Environment.TickCount64));
 
-    /// <summary>True when the wall clock jumped forward since the last observation. Each call moves the baseline to now.</summary>
+    /// <summary>
+    /// True when the wall clock jumped forward since the last observation, or an earlier jump hasn't been recorded yet. Each call moves
+    /// the baseline to now, but a detected jump stays pending until <see cref="JumpRecorded"/>, so a failed write can't forget it.
+    /// </summary>
     public bool JumpedForward()
     {
         lock (gate)
         {
             DateTimeOffset wall = utcNow();
             TimeSpan tick = monotonic();
-            bool jumped = AdvisoryAiClock.IsSuspiciousForwardJump(wall - lastWall, tick - lastMonotonic);
+            pending |= AdvisoryAiClock.IsSuspiciousForwardJump(wall - lastWall, tick - lastMonotonic);
             lastWall = wall;
             lastMonotonic = tick;
-            return jumped;
+            return pending;
         }
+    }
+
+    /// <summary>The review block for the pending jump is stored: later observations start fresh.</summary>
+    public void JumpRecorded()
+    {
+        lock (gate) pending = false;
     }
 }
