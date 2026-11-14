@@ -100,6 +100,7 @@ public sealed class AdvisoryAiAdapterTests
         Assert.IsFalse(handler.UseCookies);
         Assert.IsNull(handler.Credentials);
         Assert.IsNull(handler.SslOptions.RemoteCertificateValidationCallback, "certificate validation is never replaced");
+        Assert.IsNull(handler.ActivityHeadersPropagator, "no trace or baggage headers are added after the guard (ADR-028 F11)");
     }
 
     [TestMethod]

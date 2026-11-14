@@ -61,6 +61,7 @@ public sealed class AdvisoryAiAdapterBoundaryTests
         string code = Code();
         StringAssert.Contains(code, "RetryPolicy = new ClientRetryPolicy(maxRetries: 0)");
         StringAssert.Contains(code, "AllowAutoRedirect = false");
+        StringAssert.Contains(code, "ActivityHeadersPropagator = null");
         StringAssert.Contains(code, "EnableDistributedTracing = false");
         StringAssert.Contains(code, "EnableLogging = false, EnableMessageLogging = false, EnableMessageContentLogging = false");
         StringAssert.Contains(code, "BufferResponse = false");

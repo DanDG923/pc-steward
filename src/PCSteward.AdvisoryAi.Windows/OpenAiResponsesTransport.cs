@@ -142,7 +142,10 @@ public sealed class OpenAiResponsesTransport : IAdvisoryAiTransport
         Credentials = null,
         PreAuthenticate = false,
         MaxConnectionsPerServer = 1,
-        PooledConnectionLifetime = TimeSpan.Zero
+        PooledConnectionLifetime = TimeSpan.Zero,
+        // ADR-028 F11: the runtime's own HTTP diagnostics would add trace context and baggage headers (traceparent, tracestate,
+        // baggage) after the guard closed the header set whenever an Activity or listener is present. No propagator, no such headers.
+        ActivityHeadersPropagator = null
     };
 
     /// <summary>The last handler before the network: refuses anything but the approved request and closes the header set.</summary>
