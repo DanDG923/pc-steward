@@ -254,15 +254,42 @@ public static class AdvisoryAiResponseReader
         return (value, consistent, written);
     }
 
-    /// <summary>T70-07: what the body says about cache writes, read on its own so a malformed body still reports it.</summary>
+    /// <summary>
+    /// T70-07: what the body says about cache writes, read on its own so a malformed body still reports it. Task 70C T70C-01: every
+    /// <c>usage</c>, <c>input_tokens_details</c> and <c>cache_write_tokens</c> occurrence is looked at, not only the last one, so a
+    /// repeated container can't hide an earlier write. A count is exact only when it is the single plain count on a single path; any
+    /// repetition next to a cache-write field, or a value that isn't a count, is unreadable and stops paid requests for review.
+    /// </summary>
     private static (long? Tokens, bool Unreadable) CacheWriteReport(JsonElement root)
     {
-        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("usage", out JsonElement usage) || usage.ValueKind != JsonValueKind.Object ||
-            !usage.TryGetProperty("input_tokens_details", out JsonElement details) || details.ValueKind != JsonValueKind.Object ||
-            !details.TryGetProperty("cache_write_tokens", out _))
-            return (null, false);
-        return !HasDuplicate(usage) && !HasDuplicate(details) && TryCount(details, "cache_write_tokens", out long count) ? (count, false) : (null, true);
+        if (root.ValueKind != JsonValueKind.Object) return (null, false);
+        int fields = 0;
+        bool ambiguous = false, notACount = false;
+        long count = 0;
+        List<JsonElement> usages = [.. Occurrences(root, "usage")];
+        ambiguous |= usages.Count > 1;
+        foreach (JsonElement usage in usages)
+        {
+            if (usage.ValueKind != JsonValueKind.Object) continue;
+            List<JsonElement> details = [.. Occurrences(usage, "input_tokens_details")];
+            ambiguous |= details.Count > 1;
+            foreach (JsonElement detail in details)
+            {
+                if (detail.ValueKind != JsonValueKind.Object) continue;
+                foreach (JsonElement value in Occurrences(detail, "cache_write_tokens"))
+                {
+                    fields++;
+                    if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long tokens) && tokens >= 0) count = tokens;
+                    else notACount = true;
+                }
+            }
+        }
+        if (fields == 0) return (null, false);
+        return fields == 1 && !ambiguous && !notACount ? (count, false) : (null, true);
     }
+
+    private static IEnumerable<JsonElement> Occurrences(JsonElement element, string name) =>
+        element.EnumerateObject().Where(property => property.NameEquals(name)).Select(property => property.Value);
 
     private static bool TryCount(JsonElement element, string name, out long value)
     {
