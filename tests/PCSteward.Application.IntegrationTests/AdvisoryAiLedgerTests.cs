@@ -621,6 +621,24 @@ public sealed class AdvisoryAiLedgerTests
     }
 
     [TestMethod]
+    [TestCategory("FR-AI-04")]
+    public async Task AModelWhoseProviderHasNoAdaptersIsRefusedBeforeAnythingIsReserved()
+    {
+        // ADR-028 addendum A1: the workflow uses only the key store and transport composed for the model's provider.
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        (AdvisoryAiApproval approval, AdvisoryAiRequestPreview preview) = await fixture.ApproveAsync();
+        AdvisoryAiRequestWorkflow workflow = new(fixture.Store, fixture.Store, new AdvisoryAiProviderAdapters(), fixture.Store, Reviewed,
+            AdvisoryAiPaidRequestMode.Ordinary, () => Now.AddMinutes(1));
+        AdvisoryAiSendOutcome outcome = await workflow.SendAsync(approval, preview, null, CancellationToken.None);
+        Assert.AreEqual(AdvisoryAiSendRefusal.ProviderUnavailable, outcome.Refusal);
+        Assert.IsFalse(outcome.Dispatched);
+        Assert.AreEqual(0L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_requests;"), "nothing was reserved");
+        Assert.ThrowsExactly<ArgumentException>(() => new AdvisoryAiProviderAdapters(
+            (new FakeCredentials("sk-a", null), new FakeTransport(_ => Received(Body("x")))),
+            (new FakeCredentials("sk-b", null), new FakeTransport(_ => Received(Body("x"))))), "one pair per provider");
+    }
+
+    [TestMethod]
     [TestCategory("FR-BUD-02")]
     public async Task CancellingBeforeTheClaimSendsNothingAndCostsNothing()
     {
@@ -667,6 +685,7 @@ public sealed class AdvisoryAiLedgerTests
 
     private sealed class FakeTransport(Func<AdvisoryAiApproval, AdvisoryAiTransportResult> respond) : IAdvisoryAiTransport
     {
+        public AdvisoryAiProviderId Provider => AdvisoryAiProviderId.OpenAI;
         public int Calls { get; private set; }
         public bool SawApprovedBytes { get; private set; }
 
@@ -680,6 +699,7 @@ public sealed class AdvisoryAiLedgerTests
 
     private sealed class FakeCredentials(string? key, Action? onRead) : IAdvisoryAiCredentialStore
     {
+        public AdvisoryAiProviderId Provider => AdvisoryAiProviderId.OpenAI;
         private AdvisoryAiApiKey? last;
         public int Reads { get; private set; }
         public bool LastKeyDisposed
@@ -805,7 +825,8 @@ public sealed class AdvisoryAiLedgerTests
         {
             FakeCredentials credentials = new(key, onRead);
             DateTimeOffset clock = Now.AddMinutes(1);
-            return (new AdvisoryAiRequestWorkflow(Store, Store, credentials, transport, Store, reviewed ?? Reviewed, mode, utcNow ?? (() => clock = clock.AddSeconds(1))), credentials);
+            return (new AdvisoryAiRequestWorkflow(Store, Store, new AdvisoryAiProviderAdapters((credentials, transport)), Store, reviewed ?? Reviewed, mode,
+                utcNow ?? (() => clock = clock.AddSeconds(1))), credentials);
         }
 
         public async Task ExecuteAsync(string sql, params (string Name, object Value)[] parameters)

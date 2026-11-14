@@ -13,7 +13,10 @@ public enum AdvisoryAiSendRefusal
     ReservationRefused,
     LedgerUnavailable,
     NoKey,
-    ClaimNotRecorded
+    ClaimNotRecorded,
+
+    /// <summary>The model's provider has no key store and transport in this app (ADR-028 addendum A1).</summary>
+    ProviderUnavailable
 }
 
 /// <summary>
@@ -51,8 +54,7 @@ public sealed class AdvisoryAiRequestWorkflow
 {
     private readonly IAdvisoryAiSettingsStore settings;
     private readonly IAdvisoryAiLedger ledger;
-    private readonly IAdvisoryAiCredentialStore credentials;
-    private readonly IAdvisoryAiTransport transport;
+    private readonly AdvisoryAiProviderAdapters adapters;
     private readonly IAdvisoryAiExplanationStore explanations;
     private readonly IReadOnlyList<AdvisoryAiModelProfile> reviewedModels;
     private readonly AdvisoryAiPaidRequestMode mode;
@@ -62,14 +64,13 @@ public sealed class AdvisoryAiRequestWorkflow
     /// Production passes <see cref="AdvisoryAiModelProfiles.Reviewed"/> as the reviewed models and <see cref="AdvisoryAiBuildPolicy.PaidRequests"/>
     /// as the mode; tests pass synthetic ones.
     /// </remarks>
-    public AdvisoryAiRequestWorkflow(IAdvisoryAiSettingsStore settings, IAdvisoryAiLedger ledger, IAdvisoryAiCredentialStore credentials,
-        IAdvisoryAiTransport transport, IAdvisoryAiExplanationStore explanations, IReadOnlyList<AdvisoryAiModelProfile> reviewedModels,
+    public AdvisoryAiRequestWorkflow(IAdvisoryAiSettingsStore settings, IAdvisoryAiLedger ledger, AdvisoryAiProviderAdapters adapters,
+        IAdvisoryAiExplanationStore explanations, IReadOnlyList<AdvisoryAiModelProfile> reviewedModels,
         AdvisoryAiPaidRequestMode mode, Func<DateTimeOffset> utcNow)
     {
         this.settings = settings ?? throw new ArgumentNullException(nameof(settings));
         this.ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
-        this.credentials = credentials ?? throw new ArgumentNullException(nameof(credentials));
-        this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
+        this.adapters = adapters ?? throw new ArgumentNullException(nameof(adapters));
         this.explanations = explanations ?? throw new ArgumentNullException(nameof(explanations));
         this.reviewedModels = reviewedModels ?? throw new ArgumentNullException(nameof(reviewedModels));
         this.mode = mode;
@@ -91,6 +92,8 @@ public sealed class AdvisoryAiRequestWorkflow
         AdvisoryAiSettings current = await settings.GetSettingsAsync(cancellationToken).ConfigureAwait(false);
         if (!current.Connected) return AdvisoryAiSendOutcome.Refused(AdvisoryAiSendRefusal.NotConnected);
         if (!reviewedModels.Contains(model)) return AdvisoryAiSendOutcome.Refused(AdvisoryAiSendRefusal.ModelNotReviewed);
+        if (!adapters.TryGet(model.Provider, out IAdvisoryAiCredentialStore? credentials, out IAdvisoryAiTransport? transport))
+            return AdvisoryAiSendOutcome.Refused(AdvisoryAiSendRefusal.ProviderUnavailable);
         AdvisoryAiTariff? tariff = await settings.GetLatestTariffAsync(model.ModelId, model.ServiceTier, cancellationToken).ConfigureAwait(false);
         if (tariff is null) return AdvisoryAiSendOutcome.Refused(AdvisoryAiSendRefusal.PricesNotConfirmed);
         if (preview.Limits != current.Limits || !approval.IsStillValid(currentPreview, current.BindingFor(tariff)))
@@ -164,7 +167,7 @@ public sealed class AdvisoryAiRequestWorkflow
         AdvisoryAiTransportResult sent, DiagnosticRedactionContext? redaction)
     {
         AdvisoryAiDispatchOutcome outcome = Map(sent.Outcome);
-        AdvisoryAiResponse? response = outcome == AdvisoryAiDispatchOutcome.ResponseReceived ? AdvisoryAiResponseReader.Read(sent.Body.AsSpan(), approval) : null;
+        AdvisoryAiResponse? response = outcome == AdvisoryAiDispatchOutcome.ResponseReceived ? approval.Preview.Provider.WireFormat.Read(sent.Body.AsSpan(), approval) : null;
         AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(outcome, response, request.Reservation, tariff);
         AdvisoryAiLedgerWrite written = await ledger.SettleAsync(request.RequestId, settlement, response?.Usage, response?.ResponseId, utcNow(), CancellationToken.None)
             .ConfigureAwait(false);

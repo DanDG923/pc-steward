@@ -7,17 +7,6 @@ using System.Text.Json;
 namespace PCSteward.Domain;
 
 /// <summary>
-/// FR-AI-04 (ADR-028 Q1): the one approved route. One compiled origin and path; no custom URL, region, proxy endpoint, query,
-/// user-info, organization or project routing. A different route needs a reviewed policy change and fresh consent.
-/// </summary>
-public static class AdvisoryAiRoute
-{
-    public const string Provider = "OpenAI";
-    public const string Method = "POST";
-    public static Uri Endpoint { get; } = new("https://api.openai.com/v1/responses", UriKind.Absolute);
-}
-
-/// <summary>
 /// FR-AI-05 (ADR-028 "A fixed instruction"): the fixed instructions sent with every request. Evidence is quoted untrusted data;
 /// the answer separates facts from guesses, says what is uncertain and gives no commands to run. The real boundary is that the
 /// request has no tools and the answer has no authority, not that this text makes the evidence safe.
@@ -94,27 +83,31 @@ public static class AdvisoryAiInputText
 }
 
 /// <summary>
-/// FR-AI-02 (ADR-028 F11): the closed header profile the owner sees. The key is never shown: the authorization value is a fixed
-/// placeholder. The transport must send exactly these names (plus host and length framing) and nothing that identifies the user,
-/// the PC, the operating system or the runtime.
+/// FR-AI-02 (ADR-028 F11): the closed header profile the owner sees. The key is never shown: the authorization value is the
+/// provider's fixed placeholder. The transport must send exactly these names (plus host and length framing) and nothing that
+/// identifies the user, the PC, the operating system or the runtime.
 /// </summary>
 public static class AdvisoryAiHeaderProfile
 {
-    public const string AuthorizationName = "Authorization";
-    public const string AuthorizationPreview = "Bearer [your key, never shown]";
     public const string ContentType = "application/json";
     public const string Accept = "application/json";
     public const string UserAgent = "PCSteward-AdvisoryAI/1";
 
-    public static IReadOnlyList<KeyValuePair<string, string>> Preview(int bodyBytes) =>
-    [
-        new("Host", AdvisoryAiRoute.Endpoint.Host),
-        new(AuthorizationName, AuthorizationPreview),
-        new("Content-Type", ContentType),
-        new("Accept", Accept),
-        new("User-Agent", UserAgent),
-        new("Content-Length", bodyBytes.ToString(CultureInfo.InvariantCulture))
-    ];
+    public static IReadOnlyList<KeyValuePair<string, string>> Preview(AdvisoryAiProvider provider, int bodyBytes)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        List<KeyValuePair<string, string>> headers =
+        [
+            new("Host", provider.Endpoint.Host),
+            new(provider.AuthorizationName, provider.AuthorizationPreview),
+            new("Content-Type", ContentType),
+            new("Accept", Accept),
+            new("User-Agent", UserAgent)
+        ];
+        headers.AddRange(provider.FixedHeaders);
+        headers.Add(new("Content-Length", bodyBytes.ToString(CultureInfo.InvariantCulture)));
+        return headers;
+    }
 }
 
 /// <summary>Why a request preview cannot be made.</summary>
@@ -141,12 +134,14 @@ public sealed record AdvisoryAiRequestPreview(
     IReadOnlyList<KeyValuePair<string, string>> Headers)
 {
     public string BodyText => Encoding.UTF8.GetString(Body.AsSpan());
+
+    /// <summary>The provider the model belongs to; a preview is only ever built for a model whose provider is registered.</summary>
+    public AdvisoryAiProvider Provider => AdvisoryAiProviders.Find(Model.Provider) ?? throw new InvalidOperationException("The model's provider is not registered.");
 }
 
 /// <summary>
-/// FR-AI-02/04 (ADR-028 Q1 and consent item 4): builds the one canonical request body. Fields: model, the fixed instructions, the
-/// draft's canonical text as input, the output limit, <c>store: false</c>, truncation disabled and the profile's service tier. No
-/// tools, conversation, previous response, background mode, metadata, streaming or user identifier is ever written.
+/// FR-AI-02/04 (ADR-028 Q1 and consent item 4): builds the one canonical request body, in the format of the model's provider
+/// (<see cref="IAdvisoryAiWireFormat"/>), from the model, the fixed instructions, the draft's canonical text and the approved limits.
 /// </summary>
 public static class AdvisoryAiRequestBuilder
 {
@@ -155,7 +150,7 @@ public static class AdvisoryAiRequestBuilder
         ArgumentNullException.ThrowIfNull(draft);
         ArgumentNullException.ThrowIfNull(limits);
         preview = null;
-        if (model is null || !model.IsCoherent) return AdvisoryAiPreviewProblem.NoReviewedModel;
+        if (model is null || !model.IsCoherent || AdvisoryAiProviders.Find(model.Provider) is not AdvisoryAiProvider provider) return AdvisoryAiPreviewProblem.NoReviewedModel;
         int instructionBytes = Encoding.UTF8.GetByteCount(AdvisoryAiInstructions.Text);
         if (AdvisoryAiLimitValidation.Validate(limits, model, instructionBytes) != AdvisoryAiLimitProblem.None) return AdvisoryAiPreviewProblem.LimitsNotUsable;
 
@@ -163,29 +158,11 @@ public static class AdvisoryAiRequestBuilder
         long tokenBound = (long)instructionBytes + input.Length + model.FramingAllowanceTokens;
         if (tokenBound > limits.MaximumInputTokens) return AdvisoryAiPreviewProblem.DraftDoesNotFitInputLimit;
         string inputText = Encoding.UTF8.GetString(input);
-        byte[] body = SerializeBody(model, limits, inputText);
+        byte[] body = provider.WireFormat.SerializeBody(model, limits, AdvisoryAiInstructions.Text, inputText);
         if (body.Length > AdvisoryAiModelProfile.RequestBytes(limits.MaximumInputTokens) || body.Length > AdvisoryAiResourcePolicy.MaximumRequestBytes) return AdvisoryAiPreviewProblem.RequestTooLarge;
 
-        preview = new(model, limits, draft, inputText, [.. body], (int)tokenBound, AdvisoryAiHeaderProfile.Preview(body.Length));
+        preview = new(model, limits, draft, inputText, [.. body], (int)tokenBound, AdvisoryAiHeaderProfile.Preview(provider, body.Length));
         return AdvisoryAiPreviewProblem.None;
-    }
-
-    private static byte[] SerializeBody(AdvisoryAiModelProfile model, AdvisoryAiLimits limits, string inputText)
-    {
-        using MemoryStream stream = new();
-        using (Utf8JsonWriter writer = new(stream, AdvisoryAiInputText.WriterOptions))
-        {
-            writer.WriteStartObject();
-            writer.WriteString("model", model.ModelId);
-            writer.WriteString("instructions", AdvisoryAiInstructions.Text);
-            writer.WriteString("input", inputText);
-            writer.WriteNumber("max_output_tokens", limits.MaximumOutputTokens);
-            writer.WriteBoolean("store", false);
-            writer.WriteString("truncation", "disabled");
-            writer.WriteString("service_tier", model.ServiceTier);
-            writer.WriteEndObject();
-        }
-        return stream.ToArray();
     }
 }
 

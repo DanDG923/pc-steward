@@ -54,8 +54,14 @@ public sealed class AdvisoryAiApplicationTests
 
     [TestMethod]
     [TestCategory("FR-AI-03")]
-    public void TheCredentialTargetIsTheOneExactAcceptedName() =>
-        Assert.AreEqual("PCSteward/OpenAI/ApiKey.v1", IAdvisoryAiCredentialStore.Target);
+    public void TheCredentialTargetIsTheOneExactAcceptedName()
+    {
+        Assert.AreEqual("PCSteward/OpenAI/ApiKey.v1", AdvisoryAiProviders.OpenAI.CredentialTarget);
+        // ADR-028 addendum A1: one key per provider, each under its own exact target.
+        foreach (AdvisoryAiProvider provider in AdvisoryAiProviders.All)
+            Assert.AreEqual("PCSteward/" + provider.Id + "/ApiKey.v1", provider.CredentialTarget);
+        Assert.HasCount(AdvisoryAiProviders.All.Count, AdvisoryAiProviders.All.Select(provider => provider.CredentialTarget).Distinct());
+    }
 
     [TestMethod]
     [TestCategory("FR-AI-01")]

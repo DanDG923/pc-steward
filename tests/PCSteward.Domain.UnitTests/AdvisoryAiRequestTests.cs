@@ -259,10 +259,35 @@ public sealed class AdvisoryAiRequestTests
         AdvisoryAiRequestPreview preview = Preview(Draft());
         CollectionAssert.AreEqual(HeaderNames, preview.Headers.Select(header => header.Key).ToArray());
         Assert.AreEqual("api.openai.com", preview.Headers[0].Value);
-        Assert.AreEqual(AdvisoryAiHeaderProfile.AuthorizationPreview, preview.Headers[1].Value);
+        Assert.AreEqual("Bearer [your key, never shown]", preview.Headers[1].Value);
         Assert.AreEqual(preview.Body.Length.ToString(System.Globalization.CultureInfo.InvariantCulture), preview.Headers[5].Value);
-        Assert.AreEqual(new Uri("https://api.openai.com/v1/responses"), AdvisoryAiRoute.Endpoint);
-        Assert.AreEqual("POST", AdvisoryAiRoute.Method);
+        Assert.AreEqual(new Uri("https://api.openai.com/v1/responses"), AdvisoryAiProviders.OpenAI.Endpoint);
+        Assert.AreEqual("POST", AdvisoryAiProvider.Method);
+        Assert.AreSame(AdvisoryAiProviders.OpenAI, preview.Provider);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-04")]
+    public void EachModelEntryCarriesItsProviderAndReasoningSetting()
+    {
+        // ADR-028 addendum A1: a model is one registry entry; the default is OpenAI with no reasoning field sent.
+        Assert.AreEqual(AdvisoryAiProviderId.OpenAI, Profile.Provider);
+        Assert.IsNull(Profile.ReasoningEffort);
+        Assert.DoesNotContain("reasoning", Preview(Draft()).BodyText);
+
+        AdvisoryAiModelProfile low = Profile with { ReasoningEffort = "low" };
+        Assert.IsTrue(low.IsCoherent);
+        Assert.AreEqual(AdvisoryAiPreviewProblem.None, AdvisoryAiRequestBuilder.TryBuild(Draft(), low, AdvisoryAiLimits.Defaults, out AdvisoryAiRequestPreview? reasoning));
+        StringAssert.EndsWith(reasoning!.BodyText, ",\"reasoning\":{\"effort\":\"low\"}}");
+
+        foreach (string bad in new[] { "", "Low", "low effort", "x\"y", new string('a', 17) })
+        {
+            Assert.IsFalse((Profile with { ReasoningEffort = bad }).IsCoherent, bad);
+            Assert.AreEqual(AdvisoryAiPreviewProblem.NoReviewedModel, AdvisoryAiRequestBuilder.TryBuild(Draft(), Profile with { ReasoningEffort = bad }, AdvisoryAiLimits.Defaults, out _));
+        }
+        Assert.IsFalse((Profile with { Provider = (AdvisoryAiProviderId)99 }).IsCoherent, "an unregistered provider is never usable");
+        Assert.AreEqual(AdvisoryAiPreviewProblem.NoReviewedModel,
+            AdvisoryAiRequestBuilder.TryBuild(Draft(), Profile with { Provider = (AdvisoryAiProviderId)99 }, AdvisoryAiLimits.Defaults, out _));
     }
 
     [TestMethod]

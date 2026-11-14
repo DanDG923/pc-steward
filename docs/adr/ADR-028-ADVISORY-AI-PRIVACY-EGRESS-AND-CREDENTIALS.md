@@ -118,6 +118,28 @@ Accepted additive 2.0 extensions cover ADR-010/016 pre-preview/output redaction 
 
 Tasks 67/69–70 must prove redaction of every identifier class, re-redaction after edits, final wire-body/header-profile equality, approval invalidation/races, no SDK-added evidence/hidden retries, fixed TLS route/no redirects, coupled token/context/byte/saved-item bounds and deadlines, malformed/hostile output, tool absence and no action-path influence. Test larger admitted answers received/saved without cosmetic token increases, binding-limit messages, overflow/escaping/sanitizer expansion/compression, no token-counting egress, complete-usage incomplete answers versus transport cutoff, and storage failure independent of settlement. Test missing key/refusal/outage/cancel/budget failure with core workflows usable; credential size/replace/orphan/not-found/denied/removal guidance, backup/export/log exclusions, disconnect/reset recovery/residuals; ScheduledHost/helper architecture exclusions and no environment-key discovery. Mocks/synthetic data precede any approved host test. Task 71 needs exact provider/model/payload/cost approval after the security/privacy/cost gate and enforces the separate $1 total cap. Draft acceptance grants no live call or key action.
 
+## Addendum A1 (2026-11-14): provider and model registry
+
+**Owner request (2026-11-14):** one model for testing now, with owner model selection later, including Claude's API. The owner chose `gpt-6.1-sol` as the only target model, with no model picker, on 2026-11-14.
+
+This addendum changes how the accepted design is structured in code, not what it allows. Every rule above applies to each provider and each model:
+- Q1 fixed route, the F11 closed header profile and Q8 one exact credential become per-provider values in one compiled registry: endpoint, header profile, credential target `PCSteward/<Provider>/ApiKey.v1`, and request and response format.
+- Each reviewed model profile names its provider and its fixed reasoning setting, alongside its evidenced limits; its prices remain its own owner-confirmed tariff.
+- The request workflow uses only the key store and transport composed for the approved model's provider and refuses before reserving when there is none.
+
+This build registers OpenAI only. Adding a provider is a reviewed change, needing:
+- an amendment to this ADR covering privacy, retention, route and headers;
+- the owner's approval of any SDK;
+- the same mock-transport proofs;
+- Task 69 evidence for each model;
+- the Task 70 review.
+
+Offering more than one model also needs:
+- a stored model choice offered only from reviewed models;
+- per-provider consent and key generations.
+
+Neither is part of this build. Implementation: `docs/review/TASK_67_ADVISORY_AI_PLAN.md` § Provider and model registry.
+
 ## Reconsider when
 
 Required endpoint/model behavior cannot enforce the approved bounds/privacy controls, exact wire approval cannot be proven through the SDK, credential deletion/reset recovery fails, or the owner changes providers/storage/retention. Keep AI unavailable until a revised accepted design preserves optional core use and deterministic authority.

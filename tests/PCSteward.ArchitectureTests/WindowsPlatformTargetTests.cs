@@ -21,6 +21,7 @@ public sealed partial class WindowsPlatformTargetTests
 
     private static readonly string[] WindowsProjects =
     [
+        "src/PCSteward.AdvisoryAi.Windows/PCSteward.AdvisoryAi.Windows.csproj",
         "src/PCSteward.Desktop/PCSteward.Desktop.csproj",
         "src/PCSteward.Diagnostics.Windows/PCSteward.Diagnostics.Windows.csproj",
         "src/PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj",

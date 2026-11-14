@@ -85,9 +85,19 @@ public static class AdvisoryAiResponseReader
     {
         ArgumentNullException.ThrowIfNull(approval);
         AdvisoryAiRequestPreview preview = approval.Preview;
-        long admitted = Math.Min(AdvisoryAiResourcePolicy.MaximumResponseBytes,
+        return Read(body, preview.Model.ModelId, AdmittedBytes(approval), preview.InputTokenUpperBound, preview.Limits.MaximumOutputTokens);
+    }
+
+    /// <summary>
+    /// ADR-028 F1: the most response bytes this approved request admits. The transport stops reading past it and the reader refuses
+    /// a longer body, so both apply the same bound.
+    /// </summary>
+    public static long AdmittedBytes(AdvisoryAiApproval approval)
+    {
+        ArgumentNullException.ThrowIfNull(approval);
+        AdvisoryAiRequestPreview preview = approval.Preview;
+        return Math.Min(AdvisoryAiResourcePolicy.MaximumResponseBytes,
             preview.Model.ResponseBytes(preview.Limits.MaximumInputTokens, preview.Limits.MaximumOutputTokens));
-        return Read(body, preview.Model.ModelId, admitted, preview.InputTokenUpperBound, preview.Limits.MaximumOutputTokens);
     }
 
     public static AdvisoryAiResponse Read(ReadOnlySpan<byte> body, string expectedModel, long maximumBytes, long approvedInputTokens, long approvedOutputTokens)

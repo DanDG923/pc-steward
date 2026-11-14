@@ -13,7 +13,8 @@ namespace PCSteward.ArchitectureTests;
 public sealed class AdvisoryAiBoundaryTests
 {
     private static readonly string[] NoAiProjects = ["PCSteward.ScheduledHost", "PCSteward.ElevatedHelper", "PCSteward.Execution"];
-    private static readonly string[] OriginFiles = ["src/PCSteward.Domain/AdvisoryAiRequest.cs"];
+    private static readonly string[] OriginFiles = ["src/PCSteward.Domain/AdvisoryAiProviders.cs"];
+    private static readonly string[] BodyFields = ["model", "instructions", "input", "max_output_tokens", "store", "truncation", "service_tier", "reasoning", "effort"];
 
     [TestMethod]
     public void DomainAiRulesArePure()
@@ -39,6 +40,7 @@ public sealed class AdvisoryAiBoundaryTests
                 Assert.IsFalse(code.Contains(forbidden, StringComparison.Ordinal), $"{project} names {forbidden}");
             string projectFile = File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", project, project + ".csproj"));
             Assert.IsFalse(projectFile.Contains("OpenAI", StringComparison.OrdinalIgnoreCase), $"{project} references an AI package or project");
+            Assert.IsFalse(projectFile.Contains("AdvisoryAi", StringComparison.OrdinalIgnoreCase), $"{project} references the AI adapters");
         }
     }
 
@@ -50,16 +52,20 @@ public sealed class AdvisoryAiBoundaryTests
             .Where(path => File.ReadAllText(path).Contains("api.openai.com", StringComparison.Ordinal))
             .Select(path => Path.GetRelativePath(root, path).Replace('\\', '/'))];
         CollectionAssert.AreEqual(OriginFiles, hits);
-        string route = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Domain", "AdvisoryAiRequest.cs"));
+        string route = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Domain", "AdvisoryAiProviders.cs"));
         Assert.AreEqual(1, Regex.Count(route, "api\\.openai\\.com"));
-        StringAssert.Contains(route, "new(\"https://api.openai.com/v1/responses\", UriKind.Absolute)");
+        StringAssert.Contains(route, "new Uri(\"https://api.openai.com/v1/responses\", UriKind.Absolute)");
     }
 
     [TestMethod]
     public void TheRequestBodyHasNoToolConversationOrStorageField()
     {
-        string code = File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Domain", "AdvisoryAiRequest.cs"));
-        string[] written = [.. Regex.Matches(code, @"writer\.Write(?:String|Number|Boolean)\(""([a-z_]+)""").Select(match => match.Groups[1].Value).Distinct()];
+        // ADR-028 addendum A1: every provider's wire format lives in AdvisoryAiProviders.cs, so every body field any provider writes is here.
+        string code = File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Domain", "AdvisoryAiProviders.cs"));
+        string[] written = [.. Regex.Matches(code, @"writer\.Write(?:String|Number|Boolean|StartObject|StartArray)\(""([a-z_]+)""").Select(match => match.Groups[1].Value).Distinct()];
+        CollectionAssert.AreEquivalent(BodyFields, written,
+            "a new body field needs a reviewed change to this list");
+        Assert.AreEqual(1, Regex.Count(code, @": IAdvisoryAiWireFormat\b"), "one wire format per registered provider");
         foreach (string field in new[] { "model", "instructions", "input", "max_output_tokens", "store", "truncation", "service_tier" })
             CollectionAssert.Contains(written, field);
         foreach (string forbidden in new[] { "tools", "tool_choice", "previous_response_id", "conversation", "background", "stream", "metadata", "user", "include", "prompt_cache_key", "safety_identifier" })

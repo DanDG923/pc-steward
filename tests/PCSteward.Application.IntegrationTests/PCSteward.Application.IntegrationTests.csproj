@@ -17,6 +17,7 @@
     <ProjectReference Include="../../src/PCSteward.Provider.Chocolatey/PCSteward.Provider.Chocolatey.csproj" />
     <ProjectReference Include="../../src/PCSteward.Diagnostics/PCSteward.Diagnostics.csproj" />
     <ProjectReference Include="../../src/PCSteward.Diagnostics.Windows/PCSteward.Diagnostics.Windows.csproj" />
+    <ProjectReference Include="../../src/PCSteward.AdvisoryAi.Windows/PCSteward.AdvisoryAi.Windows.csproj" />
     <ProjectReference Include="../../src/PCSteward.Storage/PCSteward.Storage.csproj" />
     <ProjectReference Include="../../src/PCSteward.Scheduling.Windows/PCSteward.Scheduling.Windows.csproj" />
   </ItemGroup>

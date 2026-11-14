@@ -70,9 +70,11 @@ public sealed class SelfUpdateBoundaryTests
     public void OnlyTheTwoGitHubClientsUseTheNetwork()
     {
         // ADR-032 revision 2 §4 and §6 step 3: the desktop's update check and the helper's own confirmation are the only
-        // network code in PC Steward.
+        // network code in PC Steward, apart from the optional advisory AI transport (ADR-028 Q1, composed only by the desktop app
+        // and constrained by AdvisoryAiAdapterBoundaryTests).
         string src = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src");
-        string[] allowed = [Path.Combine(src, "PCSteward.SelfUpdate", "GitHubReleaseClient.cs"), Path.Combine(src, "PCSteward.Execution", "HelperGitHubConfirmation.cs")];
+        string[] allowed = [Path.Combine(src, "PCSteward.SelfUpdate", "GitHubReleaseClient.cs"), Path.Combine(src, "PCSteward.Execution", "HelperGitHubConfirmation.cs"),
+            Path.Combine(src, "PCSteward.AdvisoryAi.Windows", "OpenAiResponsesTransport.cs")];
         foreach (string file in Directory.GetFiles(src, "*.cs", SearchOption.AllDirectories)
             .Where(path => !path.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.Ordinal) &&
                            !path.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
