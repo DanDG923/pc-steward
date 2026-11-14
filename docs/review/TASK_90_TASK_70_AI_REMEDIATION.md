@@ -1,3 +1,5 @@
+**Update (2026-11-14): Task 70F of `bb3c049` returned PASS with one Low documentation finding, T70F-01, fixed in §8. The independent second re-review of `bb3c049` also returned PASS.** Both cover the disabled commit and the Task 71 packet only, never an enabled test build. The owner kept the 70F report on their PC.
+
 **Update (2026-11-14): the independent re-review of `094bcfb` returned PASS with four notes, and Task 70E of the same commit returned FAIL with one Medium and three Low findings. All are fixed or answered in §7.** The owner kept the 70E report on their PC, and the independent report is kept outside the repository.
 
 **Update (2026-11-14): Task 70D of `14ef51b` returned PASS with no new finding. An independent review of the same commit returned FAIL with one Medium finding (F1) and five Low ones, fixed or answered in §6.** The owner kept the 70D report on their PC, and the independent report is kept outside the repository. Both reviews run again at the fixed commit.
@@ -81,3 +83,13 @@ The independent re-review returned **PASS** with four notes, N1 to N4. Task 70E 
 | **N2 (Info).** The reader's strict shape could surprise the owner during the test. | Task 69 §10 item 5 now says that a small surprise ends the test as uncertain and paused, and why. | Task 69 §10 |
 | **N3 (Info).** An absent tier is accepted. | Kept for the test. If the live reply always carries a tier, a missing one becomes a pause before ordinary use. This joins the ordinary-use list in §2. | — |
 | **N4 (Info).** For a dearer tier, the kept reservation can be below the real charge. | The pause text for a tier departure or an unpriced counter now says the real charge may be more and points to the AI service's usage page. | `AdvisoryAiExplainTests.AReplyFromAnotherServiceTierIsShownAndPausesPaidRequests` |
+
+## 8. Task 70F and the independent second re-review of `bb3c049`
+
+Both reviews returned **PASS** for model `gpt-6.1-sol` at the default tier, the route `POST https://api.openai.com/v1/responses`, commit `bb3c049` and the Task 71 packet. The pass covers this disabled commit and the packet only. The enabled test build needs its own review, and the key and the one send each need the owner's separate approval. Ordinary-use resource measurements stay open (§2).
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **T70F-01 (Low, documentation).** Task 69 §10 item 5 said a model name with a date suffix pauses paid requests automatically. A model mismatch alone keeps the whole reservation but doesn't pause. | Item 5 now says which surprises pause paid requests (a departure from the priced request) and which only keep the reservation (a model mismatch or an error reply). Either way the owner stops as item 6 says. No product code changed. | `AdvisoryAiResponseTests.AModelNameWithASuffixKeepsTheReservationWithoutAnAutomaticPause`; `AdvisoryAiExplainTests.AFailedReplyShowsItsHttpStatusAndClosedReasonButNoProviderText` |
+
+The independent re-review's two observations stay as accepted trade-offs. An IPv4 address after a generic word with no `:` or `=` isn't redacted, so that versions survive. There are also rare harmless over-matches, such as `[Math]::E`.

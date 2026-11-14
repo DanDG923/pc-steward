@@ -121,7 +121,8 @@ public sealed class AdvisoryAiExplainTests
         StringAssert.Contains(details, "wasn't a response object");
         StringAssert.Contains(details, "no service tier reported");
         Assert.IsFalse(details.Contains("Incorrect", StringComparison.Ordinal), "provider text never reaches the screen");
-        Assert.IsFalse(details.Contains("paused", StringComparison.Ordinal));
+        Assert.IsFalse(details.Contains("paused", StringComparison.Ordinal), "an error reply alone keeps the reservation but doesn't claim a pause (T70F-01)");
+        Assert.IsFalse(outcome.Settlement.NeedsReview);
         Assert.IsNull(AdvisoryAiExplainText.ReplyDetails(null));
     }
 

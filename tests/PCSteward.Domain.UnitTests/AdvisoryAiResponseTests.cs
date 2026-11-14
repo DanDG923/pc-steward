@@ -431,4 +431,25 @@ public sealed class AdvisoryAiResponseTests
         AdvisoryAiResponse failed = ReadAsRequested(Body("failed", "[]", usage: zero, extra: ",\"error\":{\"code\":\"server_error\",\"message\":\"x\"}"));
         Assert.IsTrue(failed.UsageReliable, "a provider failure can honestly have used nothing");
     }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void AModelNameWithASuffixKeepsTheReservationWithoutAnAutomaticPause()
+    {
+        // Task 70F T70F-01: a model mismatch alone is uncertain (whole reservation kept, nothing shown) but isn't a departure from the
+        // priced request, so it doesn't pause paid requests by itself; the Task 71 packet's manual stop covers it. A departure in the
+        // same body still pauses.
+        string suffixed = Body().Replace(Model, Model + "-2026-11-14", StringComparison.Ordinal);
+        AdvisoryAiResponse response = ReadAsRequested(suffixed);
+        Assert.AreEqual(AdvisoryAiMalformedReason.ModelMismatch, response.MalformedReason);
+        Assert.AreEqual(AdvisoryAiResponseDeparture.None, response.Departures);
+        Assert.IsNull(response.Text);
+        AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+        Assert.AreEqual(AdvisoryAiRequestState.Uncertain, settlement.State);
+        Assert.AreEqual(45_056, settlement.Committed.Value);
+        Assert.IsFalse(settlement.NeedsReview);
+
+        AdvisoryAiResponse withDeparture = ReadAsRequested(suffixed.Replace("\"store\":false", "\"store\":false,\"background\":null", StringComparison.Ordinal));
+        AssertPausedWithWholeReservation(withDeparture, "background null beside the mismatch");
+    }
 }
