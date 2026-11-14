@@ -7,7 +7,7 @@ namespace PCSteward.Persistence.Sqlite;
 
 public sealed partial class SqliteDatabase : IReviewedUpdateOperationStore
 {
-    private const int MaximumSchemaVersion = 13;
+    private const int MaximumSchemaVersion = 14;
 
     private static async Task RefuseFutureSchemaAsync(SqliteConnection connection, CancellationToken cancellationToken, SqliteTransaction? transaction = null)
     {
