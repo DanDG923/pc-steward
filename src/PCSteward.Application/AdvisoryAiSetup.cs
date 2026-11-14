@@ -172,7 +172,8 @@ public sealed record AdvisoryAiLimitsDraft(string InputTokens, string OutputToke
     private static AdvisoryAiLimitField FieldOf(AdvisoryAiLimitProblem problem) => problem switch
     {
         AdvisoryAiLimitProblem.InputTokensNotPositive or AdvisoryAiLimitProblem.InputAboveModelContext or AdvisoryAiLimitProblem.RequestBytesAboveMaximum or
-            AdvisoryAiLimitProblem.InputTooSmallForInstructions or AdvisoryAiLimitProblem.InputPlusOutputAboveModelContext => AdvisoryAiLimitField.InputTokens,
+            AdvisoryAiLimitProblem.InputTooSmallForInstructions or AdvisoryAiLimitProblem.InputPlusOutputAboveModelContext or
+            AdvisoryAiLimitProblem.InputAboveStandardPrice => AdvisoryAiLimitField.InputTokens,
         AdvisoryAiLimitProblem.OutputTokensNotPositive or AdvisoryAiLimitProblem.OutputAboveModelMaximum or AdvisoryAiLimitProblem.ResponseBytesAboveMaximum or
             AdvisoryAiLimitProblem.SavedItemBytesAboveMaximum => AdvisoryAiLimitField.OutputTokens,
         AdvisoryAiLimitProblem.RequestCapAboveMonthlyBudget or AdvisoryAiLimitProblem.NegativeAmount => AdvisoryAiLimitField.RequestCap,

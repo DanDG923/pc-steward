@@ -153,8 +153,10 @@ public static class AdvisoryAiResponseReader
             };
         }
 
-        (AdvisoryAiUsage? usage, bool reliable) = ReadUsage(root);
-        bool above = reliable && (usage!.InputTokens > approvedInputTokens || usage.OutputTokens > approvedOutputTokens);
+        (AdvisoryAiUsage? usage, bool reliable, bool cacheWritten) = ReadUsage(root);
+        // Task 69: a reported cache write was never requested and is billed above the input rate, so the usage can't settle the
+        // request and paid requests stop for review, as for usage above the approved bounds.
+        bool above = cacheWritten || reliable && (usage!.InputTokens > approvedInputTokens || usage.OutputTokens > approvedOutputTokens);
 
         StringBuilder text = new();
         bool refused = false;
@@ -206,21 +208,29 @@ public static class AdvisoryAiResponseReader
     /// as reliable settlement evidence.
     /// </summary>
     private static AdvisoryAiResponse Unbound(AdvisoryAiMalformedReason reason, AdvisoryAiUsage? usage, bool reliable, bool above, string id) =>
-        new(AdvisoryAiAnswerStatus.Malformed, AdvisoryAiIncompleteReason.None, reason, id, null, usage, false, reliable && above);
+        new(AdvisoryAiAnswerStatus.Malformed, AdvisoryAiIncompleteReason.None, reason, id, null, usage, false, above);
 
-    private static (AdvisoryAiUsage? Usage, bool Reliable) ReadUsage(JsonElement root)
+    private static (AdvisoryAiUsage? Usage, bool Reliable, bool CacheWritten) ReadUsage(JsonElement root)
     {
-        if (!root.TryGetProperty("usage", out JsonElement usage) || usage.ValueKind != JsonValueKind.Object || HasDuplicate(usage)) return (null, false);
+        if (!root.TryGetProperty("usage", out JsonElement usage) || usage.ValueKind != JsonValueKind.Object || HasDuplicate(usage)) return (null, false, false);
         bool complete = TryCount(usage, "input_tokens", out long input) & TryCount(usage, "output_tokens", out long output) & TryCount(usage, "total_tokens", out long total);
         long cached = 0, reasoning = 0;
         bool details = usage.TryGetProperty("input_tokens_details", out JsonElement inputDetails) && inputDetails.ValueKind == JsonValueKind.Object &&
             !HasDuplicate(inputDetails) && TryCount(inputDetails, "cached_tokens", out cached);
         details &= usage.TryGetProperty("output_tokens_details", out JsonElement outputDetails) && outputDetails.ValueKind == JsonValueKind.Object &&
             !HasDuplicate(outputDetails) && TryCount(outputDetails, "reasoning_tokens", out reasoning);
-        if (!complete) return (null, false);
+        // Task 69: cache_write_tokens is optional; when present it must be a count, and any write makes the usage untrusted.
+        bool written = false;
+        if (details && inputDetails.TryGetProperty("cache_write_tokens", out _))
+        {
+            bool counted = TryCount(inputDetails, "cache_write_tokens", out long writeCount);
+            details &= counted;
+            written = !counted || writeCount > 0;
+        }
+        if (!complete) return (null, false, written);
         AdvisoryAiUsage value = new(input, cached, output, reasoning, total);
-        bool consistent = details && input >= 0 && output >= 0 && cached <= input && reasoning <= output && total == input + output;
-        return (value, consistent);
+        bool consistent = details && !written && input >= 0 && output >= 0 && cached <= input && reasoning <= output && total == input + output;
+        return (value, consistent, written);
     }
 
     private static bool TryCount(JsonElement element, string name, out long value)

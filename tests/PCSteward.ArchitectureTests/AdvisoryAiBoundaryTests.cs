@@ -14,7 +14,7 @@ public sealed class AdvisoryAiBoundaryTests
 {
     private static readonly string[] NoAiProjects = ["PCSteward.ScheduledHost", "PCSteward.ElevatedHelper", "PCSteward.Execution"];
     private static readonly string[] OriginFiles = ["src/PCSteward.Domain/AdvisoryAiProviders.cs"];
-    private static readonly string[] BodyFields = ["model", "instructions", "input", "max_output_tokens", "store", "truncation", "service_tier", "reasoning", "effort"];
+    private static readonly string[] BodyFields = ["model", "instructions", "input", "max_output_tokens", "store", "truncation", "service_tier", "reasoning", "effort", "prompt_cache_options", "mode"];
 
     [TestMethod]
     public void DomainAiRulesArePure()
@@ -71,6 +71,10 @@ public sealed class AdvisoryAiBoundaryTests
         foreach (string forbidden in new[] { "tools", "tool_choice", "previous_response_id", "conversation", "background", "stream", "metadata", "user", "include", "prompt_cache_key", "safety_identifier" })
             CollectionAssert.DoesNotContain(written, forbidden);
         StringAssert.Contains(code, "writer.WriteBoolean(\"store\", false);");
+        // Task 69: the only caching field selects explicit mode, and no breakpoint (the only way explicit mode caches) is ever written.
+        StringAssert.Contains(code, "writer.WriteString(\"mode\", \"explicit\");");
+        foreach (string forbidden in new[] { "prompt_cache_breakpoint", "prompt_cache_retention", "ttl" })
+            Assert.IsFalse(code.Contains(forbidden, StringComparison.Ordinal), $"the body could ask for caching: {forbidden}");
     }
 
     [TestMethod]

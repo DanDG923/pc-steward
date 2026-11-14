@@ -92,7 +92,8 @@ public enum AdvisoryAiLimitProblem
     RequestBytesAboveMaximum,
     ResponseBytesAboveMaximum,
     SavedItemBytesAboveMaximum,
-    InputTooSmallForInstructions
+    InputTooSmallForInstructions,
+    InputAboveStandardPrice
 }
 
 /// <summary>
@@ -168,6 +169,21 @@ public sealed record AdvisoryAiModelProfile(
     /// </summary>
     public string? ReasoningEffort { get; init; }
 
+    /// <summary>
+    /// Task 69 (ADR-029 F2): the most input tokens the provider bills at the prices the owner confirms. Above it some providers charge
+    /// a higher rate for the whole request (OpenAI lists 2x input and 1.5x output above 272K input tokens for GPT-6.1 Sol), so the
+    /// input limit may not exceed it and a reservation at the confirmed prices stays a true worst case. Null when no such rule exists.
+    /// </summary>
+    public int? StandardPriceInputTokens { get; init; }
+
+    /// <summary>
+    /// Task 69 (ADR-028, ADR-029): true when the provider caches prompts unless told not to and bills cache writes above the
+    /// uncached input rate (OpenAI: 1.25x for the default 30-minute lifetime). The request then selects explicit caching with no
+    /// breakpoint, which OpenAI documents as using no prompt cache and creating no cache write, so nothing is kept for reuse and
+    /// no write is billed. A response that still reports cache writes is not trusted for settlement and pauses paid requests.
+    /// </summary>
+    public bool RequestNoPromptCache { get; init; }
+
     /// <summary>ADR-028 F1: the whole request, every text byte assumed to need the longest JSON escape.</summary>
     public static long RequestBytes(int maximumInputTokens) =>
         checked(AdvisoryAiResourcePolicy.RequestEnvelopeBytes + (long)AdvisoryAiResourcePolicy.JsonEscapeExpansion * maximumInputTokens);
@@ -191,7 +207,8 @@ public sealed record AdvisoryAiModelProfile(
         FramingAllowanceTokens >= 0 && TokenizerIsByteLevel && MaximumTokenUtf8Bytes > 0 && ResponseEnvelopeBytes > 0 &&
         !string.IsNullOrWhiteSpace(ServiceTier) && ServiceTier.All(character => char.IsAsciiLetterLower(character) || character == '_') &&
         AdvisoryAiProviders.Find(Provider) is not null &&
-        (ReasoningEffort is null || (ReasoningEffort.Length is >= 1 and <= 16 && ReasoningEffort.All(char.IsAsciiLetterLower)));
+        (ReasoningEffort is null || (ReasoningEffort.Length is >= 1 and <= 16 && ReasoningEffort.All(char.IsAsciiLetterLower))) &&
+        (StandardPriceInputTokens is null || StandardPriceInputTokens > FramingAllowanceTokens && StandardPriceInputTokens <= ContextWindowTokens);
 }
 
 /// <summary>
@@ -241,6 +258,7 @@ public static class AdvisoryAiLimitValidation
         if (model is null) return AdvisoryAiLimitProblem.None;
 
         if (limits.MaximumInputTokens > model.ContextWindowTokens) return AdvisoryAiLimitProblem.InputAboveModelContext;
+        if (model.StandardPriceInputTokens is int priced && limits.MaximumInputTokens > priced) return AdvisoryAiLimitProblem.InputAboveStandardPrice;
         if (limits.MaximumOutputTokens > model.MaximumOutputTokens) return AdvisoryAiLimitProblem.OutputAboveModelMaximum;
         if ((long)limits.MaximumInputTokens + limits.MaximumOutputTokens > model.ContextWindowTokens) return AdvisoryAiLimitProblem.InputPlusOutputAboveModelContext;
         if (AdvisoryAiModelProfile.RequestBytes(limits.MaximumInputTokens) > AdvisoryAiResourcePolicy.MaximumRequestBytes) return AdvisoryAiLimitProblem.RequestBytesAboveMaximum;
@@ -266,6 +284,7 @@ public static class AdvisoryAiLimitValidation
         AdvisoryAiLimitProblem.ResponseBytesAboveMaximum => "An answer this long could be over PC Steward's 4 MiB response limit.",
         AdvisoryAiLimitProblem.SavedItemBytesAboveMaximum => "An answer this long could be over PC Steward's 4 MiB limit for one saved explanation.",
         AdvisoryAiLimitProblem.InputTooSmallForInstructions => "The input limit is too small to hold PC Steward's fixed instructions and any evidence.",
+        AdvisoryAiLimitProblem.InputAboveStandardPrice => "The input limit is above the size this model bills at its standard prices. Above it the whole request costs more, so PC Steward doesn't allow it.",
         _ => "These limits can't be used."
     };
 }

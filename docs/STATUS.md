@@ -1,3 +1,10 @@
+**Advisory AI, Task 69: GPT-6.1 Sol evidence and two cost fixes (2026-11-14; official sources, code and tests; no paid call, no account query).** Requirements: `FR-AI-01–06`, `FR-BUD-01–04` ([report](review/TASK_69_AI_EVIDENCE_GPT_6_1_SOL.md)).
+
+- **Evidence.** The model's limits, reasoning efforts, Standard prices (including the cache-write and above-272K rules) and the request fields were checked against OpenAI's official pages on 2026-11-14 and recorded with their sources. A candidate profile is written down; it is not added to `AdvisoryAiModelProfiles.Reviewed`.
+- **Fix 1, cache writes.** Prompt caching is automatic and writes cost 1.25x the input rate, so the reservation was not a true worst case. The profile can now ask for no prompt cache: the body selects explicit caching with no breakpoint, which OpenAI documents as using no cache and writing none. A response that still reports a cache write is never trusted for settlement and pauses paid requests.
+- **Fix 2, long-context price.** Above 272K input tokens the whole request costs more. The profile can now state the input size billed at its standard prices, and the input limit can't exceed it.
+- **Not claimed.** OpenAI doesn't publish this model's tokenizer or its hidden framing tokens: these are the report's blockers B1 and B2, for the owner and Task 70. Task 70 (independent review) and Task 71 (one approved paid call, within $1) haven't run. Tests: `AdvisoryAiRequestTests`, `AdvisoryAiPolicyTests`, `AdvisoryAiResponseTests` and `AdvisoryAiBoundaryTests`.
+
 **Advisory AI, Task 67 stage 4c: "Explain with AI…" (2026-11-14; code and tests; no real key or call).** Requirements: `FR-AI-02`, `FR-AI-04`, `FR-AI-05`, `FR-AI-06`, `FR-BUD-02`, `FR-BUD-03` ([plan and interfaces](review/TASK_67_ADVISORY_AI_PLAN.md)).
 
 - **Where it is offered.** In the details of a Diagnostics record from Windows with a known time, and of a failed, timed-out or inconclusive update in Activity. It is offered only when the build has a reviewed model, so in this build no row shows it. PC Steward's own update records in a timeline are explained from Activity instead.
