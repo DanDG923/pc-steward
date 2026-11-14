@@ -69,6 +69,9 @@ public sealed class AdvisoryAiDesktopSetupBoundaryTests
         Assert.AreEqual(5, confirmations, "connect, disconnect, replace, limits and prices");
         Assert.AreEqual(confirmations, Regex.Count(ai, @"DefaultButton = ContentDialogButton\.Close"), "Cancel is the default everywhere");
         Assert.IsFalse(ai.Contains("DefaultButton = ContentDialogButton.Primary", StringComparison.Ordinal));
+        // Task 70 T70-03: the prices are confirmed only with the owner's ticked statement that they are what the key's project pays.
+        StringAssert.Contains(ai, "CheckBox effective = new() { Content = AdvisoryAiSetupText.EffectivePricesStatement, IsChecked = false };");
+        StringAssert.Contains(ai, "AdvisoryAiPricesDraft typed = new(input.Text, cached.Text, output.Text, effective.IsChecked == true);");
         foreach (string forbidden in new[] { "AdvisoryAiRequestWorkflow", "IAdvisoryAiTransport", "OpenAiResponsesTransport", "WindowsCredentialManagerStore", "SendAsync", "HttpClient" })
             Assert.IsFalse(ai.Contains(forbidden, StringComparison.Ordinal), $"Settings reaches {forbidden}");
         // Every change runs inside the data-operation lease, and the read uses the read lease.

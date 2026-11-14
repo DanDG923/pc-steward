@@ -186,6 +186,9 @@ public static class AdvisoryAiExplainText
 
     public const string ApproveLabel = "Approve and send";
 
+    /// <summary>Task 70 T70-06 (ADR-028 consent): shown beside the draft and the exact request.</summary>
+    public const string ResidualSecrets = "Removing names is best effort. PC Steward can't recognise every password, key or personal detail, in its records or in what you type. Check every item before you send it.";
+
     public const string AdviceOnly = "An AI explanation is advice only. PC Steward never acts on it, and it can be wrong.";
 
     public static string Blocked(AdvisoryAiExplainBlock block, AdvisoryAiDraftProblem draftProblem = AdvisoryAiDraftProblem.None, AdvisoryAiPreviewProblem previewProblem = AdvisoryAiPreviewProblem.None) => block switch

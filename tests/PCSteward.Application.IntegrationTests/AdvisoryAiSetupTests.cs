@@ -404,7 +404,13 @@ public sealed class AdvisoryAiSetupTests
         Assert.AreEqual(nameof(AdvisoryAiPricesDraft.OutputPerMillion), (await fixture.Service.ConfirmPricesAsync(new("2", "0.1", "ten"), CancellationToken.None)).Field);
         Assert.IsNull(await fixture.Store.GetLatestTariffAsync(Model.ModelId, Model.ServiceTier, CancellationToken.None), "a refused form records nothing");
 
-        AdvisoryAiPricesCheck confirmed = await fixture.Service.ConfirmPricesAsync(new("$2.00", "0.10", "10"), CancellationToken.None);
+        // Task 70 T70-03: valid rates are still refused until the owner states they are what the key's project pays, uplift included.
+        AdvisoryAiPricesCheck unstated = await fixture.Service.ConfirmPricesAsync(new("$2.00", "0.10", "10"), CancellationToken.None);
+        Assert.AreEqual(nameof(AdvisoryAiPricesDraft.EffectiveForThisKey), unstated.Field);
+        Assert.AreEqual(AdvisoryAiSetupText.EffectivePricesNeeded, unstated.Message);
+        Assert.IsNull(await fixture.Store.GetLatestTariffAsync(Model.ModelId, Model.ServiceTier, CancellationToken.None));
+
+        AdvisoryAiPricesCheck confirmed = await fixture.Service.ConfirmPricesAsync(new("$2.00", "0.10", "10", EffectiveForThisKey: true), CancellationToken.None);
         Assert.AreEqual(AdvisoryAiSetupText.PricesConfirmed, confirmed.Message);
         Assert.AreEqual(new AdvisoryAiTariff(1, Model.ModelId, Model.ServiceTier, new(2_000_000), new(100_000), new(10_000_000), Now), confirmed.Tariff);
 
