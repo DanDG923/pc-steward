@@ -1,6 +1,6 @@
 # Phase G — Advisory AI: staged build plan and interfaces (Tasks 67–71)
 
-**Status:** In progress (stages 1–3 of 6 built). The owner started Phase G on 2026-11-13 after Phase F's timeline stages merged, keeping the agreed order (Phases D installs and E removals stay paused by the owner). ADR-027, ADR-028 and ADR-029 are Accepted; nothing here widens them. OpenAI is the first provider (D2).
+**Status:** In progress (stages 1–3 of 6 built; stage 4a built). The owner started Phase G on 2026-11-13 after Phase F's timeline stages merged, keeping the agreed order (Phases D installs and E removals stay paused by the owner). ADR-027, ADR-028 and ADR-029 are Accepted; nothing here widens them. OpenAI is the first provider (D2).
 
 **What stays true at every stage:** AI is off by default and optional; every core feature works without a key. Nothing is sent without the owner approving an exact preview of that request. No model is chosen from memory: a model becomes usable only with the Task 69 evidence for it. Paid requests stay disabled by build policy until the Task 70 review passes, and the first live call (Task 71) needs the owner's separate approval inside the cumulative $1 envelope.
 
@@ -89,11 +89,18 @@ Tests: `AdvisoryAiAdapterTests` (Application.IntegrationTests): the exact bytes 
 
 Recorded for Tasks 69/70: OpenAI 2.15.0 marks the Responses client "for evaluation" (OPENAI001, suppressed in the one file that uses it). The SDK takes the key as a string, so a managed copy can't be cleared. The real Credential Manager calls are not run in CI; they are first exercised on the owner's PC.
 
+## Stage 4 split (Desktop)
+
+- **4a (implemented).** Application: `AdvisoryAiAvailability` (the first coherent reviewed model and the build policy; one model, no picker), `AdvisoryAiSetupService` (load without any credential access; connect with the prior-use question; disconnect; retry removal; replace key; save limits over the shown settings version; confirm prices; confirm month, accept clock, acknowledge review), the exact limits and prices forms, and `AdvisoryAiSettingsPresenter` with `AdvisoryAiSetupText`. Desktop: the "AI explanations" Settings section, which in this build only says it is not available.
+- **4b.** Desktop dialogs for connect (disclosure, prior-use question, masked key box), disconnect, replace key, limits, prices and the notices; composing `PCSteward.AdvisoryAi.Windows` (with the release toolchain pins and third-party notices); the exact key's removal and verification in factory reset.
+- **4c.** "Explain with AI…" on a Diagnostics incident and a failed update: the draft with edit and remove, the exact body and headers, approval, the send through `AdvisoryAiRequestWorkflow`, the result with its cost status, and saved answers.
+- **Recorded for review.** A "credential removal incomplete" result is shown for the rest of the session only; after a restart the section says "Not connected", because ordinary start-up must not probe Credential Manager (ADR-028). Disconnect and factory reset can be run again to verify removal.
+
 ## Provider and model registry (ADR-028 addendum A1, implemented in stage 3)
 
 The owner asked on 2026-11-14 for one model now (GPT-6.1 Sol) and a framework that makes choosing a model, or adding Claude's API, seamless later. Stage 3 therefore makes the path provider-neutral without adding a provider, a model or a picker:
 
-- **Providers** (`src/PCSteward.Domain/AdvisoryAiProviders.cs`): `AdvisoryAiProviderId` (stored values; only `OpenAI = 1`), and `AdvisoryAiProvider` with the compiled endpoint, the exact Credential Manager target (`PCSteward/<Provider>/ApiKey.v1`), the authorization header name and its preview placeholder, any further fixed headers, and an `IAdvisoryAiWireFormat` (request body writer and strict response reader). `AdvisoryAiProviders.All` is the registry; the only origin string in `src` is there.
+- **Providers** (`src/PCSteward.Domain/AdvisoryAiProviders.cs`): `AdvisoryAiProviderId` (stored values; only `OpenAI = 1`), and `AdvisoryAiProvider` with the compiled endpoint, the exact Credential Manager target (`PCSteward/<Provider>/ApiKey.v1`), the authorization header name and its preview placeholder, any further fixed headers, an `IAdvisoryAiWireFormat` (request body writer and strict response reader), and (from stage 4a) the provider's data-controls and pricing pages, which set-up links to. `AdvisoryAiProviders.All` is the registry; the only origin string in `src` is there.
 - **Models**: each `AdvisoryAiModelProfile` is one registry entry. It names its `Provider` and its `ReasoningEffort` (sent as `reasoning.effort` when set; null sends nothing) besides its evidenced limits and tokenizer facts, and its prices are its own tariff (model ID and tier). A profile whose provider is not registered, or whose effort is not a short lower-case word, is not coherent and never previews.
 - **Ports**: `IAdvisoryAiCredentialStore` and `IAdvisoryAiTransport` each name their provider. `AdvisoryAiProviderAdapters` holds one key store and transport per provider (a pair for two providers, or two pairs for one, is refused). The workflow picks the pair for the approved model's provider and reads the answer with that provider's wire format; a model whose provider has no pair is refused (`ProviderUnavailable`) before anything is reserved or read. The OpenAI transport refuses (`NotSent`) any other provider's approval.
 - **This build**: OpenAI only; `AdvisoryAiModelProfiles.Reviewed` stays empty until Task 69/70, then holds only `gpt-6.1-sol`. No picker.

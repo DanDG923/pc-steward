@@ -84,9 +84,9 @@ public static class SettingsPresenter
 
     /// <summary>
     /// The sections on the Settings page, in order (single column). UI polish phase 4 (approved target T-Settings): Decisions and
-    /// About are left to the navigation pane, and Data &amp; reset opens from Privacy &amp; data.
+    /// About are left to the navigation pane, and Data &amp; reset opens from Privacy &amp; data. Task 67 stage 4 adds AI explanations last.
     /// </summary>
-    public static IReadOnlyList<string> Sections { get; } = ["Update checks", "Scan scope", "Schedule", "Privacy & data"];
+    public static IReadOnlyList<string> Sections { get; } = ["Update checks", "Scan scope", "Schedule", "Privacy & data", AdvisoryAiSetupText.SectionHeading];
 
     /// <summary>The Settings page description (approved target T-Settings).</summary>
     public const string PageDescription = "Choose what PC Steward looks at, when it checks and what it keeps. Changes save straight away, except the schedule.";
