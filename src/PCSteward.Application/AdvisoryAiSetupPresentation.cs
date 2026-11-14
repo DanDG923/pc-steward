@@ -77,7 +77,7 @@ public static class AdvisoryAiSetupText
     /// <summary>ADR-029 "External file restores": the limitation disclosed in AI set-up.</summary>
     public const string ExternalRestoreLimitation = "PC Steward can't tell when its files are put back from a backup, OneDrive or a system restore. After one, its spending record may be out of date.";
 
-    public const string ReviewBlockNotice = "A recorded charge was more than PC Steward reserved for it, or didn't add up, so paid requests are paused. The recorded amounts stay as they are.";
+    public const string ReviewBlockNotice = "A recorded charge was more than PC Steward reserved for it or didn't add up, or the clock jumped forward while PC Steward was running, so paid requests are paused. Check the time; the recorded amounts stay as they are.";
 
     public const string ReviewBlockAction = "I've reviewed this";
 

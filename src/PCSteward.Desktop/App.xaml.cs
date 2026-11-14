@@ -213,7 +213,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
             : new();
         AdvisoryAiSetupService setup = new(database, database, adapters, availability, () => DateTimeOffset.UtcNow);
         AdvisoryAiRequestWorkflow workflow = new(database, database, adapters, database, PCSteward.Domain.AdvisoryAiModelProfiles.Reviewed,
-            PCSteward.Domain.AdvisoryAiBuildPolicy.PaidRequests, () => DateTimeOffset.UtcNow);
+            PCSteward.Domain.AdvisoryAiBuildPolicy.PaidRequests, () => DateTimeOffset.UtcNow, AdvisoryAiClockWatch.ForSystem());
         AdvisoryAiExplainService explain = new(database, database, database, workflow, availability, () => DateTimeOffset.UtcNow, IdentityRedaction());
         return (setup, explain);
     }

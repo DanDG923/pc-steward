@@ -529,6 +529,13 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             return AdvisoryAiAccountingWrite.Done;
         }, AdvisoryAiAccountingWrite.StorageFailed, cancellationToken);
 
+    public Task<AdvisoryAiAccountingWrite> FlagClockJumpAsync(CancellationToken cancellationToken) =>
+        AiWriteAsync(async (connection, transaction) =>
+        {
+            int changed = await AiExecuteAsync(connection, transaction, "UPDATE ai_accounting_state SET review_block=1 WHERE id=1;", cancellationToken).ConfigureAwait(false);
+            return changed == 1 ? AdvisoryAiAccountingWrite.Done : AdvisoryAiAccountingWrite.NotApplicable;
+        }, AdvisoryAiAccountingWrite.StorageFailed, cancellationToken);
+
     public Task<AdvisoryAiAccountingWrite> AcknowledgeReviewAsync(CancellationToken cancellationToken) =>
         AiWriteAsync(async (connection, transaction) =>
         {

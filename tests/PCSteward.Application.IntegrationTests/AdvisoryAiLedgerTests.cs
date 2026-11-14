@@ -479,6 +479,38 @@ public sealed class AdvisoryAiLedgerTests
     }
 
     [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow(25 * 60, 1, true, DisplayName = "25 wall hours in one running minute")]
+    [DataRow(48 * 60, 48 * 60, false, DisplayName = "a two-day sleep: both clocks moved")]
+    [DataRow(23 * 60, 0, false, DisplayName = "less than a day ahead")]
+    public async Task AClockThatJumpsForwardWhileRunningStopsPaidRequestsForReview(int wallMinutes, int tickMinutes, bool jumped)
+    {
+        // Task 70 T70-04: the guard runs on the real admission path. A jump is stored, survives a restart and needs the owner's review.
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        DateTimeOffset wall = Now;
+        TimeSpan tick = TimeSpan.FromHours(5);
+        AdvisoryAiClockWatch watch = new(() => wall, () => tick);
+        wall = wall.AddMinutes(wallMinutes);
+        tick += TimeSpan.FromMinutes(tickMinutes);
+        FakeTransport transport = new(_ => Received(Body("Synthetic advice.")));
+        (AdvisoryAiRequestWorkflow workflow, FakeCredentials credentials) = fixture.Workflow(transport, clockWatch: watch);
+        (AdvisoryAiApproval approval, AdvisoryAiRequestPreview preview) = await fixture.ApproveAsync();
+
+        AdvisoryAiSendOutcome outcome = await workflow.SendAsync(approval, preview, null, CancellationToken.None);
+        if (!jumped)
+        {
+            Assert.IsTrue(outcome.Dispatched);
+            return;
+        }
+        Assert.AreEqual(AdvisoryAiSendRefusal.ReservationRefused, outcome.Refusal);
+        Assert.AreEqual(AdvisoryAiReservationProblem.LedgerNeedsReview, outcome.ReservationProblem);
+        Assert.AreEqual(0, transport.Calls, "nothing is sent");
+        Assert.AreEqual(0, credentials.Reads, "the key isn't read");
+        Assert.AreEqual(0L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_requests;"), "nothing is reserved");
+        Assert.IsTrue((await fixture.NewStore().GetAccountingStateAsync(CancellationToken.None)).ReviewBlock, "the block is stored for after a restart");
+    }
+
+    [TestMethod]
     [TestCategory("FR-AI-04")]
     public async Task AnApprovedRequestIsSentOnceSettledRedactedAndSaved()
     {
@@ -868,12 +900,12 @@ public sealed class AdvisoryAiLedgerTests
 
         public (AdvisoryAiRequestWorkflow Workflow, FakeCredentials Credentials) Workflow(IAdvisoryAiTransport transport, string? key = "sk-synthetic-not-a-real-key",
             AdvisoryAiPaidRequestMode mode = AdvisoryAiPaidRequestMode.Ordinary, IReadOnlyList<AdvisoryAiModelProfile>? reviewed = null, Action? onRead = null,
-            Func<DateTimeOffset>? utcNow = null)
+            Func<DateTimeOffset>? utcNow = null, AdvisoryAiClockWatch? clockWatch = null)
         {
             FakeCredentials credentials = new(key, onRead);
             DateTimeOffset clock = Now.AddMinutes(1);
             return (new AdvisoryAiRequestWorkflow(Store, Store, new AdvisoryAiProviderAdapters((credentials, transport)), Store, reviewed ?? Reviewed, mode,
-                utcNow ?? (() => clock = clock.AddSeconds(1))), credentials);
+                utcNow ?? (() => clock = clock.AddSeconds(1)), clockWatch), credentials);
         }
 
         public async Task ExecuteAsync(string sql, params (string Name, object Value)[] parameters)

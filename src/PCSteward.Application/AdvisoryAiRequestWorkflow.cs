@@ -59,15 +59,17 @@ public sealed class AdvisoryAiRequestWorkflow
     private readonly IReadOnlyList<AdvisoryAiModelProfile> reviewedModels;
     private readonly AdvisoryAiPaidRequestMode mode;
     private readonly Func<DateTimeOffset> utcNow;
+    private readonly AdvisoryAiClockWatch? clockWatch;
 
     /// <remarks>
     /// Production passes <see cref="AdvisoryAiModelProfiles.Reviewed"/> as the reviewed models and <see cref="AdvisoryAiBuildPolicy.PaidRequests"/>
-    /// as the mode; tests pass synthetic ones.
+    /// as the mode, and one <see cref="AdvisoryAiClockWatch"/> for the process; tests pass synthetic ones.
     /// </remarks>
     public AdvisoryAiRequestWorkflow(IAdvisoryAiSettingsStore settings, IAdvisoryAiLedger ledger, AdvisoryAiProviderAdapters adapters,
         IAdvisoryAiExplanationStore explanations, IReadOnlyList<AdvisoryAiModelProfile> reviewedModels,
-        AdvisoryAiPaidRequestMode mode, Func<DateTimeOffset> utcNow)
+        AdvisoryAiPaidRequestMode mode, Func<DateTimeOffset> utcNow, AdvisoryAiClockWatch? clockWatch = null)
     {
+        this.clockWatch = clockWatch;
         this.settings = settings ?? throw new ArgumentNullException(nameof(settings));
         this.ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
         this.adapters = adapters ?? throw new ArgumentNullException(nameof(adapters));
@@ -108,6 +110,12 @@ public sealed class AdvisoryAiRequestWorkflow
         {
             return AdvisoryAiSendOutcome.Refused(AdvisoryAiSendRefusal.ReservationRefused, AdvisoryAiReservationProblem.AmountTooLarge);
         }
+
+        // T70-04: a wall clock that jumped forward while PC Steward was running stops paid requests for review before anything is
+        // reserved; the reservation below then refuses because of the stored review block.
+        if (clockWatch?.JumpedForward() == true &&
+            await ledger.FlagClockJumpAsync(CancellationToken.None).ConfigureAwait(false) == AdvisoryAiAccountingWrite.StorageFailed)
+            return AdvisoryAiSendOutcome.Refused(AdvisoryAiSendRefusal.LedgerUnavailable, reservation: reservation);
 
         AdvisoryAiReservationRequest request = new(approval.RequestId, model.ModelId, model.ProfileVersion, current.BindingFor(tariff),
             preview.InputTokenUpperBound, preview.Limits.MaximumOutputTokens, reservation, mode == AdvisoryAiPaidRequestMode.FirstLiveTest, utcNow());

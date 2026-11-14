@@ -22,9 +22,10 @@ public sealed class AdvisoryAiDesktopSetupBoundaryTests
         StringAssert.Contains(setup, "if (!availability.CanSetUp || availability.Provider is not PCSteward.Domain.AdvisoryAiProvider provider) return (null, null);");
         Assert.IsTrue(setup.IndexOf("return (null, null);", StringComparison.Ordinal) < setup.IndexOf("new WindowsCredentialManagerStore(", StringComparison.Ordinal),
             "nothing is composed before the reviewed-model check");
-        // Stage 4c: the one request workflow uses the compiled model list and paid-request policy, and the same adapters as set-up.
+        // Stage 4c: the one request workflow uses the compiled model list and paid-request policy, and the same adapters as set-up;
+        // T70-04: production watches the wall clock against the system tick count on that admission path.
         StringAssert.Contains(setup, "AdvisoryAiRequestWorkflow workflow = new(database, database, adapters, database, PCSteward.Domain.AdvisoryAiModelProfiles.Reviewed,");
-        StringAssert.Contains(setup, "PCSteward.Domain.AdvisoryAiBuildPolicy.PaidRequests, () => DateTimeOffset.UtcNow);");
+        StringAssert.Contains(setup, "PCSteward.Domain.AdvisoryAiBuildPolicy.PaidRequests, () => DateTimeOffset.UtcNow, AdvisoryAiClockWatch.ForSystem());");
         StringAssert.Contains(setup, "IdentityRedaction());");
         Assert.AreEqual(1, Regex.Count(app, @"new AdvisoryAiRequestWorkflow\(|AdvisoryAiRequestWorkflow workflow = new\("), "one request workflow");
         Assert.AreEqual(1, Regex.Count(app, @"CreateAdvisoryAi\(database\)"), "composed once at start-up");

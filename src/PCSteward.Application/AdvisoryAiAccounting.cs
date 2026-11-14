@@ -198,6 +198,12 @@ public interface IAdvisoryAiLedger
     /// <summary>The owner reviewed a recorded breach. The recorded amounts stay exactly as they are.</summary>
     Task<AdvisoryAiAccountingWrite> AcknowledgeReviewAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Task 70 T70-04: the clock jumped forward while PC Steward was running. Stores the review block, so paid requests stay paused, even
+    /// after a restart, until the owner reviews it. Nothing recorded changes.
+    /// </summary>
+    Task<AdvisoryAiAccountingWrite> FlagClockJumpAsync(CancellationToken cancellationToken);
+
     Task<AdvisoryAiSpendingSummary> GetSummaryAsync(AdvisoryAiPeriod period, CancellationToken cancellationToken);
 }
 
