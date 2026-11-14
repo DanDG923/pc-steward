@@ -125,12 +125,19 @@ public static class AdvisoryAiSetupText
             AdvisoryAiConnectOutcome.NeedsPriorUseAnswer => "Answer the question about earlier AI requests first.",
             AdvisoryAiConnectOutcome.NotAvailable => NoReviewedModel,
             AdvisoryAiConnectOutcome.AlreadyConnected => $"PC Steward is already connected to {provider.Name}.",
-            AdvisoryAiConnectOutcome.KeyNotSaved => "Windows didn't save the key, so AI explanations stay off.",
-            _ => result.Rollback is AdvisoryAiCredentialRemoval.Removed or AdvisoryAiCredentialRemoval.AlreadyAbsent or null
-                ? "PC Steward couldn't record the connection, so AI explanations stay off. Your key isn't kept."
-                : $"PC Steward couldn't record the connection, so AI explanations stay off, and it couldn't confirm your key was removed. Disconnect to try again, or remove {provider.CredentialTarget} in Credential Manager."
+            AdvisoryAiConnectOutcome.KeyNotSaved => "Windows didn't confirm the key was saved, so AI explanations stay off.",
+            _ => "PC Steward couldn't record the connection, so AI explanations stay off."
         };
-        return result.ExistingKeyFound ? text + " " + ExistingKeyFound : text;
+        if (result.Outcome is AdvisoryAiConnectOutcome.KeyNotSaved or AdvisoryAiConnectOutcome.NotRecorded)
+        {
+            // Absence is claimed only after a verified removal (ADR-028): otherwise the owner is told the key may still be there.
+            text += result.KeyMayRemain
+                ? $" PC Steward couldn't confirm that no key is left in Credential Manager. Try removing it again, or remove {provider.CredentialTarget} there yourself."
+                : result.Rollback is null ? " No key was saved." : " The key was removed again.";
+        }
+        // The prior-use answer was recorded unless the connection failed before anything was written.
+        bool declarationRecorded = !(result.Outcome == AdvisoryAiConnectOutcome.NotRecorded && result.Rollback is null);
+        return result.ExistingKeyFound && declarationRecorded ? text + " " + ExistingKeyFound : text;
     }
 
     public static string DisconnectResult(AdvisoryAiDisconnectResult result, AdvisoryAiProvider provider)

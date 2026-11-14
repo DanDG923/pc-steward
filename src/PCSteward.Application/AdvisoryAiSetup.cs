@@ -86,7 +86,15 @@ public enum AdvisoryAiConnectOutcome
 /// Credential Manager at a first connection, which ADR-028/029 treat as possible earlier use: the answer is recorded as yes/unsure.
 /// <see cref="Rollback"/> is the removal result when a saved key had to be taken out again.
 /// </summary>
-public sealed record AdvisoryAiConnectResult(AdvisoryAiConnectOutcome Outcome, bool ExistingKeyFound, AdvisoryAiCredentialRemoval? Rollback);
+public sealed record AdvisoryAiConnectResult(AdvisoryAiConnectOutcome Outcome, bool ExistingKeyFound, AdvisoryAiCredentialRemoval? Rollback)
+{
+    /// <summary>
+    /// True when the connection failed and PC Steward can't show that no key is left: a removal that wasn't verified, or a key found
+    /// earlier that nothing removed. The app then offers to remove it again (<see cref="AdvisoryAiSetupService.RetryKeyRemovalAsync"/>).
+    /// </summary>
+    public bool KeyMayRemain => Outcome is (AdvisoryAiConnectOutcome.KeyNotSaved or AdvisoryAiConnectOutcome.NotRecorded) &&
+        (Rollback == AdvisoryAiCredentialRemoval.Incomplete || (Rollback is null && (ExistingKeyFound || Outcome == AdvisoryAiConnectOutcome.KeyNotSaved)));
+}
 
 /// <summary>
 /// FR-AI-03 (ADR-028 "Disconnect"): <see cref="Recorded"/> is true when AI was durably turned off; <see cref="Removal"/> is the verified

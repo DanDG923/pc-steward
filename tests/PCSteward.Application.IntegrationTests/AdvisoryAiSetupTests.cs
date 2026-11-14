@@ -145,6 +145,38 @@ public sealed class AdvisoryAiSetupTests
         AdvisoryAiSettings settings = await fixture.Store.GetSettingsAsync(CancellationToken.None);
         Assert.IsFalse(settings.Connected);
         Assert.AreEqual(0, settings.ConsentVersion);
+        Assert.AreEqual(AdvisoryAiCredentialRemoval.Removed, result.Rollback, "a save that wasn't confirmed is removed again");
+        Assert.IsFalse(result.KeyMayRemain);
+        StringAssert.EndsWith(AdvisoryAiSetupText.ConnectResult(result, AdvisoryAiProviders.OpenAI), "The key was removed again.");
+
+        // The native write may have happened even though it wasn't confirmed: an unverified removal is disclosed, never called absent.
+        fixture.Credentials.Removal = AdvisoryAiCredentialRemoval.Incomplete;
+        AdvisoryAiConnectResult unverified = await fixture.Service.ConnectAsync(key, null, CancellationToken.None);
+        Assert.IsTrue(unverified.KeyMayRemain);
+        string text = AdvisoryAiSetupText.ConnectResult(unverified, AdvisoryAiProviders.OpenAI);
+        StringAssert.Contains(text, "couldn't confirm that no key is left");
+        StringAssert.Contains(text, AdvisoryAiProviders.OpenAI.CredentialTarget);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-03")]
+    public void AFailedConnectionClaimsNoKeyIsLeftOnlyWhenThatIsShown()
+    {
+        AdvisoryAiProvider openAi = AdvisoryAiProviders.OpenAI;
+        AdvisoryAiConnectResult nothingWritten = new(AdvisoryAiConnectOutcome.NotRecorded, false, null);
+        Assert.IsFalse(nothingWritten.KeyMayRemain);
+        StringAssert.EndsWith(AdvisoryAiSetupText.ConnectResult(nothingWritten, openAi), "No key was saved.");
+
+        AdvisoryAiConnectResult earlierKeyKept = new(AdvisoryAiConnectOutcome.NotRecorded, true, null);
+        Assert.IsTrue(earlierKeyKept.KeyMayRemain, "a key found before is still there when nothing removed it");
+        string text = AdvisoryAiSetupText.ConnectResult(earlierKeyKept, openAi);
+        StringAssert.Contains(text, openAi.CredentialTarget);
+        Assert.IsFalse(text.Contains("isn't kept", StringComparison.Ordinal));
+        Assert.IsFalse(text.Contains(AdvisoryAiSetupText.ExistingKeyFound, StringComparison.Ordinal), "the declaration wasn't recorded, so it isn't described");
+
+        Assert.IsTrue(new AdvisoryAiConnectResult(AdvisoryAiConnectOutcome.NotRecorded, false, AdvisoryAiCredentialRemoval.Incomplete).KeyMayRemain);
+        Assert.IsFalse(new AdvisoryAiConnectResult(AdvisoryAiConnectOutcome.NotRecorded, true, AdvisoryAiCredentialRemoval.AlreadyAbsent).KeyMayRemain);
+        Assert.IsFalse(new AdvisoryAiConnectResult(AdvisoryAiConnectOutcome.Connected, true, null).KeyMayRemain);
     }
 
     [TestMethod]
