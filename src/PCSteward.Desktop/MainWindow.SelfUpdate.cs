@@ -38,7 +38,8 @@ public sealed partial class MainWindow
     {
         if (!selfUpdaterResolved)
         {
-            selfUpdater = PcStewardSelfUpdate.TryCreate();
+            // Task 71: the AI test build never reads, starts or forgets the installed copy's update job.
+            selfUpdater = PCSteward.Domain.AdvisoryAiFirstLiveTestBuild.IsTestBuild ? null : PcStewardSelfUpdate.TryCreate();
             selfUpdaterResolved = true;
         }
         return selfUpdater;
@@ -142,6 +143,11 @@ public sealed partial class MainWindow
 
     private async Task CheckSelfUpdateAsync()
     {
+        if (PCSteward.Domain.AdvisoryAiFirstLiveTestBuild.IsTestBuild)
+        {
+            ShowSelfUpdate(SelfUpdateStage.Idle, AppIdentity.TestBuildActionOff);
+            return;
+        }
         if (!ReleaseVersion.TryParse(ProductVersion(), out ReleaseVersion? running) || running is null)
         {
             ShowSelfUpdate(SelfUpdateStage.Idle, "This build's version could not be read, so PC Steward cannot check for updates.");

@@ -109,7 +109,7 @@ $results.violations = @($violations | Where-Object { !$_.StartsWith('canary: ', 
 foreach ($name in @('Get-OwnerOnlyCandidateBuildSteps', 'Test-OwnerOnlyCandidateSdkVersion', 'Assert-OwnerOnlyCandidateOutputRootRule', 'Get-OwnerOnlyCandidateFileSha256',
         'Get-OwnerOnlyCandidateFileEntries', 'Get-OwnerOnlyCandidateExpectedXbf', 'ConvertTo-OwnerOnlyCandidateManifestBytes', 'Write-OwnerOnlyCandidateManifest', 'Copy-OwnerOnlyCandidateFile',
         'Get-OwnerOnlyCandidateProbeTypeNames', 'Test-OwnerOnlyCandidateProbeMark', 'Enter-OwnerOnlyCandidateGitIsolation', 'Exit-OwnerOnlyCandidateGitIsolation',
-        'Test-OwnerOnlyCandidateDescendsFromProbeCommit', 'Get-OwnerOnlyCandidateHelperPayloadEntries')) {
+        'Test-OwnerOnlyCandidateDescendsFromProbeCommit', 'Get-OwnerOnlyCandidateHelperPayloadEntries', 'Test-OwnerOnlyCandidateAiTestBuildMark')) {
     $definition = @($builder.Ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }.GetNewClosure(), $true))
     if ($definition.Count -ne 1) { throw "ASSERT: expected one builder function $name, found $($definition.Count)." }
     . ([scriptblock]::Create($definition[0].Extent.Text))
@@ -271,6 +271,22 @@ Write-ProbeAssemblies $prefixRoot @{ 'PCSteward.Desktop.dll' = 'QualificationPro
 $mark = Test-OwnerOnlyCandidateProbeMark -SourceDirty $false -DescendsFromProbeCommit $true -PayloadRoot $prefixRoot
 $probeMark['prefix-only'] = [ordered]@{ included = [bool]$mark.Included; detail = [string]$mark.Detail }
 $results.probeMark = $probeMark
+
+# 4b'. Task 71 (ADR-029): the AI test-build mark over synthetic Domain assemblies. Only the NUL-terminated metadata name counts.
+$aiTestMark = [ordered]@{}
+$aiTestRoot = Join-Path $WorkRoot 'ai-test-mark'
+foreach ($vector in @(
+        @('ordinary', ('MZ' + [char]0 + 'AdvisoryAiFirstLiveTestBuild' + [char]0 + 'AdvisoryAiModelProfiles' + [char]0)),
+        @('test-build', ('MZ' + [char]0 + 'AdvisoryAiFirstLiveTestBuild' + [char]0 + 'AdvisoryAiFirstLiveTestBuildMark' + [char]0)),
+        @('prefix-only', ('MZ' + [char]0 + 'AdvisoryAiFirstLiveTestBuildMarkX' + [char]0)))) {
+    $root = Join-Path $aiTestRoot $vector[0]
+    Write-FixtureFile $root 'PCSteward.Domain.dll' ([Text.Encoding]::ASCII.GetBytes($vector[1]))
+    $aiTestMark[$vector[0]] = [string](Test-OwnerOnlyCandidateAiTestBuildMark -PayloadRoot $root)
+}
+$missingRoot = Join-Path $aiTestRoot 'missing'
+[void][IO.Directory]::CreateDirectory($missingRoot)
+$aiTestMark['missing'] = if (Get-Failure { Test-OwnerOnlyCandidateAiTestBuildMark -PayloadRoot $missingRoot }) { 'refused' } else { 'accepted' }
+$results.aiTestMark = $aiTestMark
 
 # 4c. Review L8: the lineage check through a stand-in git that exits with a chosen code only when it is called with
 # --no-replace-objects first, GIT_NO_REPLACE_OBJECTS=1 and no GIT_DIR (else 3, 4 or 5). The caller's variables are restored.

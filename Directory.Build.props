@@ -14,4 +14,12 @@
     <VersionPrefix>0.1.17</VersionPrefix>
     <VersionSuffix>private-beta</VersionSuffix>
   </PropertyGroup>
+  <!--
+    Task 71 (ADR-029): the one-request AI test build, with the Task 69 candidate reviewed and paid requests in first-live-test
+    mode. Only scripts/New-AdvisoryAiFirstLiveTestBuild.ps1 sets this property. It is never part of a release: the release
+    candidate builder refuses any payload whose PCSteward.Domain.dll carries the test-build mark.
+  -->
+  <PropertyGroup Condition="'$(PCStewardAiFirstLiveTest)' == 'true'">
+    <DefineConstants>$(DefineConstants);PCSTEWARD_AI_FIRST_LIVE_TEST</DefineConstants>
+  </PropertyGroup>
 </Project>

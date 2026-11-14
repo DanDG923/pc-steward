@@ -130,7 +130,9 @@ public sealed class AdvisoryAiBudgetTests
     public void PaidRequestsAreRefusedWhileTheBuildOrTheSettingsTurnThemOff()
     {
         Assert.AreEqual(AdvisoryAiReservationProblem.PaidRequestsDisabledInThisBuild, Check(new(1), mode: AdvisoryAiPaidRequestMode.Disabled));
+#if !PCSTEWARD_AI_FIRST_LIVE_TEST
         Assert.AreEqual(AdvisoryAiReservationProblem.PaidRequestsDisabledInThisBuild, Check(new(1), mode: AdvisoryAiBuildPolicy.PaidRequests));
+#endif
         Assert.AreEqual(AdvisoryAiReservationProblem.PaidRequestsDisabledBySettings, Check(new(1), limits: AdvisoryAiLimits.Defaults with { RequestCap = MicroUsd.Zero }));
         Assert.AreEqual(AdvisoryAiReservationProblem.PaidRequestsDisabledBySettings, Check(new(1), limits: AdvisoryAiLimits.Defaults with { MonthlyBudget = MicroUsd.Zero }));
     }

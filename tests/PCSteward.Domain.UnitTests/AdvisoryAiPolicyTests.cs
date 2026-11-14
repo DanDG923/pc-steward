@@ -153,9 +153,18 @@ public sealed class AdvisoryAiPolicyTests
     [TestCategory("FR-AI-01")]
     public void NoModelIsReviewedYetAndPaidRequestsAreDisabledInThisBuild()
     {
+#if PCSTEWARD_AI_FIRST_LIVE_TEST
+        // Task 71: only the one-request test build lists the candidate, and only for the first live test.
+        Assert.AreEqual(1, AdvisoryAiModelProfiles.Reviewed.Count);
+        Assert.AreSame(AdvisoryAiFirstLiveTestBuild.Candidate, AdvisoryAiModelProfiles.Find("gpt-6.1-sol"));
+        Assert.AreEqual(AdvisoryAiPaidRequestMode.FirstLiveTest, AdvisoryAiBuildPolicy.PaidRequests);
+#else
         Assert.AreEqual(0, AdvisoryAiModelProfiles.Reviewed.Count, "a model is added only with Task 69 evidence");
         Assert.IsNull(AdvisoryAiModelProfiles.Find(Profile.ModelId));
+        Assert.IsNull(AdvisoryAiModelProfiles.Find(AdvisoryAiFirstLiveTestBuild.Candidate.ModelId));
         Assert.AreEqual(AdvisoryAiPaidRequestMode.Disabled, AdvisoryAiBuildPolicy.PaidRequests);
+        Assert.IsFalse(AdvisoryAiFirstLiveTestBuild.IsTestBuild);
+#endif
     }
 
     [TestMethod]

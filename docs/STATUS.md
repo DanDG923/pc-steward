@@ -1,3 +1,10 @@
+**Advisory AI, Task 71 test build (2026-11-14; build switch, guards, workflow and tests; no paid call, no key).** Requirements: `FR-AI-01–06`, `FR-BUD-01–04` ([Task 69 §12](review/TASK_69_AI_EVIDENCE_GPT_6_1_SOL.md)).
+
+- **Built for the owner's go-ahead** to build the one-request test build and have it reviewed. The build property `PCStewardAiFirstLiveTest=true` lists the Task 69 candidate as the one reviewed model and turns on first-live-test mode. Only `scripts/New-AdvisoryAiFirstLiveTestBuild.ps1` sets it, and it runs only on a hosted runner.
+- **Off the release path.** The release candidate builder refuses a payload that carries the test-build mark. The release workflows never name the property. The test build comes only from the on-demand "AI first live test build" workflow on `phase/4-beta`.
+- **Limits of the test build.** It refuses app updates, the scheduled check, factory reset and self-update, composes no elevated runner, and its title says what it is.
+- **Not done.** The test build needs its own independent review. The key and the one send each still need the owner's separate approval. Every other build keeps `Reviewed` empty and paid requests disabled.
+
 **Advisory AI, Task 70 gate passed (2026-11-14; reviews and one documentation fix; no paid call, no key).** Requirements: `FR-AI-01–06`, `FR-BUD-01–04` ([Task 90 record §8](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Reviews of `bb3c049`.** The owner's Task 70F and the independent second re-review both returned PASS for `gpt-6.1-sol`, the default tier, the Responses route, this disabled commit and the Task 71 packet. Neither report is in the repository.

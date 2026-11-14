@@ -39,6 +39,13 @@ public sealed class AdvisoryAiSetupTests
     public void ThisBuildHasNoReviewedModelSoNothingCanBeSetUp()
     {
         AdvisoryAiAvailability current = AdvisoryAiAvailability.Current;
+#if PCSTEWARD_AI_FIRST_LIVE_TEST
+        // Task 71: the one-request test build offers the candidate for the first live test only.
+        Assert.AreEqual(AdvisoryAiAvailabilityState.FirstLiveTestOnly, current.State);
+        Assert.AreSame(AdvisoryAiFirstLiveTestBuild.Candidate, current.Model);
+        Assert.AreEqual(AdvisoryAiProviderId.OpenAI, current.Provider?.Id);
+        Assert.AreEqual("First live test only", AdvisoryAiSettingsPresenter.PresentAvailability(current).AvailabilityTitle);
+#else
         Assert.AreEqual(AdvisoryAiAvailabilityState.NoReviewedModel, current.State);
         Assert.IsFalse(current.CanSetUp);
         Assert.IsNull(current.Model);
@@ -47,6 +54,7 @@ public sealed class AdvisoryAiSetupTests
         StringAssert.Contains(section.AvailabilityText, "everything else works without it");
         Assert.IsFalse(section.ShowsSetup);
         Assert.AreEqual(0, section.Notices.Count);
+#endif
     }
 
     [TestMethod]
@@ -254,7 +262,7 @@ public sealed class AdvisoryAiSetupTests
         Assert.AreEqual(AdvisoryAiConnectOutcome.AlreadyConnected, (await fixture.Service.ConnectAsync(key, null, CancellationToken.None)).Outcome);
         Assert.AreEqual(0, fixture.Credentials.Calls.Count);
 
-        AdvisoryAiSetupService none = fixture.ServiceFor(AdvisoryAiAvailability.Current);
+        AdvisoryAiSetupService none = fixture.ServiceFor(AdvisoryAiAvailability.Evaluate([], AdvisoryAiPaidRequestMode.Disabled));
         Assert.AreEqual(AdvisoryAiConnectOutcome.NotAvailable, (await none.ConnectAsync(key, AdvisoryAiPriorUseAnswer.NoPriorUse, CancellationToken.None)).Outcome);
         Assert.AreEqual(AdvisoryAiKeyReplaceOutcome.NotAvailable, await none.ReplaceKeyAsync(key, CancellationToken.None));
         Assert.AreEqual(0, fixture.Credentials.Calls.Count, "this build's service never touches a key store");

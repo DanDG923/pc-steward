@@ -90,6 +90,8 @@ public sealed partial class MainWindow
         async Task SaveScheduleAsync()
         {
             if (isSavingSchedule) return;
+            // Task 71: the Windows task must keep starting the installed copy, so the AI test build never registers or changes it.
+            if (PCSteward.Domain.AdvisoryAiFirstLiveTestBuild.IsTestBuild) { scheduleSummary.Text = AppIdentity.TestBuildActionOff; return; }
             if (HasActiveOperation) { scheduleSummary.Text = DataResetPresenter.ActiveWorkReason; return; }
             // Fail closed: no cadence or weekday selection means nothing is saved.
             ScheduledCheckSettings? requested = Requested();
