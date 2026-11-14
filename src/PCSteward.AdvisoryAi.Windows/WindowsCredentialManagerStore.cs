@@ -1,30 +1,46 @@
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using PCSteward.Application;
+using PCSteward.Domain;
 
 namespace PCSteward.AdvisoryAi.Windows;
 
 /// <summary>
-/// FR-AI-03 (ADR-028 Q8, Task 67 stage 3): the one exact current-user generic credential <see cref="IAdvisoryAiCredentialStore.Target"/>
-/// in Windows Credential Manager, local-machine persistence (this user on this computer, never roaming), no user name, the key as
+/// FR-AI-03 (ADR-028 Q8 and addendum A1, Task 67 stage 3): one provider's one exact current-user generic credential, its registered
+/// <see cref="AdvisoryAiProvider.CredentialTarget"/>, in Windows Credential Manager, local-machine persistence (this user on this computer, never roaming), no user name, the key as
 /// its ASCII bytes. Only that target is ever written, read or deleted: there is no list, search, prefix or other target. A save is
 /// checked by reading it back; a removal is reported only when a fresh read finds nothing. No network call is made.
 /// </summary>
 public sealed class WindowsCredentialManagerStore : IAdvisoryAiCredentialStore
 {
     private readonly ICredentialManagerApi api;
+    private readonly string target;
 
-    public WindowsCredentialManagerStore()
-        : this(new NativeCredentialManagerApi())
+    /// <summary>The store for <paramref name="provider"/>'s key, which must be a registered provider.</summary>
+    public WindowsCredentialManagerStore(AdvisoryAiProvider provider)
+        : this(provider, new NativeCredentialManagerApi())
     {
     }
 
-    /// <summary>For tests: a fake Credential Manager that returns the documented Win32 errors.</summary>
+    /// <summary>For tests: OpenAI's key in a fake Credential Manager that returns the documented Win32 errors.</summary>
     internal WindowsCredentialManagerStore(ICredentialManagerApi api)
+        : this(AdvisoryAiProviders.OpenAI, api)
     {
-        ArgumentNullException.ThrowIfNull(api);
-        this.api = api;
     }
+
+    internal WindowsCredentialManagerStore(AdvisoryAiProvider provider, ICredentialManagerApi api)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        ArgumentNullException.ThrowIfNull(api);
+        // Only a registered provider's own compiled target, never a target built from anything else.
+        if (AdvisoryAiProviders.Find(provider.Id) is not AdvisoryAiProvider registered || !ReferenceEquals(registered, provider))
+            throw new ArgumentException("Only a registered provider's own credential target can be used.", nameof(provider));
+        this.api = api;
+        target = provider.CredentialTarget;
+        Provider = provider.Id;
+    }
+
+    public AdvisoryAiProviderId Provider { get; }
 
     public Task<AdvisoryAiCredentialWrite> SaveAsync(AdvisoryAiApiKey key, CancellationToken cancellationToken)
     {
@@ -36,7 +52,7 @@ public sealed class WindowsCredentialManagerStore : IAdvisoryAiCredentialStore
             // AdvisoryAiApiKey admits printable ASCII only, so each character is one byte and the blob fits Credential Manager's limit.
             ReadOnlySpan<char> characters = key.Reveal();
             for (int index = 0; index < characters.Length; index++) blob[index] = (byte)characters[index];
-            if (api.Write(IAdvisoryAiCredentialStore.Target, blob) != CredentialError.None) return Task.FromResult(AdvisoryAiCredentialWrite.Failed);
+            if (api.Write(target, blob) != CredentialError.None) return Task.FromResult(AdvisoryAiCredentialWrite.Failed);
             using AdvisoryAiApiKey? stored = Read(out _);
             bool same = stored is not null && stored.Reveal().SequenceEqual(characters);
             return Task.FromResult(same ? AdvisoryAiCredentialWrite.Saved : AdvisoryAiCredentialWrite.Failed);
@@ -65,12 +81,12 @@ public sealed class WindowsCredentialManagerStore : IAdvisoryAiCredentialStore
 
     public Task<AdvisoryAiCredentialRemoval> RemoveAndVerifyAsync(CancellationToken cancellationToken)
     {
-        int deleted = api.Delete(IAdvisoryAiCredentialStore.Target);
+        int deleted = api.Delete(target);
         if (deleted is not (CredentialError.None or CredentialError.NotFound)) return Task.FromResult(AdvisoryAiCredentialRemoval.Incomplete);
         byte[]? remaining = null;
         try
         {
-            int check = api.Read(IAdvisoryAiCredentialStore.Target, out remaining);
+            int check = api.Read(target, out remaining);
             if (check != CredentialError.NotFound) return Task.FromResult(AdvisoryAiCredentialRemoval.Incomplete);
             return Task.FromResult(deleted == CredentialError.None ? AdvisoryAiCredentialRemoval.Removed : AdvisoryAiCredentialRemoval.AlreadyAbsent);
         }
@@ -90,7 +106,7 @@ public sealed class WindowsCredentialManagerStore : IAdvisoryAiCredentialStore
         char[]? characters = null;
         try
         {
-            error = api.Read(IAdvisoryAiCredentialStore.Target, out blob);
+            error = api.Read(target, out blob);
             if (error != CredentialError.None) return null;
             if (blob is null || blob.Length == 0 || blob.Length > AdvisoryAiApiKey.MaximumUtf8Bytes)
             {

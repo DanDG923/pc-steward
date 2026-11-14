@@ -45,7 +45,12 @@ public sealed class AdvisoryAiAdapterBoundaryTests
         Assert.AreEqual(4, Regex.Count(code, @"\[DllImport\("));
         foreach (string forbidden in new[] { "CredEnumerate", "CredFindBestCredential", "CredRename", "CredGetTargetInfo", "CredMarshal", "CredProtect", "PCSteward/", "ComImport", "LibraryImport" })
             Assert.IsFalse(code.Contains(forbidden, StringComparison.Ordinal), $"the adapter uses {forbidden}");
-        Assert.IsGreaterThanOrEqualTo(4, Regex.Count(code, @"IAdvisoryAiCredentialStore\.Target"), "every call names the one compiled target");
+        // ADR-028 addendum A1: the one target is the registered provider's compiled target, copied once in the constructor.
+        Assert.AreEqual(4, Regex.Count(code, @"api\.(Write|Read|Delete)\("), "four credential calls in the store");
+        Assert.AreEqual(4, Regex.Count(code, @"api\.(Write|Read|Delete)\(target\b"), "every call names the store's one target");
+        Assert.AreEqual(1, Regex.Count(code, @"\btarget = "), "the target is set once");
+        StringAssert.Contains(code, "target = provider.CredentialTarget;");
+        StringAssert.Contains(code, "is not AdvisoryAiProvider registered || !ReferenceEquals(registered, provider)");
         StringAssert.Contains(code, "private const int TypeGeneric = 1;");
         StringAssert.Contains(code, "private const int PersistLocalMachine = 2;");
     }

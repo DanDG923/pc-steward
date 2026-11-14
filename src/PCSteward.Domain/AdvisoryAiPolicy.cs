@@ -143,6 +143,11 @@ public static class AdvisoryAiResourcePolicy
 /// <param name="MaximumTokenUtf8Bytes">The most UTF-8 bytes any one output token can decode to.</param>
 /// <param name="ResponseEnvelopeBytes">An evidenced bound on the response object outside its text fields.</param>
 /// <param name="ServiceTier">The exact service tier requested, whose prices the tariff states.</param>
+/// <remarks>
+/// ADR-028 addendum A1: a profile is one registry entry. Besides the values above it names its <see cref="Provider"/> and the
+/// <see cref="ReasoningEffort"/> it requests, so each model carries its own evidence, limits, reasoning setting and (through its model
+/// ID and tier) its own owner-confirmed prices. Offering a second model is adding a second reviewed entry, not new code paths.
+/// </remarks>
 public sealed record AdvisoryAiModelProfile(
     string ModelId,
     int ProfileVersion,
@@ -154,6 +159,15 @@ public sealed record AdvisoryAiModelProfile(
     int ResponseEnvelopeBytes,
     string ServiceTier)
 {
+    /// <summary>The provider whose route, key and wire format this model uses.</summary>
+    public AdvisoryAiProviderId Provider { get; init; } = AdvisoryAiProviderId.OpenAI;
+
+    /// <summary>
+    /// The reasoning effort requested, exactly as the provider spells it, or null to send none. Fixed per reviewed profile so billed
+    /// reasoning cannot silently use up the output allowance (Task 69 measures it).
+    /// </summary>
+    public string? ReasoningEffort { get; init; }
+
     /// <summary>ADR-028 F1: the whole request, every text byte assumed to need the longest JSON escape.</summary>
     public static long RequestBytes(int maximumInputTokens) =>
         checked(AdvisoryAiResourcePolicy.RequestEnvelopeBytes + (long)AdvisoryAiResourcePolicy.JsonEscapeExpansion * maximumInputTokens);
@@ -175,7 +189,9 @@ public sealed record AdvisoryAiModelProfile(
         !string.IsNullOrWhiteSpace(ModelId) && ModelId.Length <= 128 && ModelId.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '.' or '_') &&
         ProfileVersion > 0 && ContextWindowTokens > 0 && MaximumOutputTokens > 0 && MaximumOutputTokens < ContextWindowTokens &&
         FramingAllowanceTokens >= 0 && TokenizerIsByteLevel && MaximumTokenUtf8Bytes > 0 && ResponseEnvelopeBytes > 0 &&
-        !string.IsNullOrWhiteSpace(ServiceTier) && ServiceTier.All(character => char.IsAsciiLetterLower(character) || character == '_');
+        !string.IsNullOrWhiteSpace(ServiceTier) && ServiceTier.All(character => char.IsAsciiLetterLower(character) || character == '_') &&
+        AdvisoryAiProviders.Find(Provider) is not null &&
+        (ReasoningEffort is null || (ReasoningEffort.Length is >= 1 and <= 16 && ReasoningEffort.All(char.IsAsciiLetterLower)));
 }
 
 /// <summary>

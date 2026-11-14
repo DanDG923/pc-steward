@@ -56,14 +56,17 @@ public sealed class OpenAiResponsesTransport : IAdvisoryAiTransport
         this.overallDeadline = overallDeadline;
     }
 
+    public AdvisoryAiProviderId Provider => AdvisoryAiProviderId.OpenAI;
+
     /// <summary>The SDK endpoint the Responses client appends "/responses" to; the guard checks the result is exactly the route.</summary>
-    internal static Uri SdkEndpoint { get; } = new(AdvisoryAiRoute.Endpoint, ".");
+    internal static Uri SdkEndpoint { get; } = new(AdvisoryAiProviders.OpenAI.Endpoint, ".");
 
     public async Task<AdvisoryAiTransportResult> SendOnceAsync(AdvisoryAiApproval approval, AdvisoryAiApiKey key, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(approval);
         ArgumentNullException.ThrowIfNull(key);
-        if (cancellationToken.IsCancellationRequested) return AdvisoryAiTransportResult.Of(AdvisoryAiTransportOutcome.NotSent);
+        // ADR-028 addendum A1: this transport sends only an OpenAI model's request, to OpenAI's one route.
+        if (cancellationToken.IsCancellationRequested || approval.Preview.Model.Provider != Provider) return AdvisoryAiTransportResult.Of(AdvisoryAiTransportOutcome.NotSent);
 
         long admitted = AdvisoryAiResponseReader.AdmittedBytes(approval);
         using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -159,7 +162,7 @@ public sealed class OpenAiResponsesTransport : IAdvisoryAiTransport
         {
             if (Interlocked.Increment(ref attempts) != 1) throw Refused();
             if (request.Method != HttpMethod.Post || request.RequestUri is null ||
-                !string.Equals(request.RequestUri.AbsoluteUri, AdvisoryAiRoute.Endpoint.AbsoluteUri, StringComparison.Ordinal))
+                !string.Equals(request.RequestUri.AbsoluteUri, AdvisoryAiProviders.OpenAI.Endpoint.AbsoluteUri, StringComparison.Ordinal))
                 throw Refused();
             if (!IsTheKey(request.Headers.Authorization)) throw Refused();
             byte[] body = request.Content is null ? [] : await request.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);

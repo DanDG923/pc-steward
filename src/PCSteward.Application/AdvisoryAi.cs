@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using PCSteward.Domain;
 
@@ -90,14 +91,15 @@ public enum AdvisoryAiCredentialWrite
 }
 
 /// <summary>
-/// FR-AI-03 (ADR-028 Q8): the one exact current-user credential. The adapter knows only <see cref="Target"/>: it never lists,
-/// searches or deletes any other credential, has no prefix or wildcard form, and is composed only by the desktop app. Saving makes no
-/// network call and no billable "test" request. Removing does not revoke the key at the provider.
+/// FR-AI-03 (ADR-028 Q8 and addendum A1): one provider's one exact current-user credential, <see cref="AdvisoryAiProvider.CredentialTarget"/>.
+/// The adapter knows only that target: it never lists, searches or deletes any other credential, has no prefix or wildcard form, and
+/// is composed only by the desktop app. Saving makes no network call and no billable "test" request. Removing does not revoke the key
+/// at the provider.
 /// </summary>
 public interface IAdvisoryAiCredentialStore
 {
-    /// <summary>The exact generic credential target. A future rename needs an explicit, tested migration list.</summary>
-    public const string Target = "PCSteward/OpenAI/ApiKey.v1";
+    /// <summary>The provider whose key this store holds.</summary>
+    AdvisoryAiProviderId Provider { get; }
 
     Task<AdvisoryAiCredentialWrite> SaveAsync(AdvisoryAiApiKey key, CancellationToken cancellationToken);
 
@@ -137,14 +139,50 @@ public sealed record AdvisoryAiTransportResult(AdvisoryAiTransportOutcome Outcom
 }
 
 /// <summary>
-/// FR-AI-04 (ADR-028 Q1/F11): sends one approved body once to <see cref="AdvisoryAiRoute.Endpoint"/>: exact approved bytes, the
+/// FR-AI-04 (ADR-028 Q1/F11): sends one approved body once to its provider's <see cref="AdvisoryAiProvider.Endpoint"/>: exact approved bytes, the
 /// closed header profile, no automatic retry, no redirect, certificate validation on, 10-second connect and 45-second overall
 /// deadlines, response read with the admitted size bound. Composed only by the desktop app; the scheduled host, the elevated helper
 /// and update execution have no AI transport or credential capability.
 /// </summary>
 public interface IAdvisoryAiTransport
 {
+    /// <summary>The one provider this transport sends to. It refuses (NotSent) an approval for any other provider's model.</summary>
+    AdvisoryAiProviderId Provider { get; }
+
     Task<AdvisoryAiTransportResult> SendOnceAsync(AdvisoryAiApproval approval, AdvisoryAiApiKey key, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// ADR-028 addendum A1: the key store and transport for each provider the desktop app composed. The request workflow picks the pair
+/// for the approved model's provider; a model whose provider has no pair is refused before anything is reserved or read.
+/// </summary>
+public sealed class AdvisoryAiProviderAdapters
+{
+    private readonly Dictionary<AdvisoryAiProviderId, (IAdvisoryAiCredentialStore Credentials, IAdvisoryAiTransport Transport)> adapters = [];
+
+    public AdvisoryAiProviderAdapters(params (IAdvisoryAiCredentialStore Credentials, IAdvisoryAiTransport Transport)[] pairs)
+    {
+        ArgumentNullException.ThrowIfNull(pairs);
+        foreach ((IAdvisoryAiCredentialStore credentials, IAdvisoryAiTransport transport) in pairs)
+        {
+            ArgumentNullException.ThrowIfNull(credentials);
+            ArgumentNullException.ThrowIfNull(transport);
+            if (credentials.Provider != transport.Provider || AdvisoryAiProviders.Find(credentials.Provider) is null)
+                throw new ArgumentException("A key store and transport must belong to the same registered provider.", nameof(pairs));
+            if (!adapters.TryAdd(credentials.Provider, (credentials, transport)))
+                throw new ArgumentException("Each provider has exactly one key store and transport.", nameof(pairs));
+        }
+    }
+
+    public IEnumerable<AdvisoryAiProviderId> Providers => adapters.Keys;
+
+    public bool TryGet(AdvisoryAiProviderId provider, [NotNullWhen(true)] out IAdvisoryAiCredentialStore? credentials, [NotNullWhen(true)] out IAdvisoryAiTransport? transport)
+    {
+        bool found = adapters.TryGetValue(provider, out (IAdvisoryAiCredentialStore Credentials, IAdvisoryAiTransport Transport) pair);
+        credentials = found ? pair.Credentials : null;
+        transport = found ? pair.Transport : null;
+        return found;
+    }
 }
 
 /// <summary>

@@ -15,7 +15,7 @@ public sealed class AdvisoryAiAdapterTests
     private const string Key = "sk-synthetic-not-a-real-key-0123456789";
     private static readonly DateTimeOffset Now = new(2026, 11, 13, 12, 0, 0, TimeSpan.Zero);
     private static readonly string[] ProfileHeaders = ["Authorization", "Accept", "User-Agent", "Content-Type", "Content-Length"];
-    private static readonly string[] OnlyTarget = [IAdvisoryAiCredentialStore.Target];
+    private static readonly string[] OnlyTarget = [AdvisoryAiProviders.OpenAI.CredentialTarget];
     private static readonly AdvisoryAiModelProfile Model = new("synthetic-model-2026-01-01", 1, 128_000, 16_384, 64, true, 64, 65_536, "default");
 
     [TestMethod]
@@ -34,7 +34,7 @@ public sealed class AdvisoryAiAdapterTests
         Assert.AreEqual(1, network.Calls);
         SeenRequest seen = network.Requests.Single();
         Assert.AreEqual("POST", seen.Method);
-        Assert.AreEqual(AdvisoryAiRoute.Endpoint.AbsoluteUri, seen.Uri);
+        Assert.AreEqual(AdvisoryAiProviders.OpenAI.Endpoint.AbsoluteUri, seen.Uri);
         CollectionAssert.AreEqual(approval.Body.ToArray(), seen.Body, "the SDK sent the approved bytes, not a body of its own");
         CollectionAssert.AreEquivalent(ProfileHeaders, seen.Headers.Keys.ToArray(),
             "nothing the SDK adds (its own user agent, request IDs, tracing) leaves the PC");
