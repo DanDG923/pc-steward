@@ -161,6 +161,28 @@ internal sealed class N1NativeFixture : IDisposable
         return token;
     }
 
+    /// <summary>
+    /// The verdict the helper token factory gives when the test runner is a non-elevated split-token administrator
+    /// (elevation type Limited) and passes itself as the peer. Its linked token is the elevated (Full) half, which Windows
+    /// creates in its own logon session, so <see cref="RequesterTokenPolicy.Validate"/> refuses at the logon-session rule
+    /// (<see cref="TokenVerdict.AuthenticationIdMismatch"/>), which it checks before the elevation-type rule
+    /// (<see cref="TokenVerdict.EvaluationNotLimited"/>). The linked half is read and checked here, so an unexpected host shape
+    /// fails the test instead of passing it. CI runs without a split token and never reaches this.
+    /// </summary>
+    internal static TokenVerdict LimitedRunnerSelfPeerVerdict()
+    {
+        RequireWindows("split-token linked half");
+        using WindowsIdentity identity = WindowsIdentity.GetCurrent();
+        Assert.IsTrue(NativeTokenReader.TryReadFacts(identity.AccessToken, out TokenFacts own, out _), "own token facts");
+        Assert.AreEqual(TokenElevationKind.Limited, own.ElevationType);
+        using SafeAccessTokenHandle linked = NativeTokenReader.TryGetLinkedToken(identity.AccessToken)
+            ?? throw new AssertFailedException("a Limited token has no readable linked token");
+        Assert.IsTrue(NativeTokenReader.TryReadFacts(linked, out TokenFacts elevated, out _), "linked token facts");
+        Assert.AreEqual(own.UserSid, elevated.UserSid, "both halves of a split token belong to the same user");
+        Assert.AreEqual(TokenElevationKind.Full, elevated.ElevationType, "the linked half of a Limited token is the elevated token");
+        return own.AuthenticationId != elevated.AuthenticationId ? TokenVerdict.AuthenticationIdMismatch : TokenVerdict.EvaluationNotLimited;
+    }
+
     internal static void RequireWindows(string evidence)
     {
         if (!OperatingSystem.IsWindows())
