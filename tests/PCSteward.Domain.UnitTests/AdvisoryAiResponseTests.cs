@@ -267,4 +267,139 @@ public sealed class AdvisoryAiResponseTests
         Assert.IsFalse(response.CacheWriteUnreadable);
         Assert.IsFalse(response.UsageAboveApprovedBounds);
     }
+
+    private static readonly AdvisoryAiTariff ReviewTariff = new(1, Model, "default", new(2_000_000), new(100_000), new(10_000_000), DateTimeOffset.UnixEpoch);
+
+    /// <summary>As the production overload reads it: the requested tier is "default" and the request asked for no prompt cache.</summary>
+    private static AdvisoryAiResponse ReadAsRequested(string json) =>
+        AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(json), Model, 1_000_000, 8192, 1024, "default", noPromptCache: true);
+
+    private static void AssertPausedWithWholeReservation(AdvisoryAiResponse response, string because)
+    {
+        Assert.IsFalse(response.UsageReliable, because);
+        Assert.IsTrue(response.UsageAboveApprovedBounds, because);
+        AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+        Assert.AreEqual(AdvisoryAiRequestState.Uncertain, settlement.State, because);
+        Assert.AreEqual(45_056, settlement.Committed.Value, because);
+        Assert.IsTrue(settlement.NeedsReview, because);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow(",\"service_tier\":\"default\"", "default", DisplayName = "the requested tier")]
+    [DataRow("", null, DisplayName = "no tier reported")]
+    [DataRow(",\"service_tier\":null", null, DisplayName = "a null tier")]
+    public void TheRequestedTierOrNoTierSettlesNormally(string tier, string? shown)
+    {
+        AdvisoryAiResponse response = ReadAsRequested(Body(extra: tier));
+        Assert.AreEqual(AdvisoryAiAnswerStatus.Completed, response.Status);
+        Assert.AreEqual(shown, response.ServiceTier);
+        Assert.AreEqual(AdvisoryAiResponseDeparture.None, response.Departures);
+        Assert.IsTrue(response.UsageReliable);
+        Assert.IsFalse(response.UsageAboveApprovedBounds);
+        Assert.AreEqual(AdvisoryAiRequestState.Settled, AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff).State);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow(",\"service_tier\":\"priority\"", "priority")]
+    [DataRow(",\"service_tier\":\"fast\"", "fast")]
+    [DataRow(",\"service_tier\":\"ultrafast\"", "ultrafast")]
+    [DataRow(",\"service_tier\":\"flex\"", "flex")]
+    [DataRow(",\"service_tier\":\"auto\"", "auto")]
+    [DataRow(",\"service_tier\":\"Default\"", null, DisplayName = "not a plain lower-case name")]
+    [DataRow(",\"service_tier\":7", null, DisplayName = "not a name")]
+    [DataRow(",\"service_tier\":[\"default\"]", null, DisplayName = "a list")]
+    public void AReplyFromAnotherServiceTierStopsPaidRequestsForReview(string tier, string? shown)
+    {
+        // Independent review F1: the request asks for, and the owner priced, the default tier. A reply naming another tier may have
+        // been charged at that tier's price, so its usage can't settle the charge at the confirmed prices.
+        AdvisoryAiResponse response = ReadAsRequested(Body(extra: tier));
+        Assert.AreEqual(AdvisoryAiAnswerStatus.Completed, response.Status, "the answer itself is still shown");
+        Assert.AreEqual(shown, response.ServiceTier);
+        Assert.AreEqual(AdvisoryAiResponseDeparture.ServiceTier, response.Departures);
+        AssertPausedWithWholeReservation(response, tier);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void AnotherTierStillStopsPaidRequestsWhenTheBodyIsRefusedOrTheTierIsRepeated()
+    {
+        AdvisoryAiResponse otherModel = ReadAsRequested(Body(extra: ",\"service_tier\":\"priority\"").Replace(Model, "other-model", StringComparison.Ordinal));
+        Assert.AreEqual(AdvisoryAiMalformedReason.ModelMismatch, otherModel.MalformedReason);
+        AssertPausedWithWholeReservation(otherModel, "refused for another reason");
+
+        AdvisoryAiResponse repeated = ReadAsRequested(Body(extra: ",\"service_tier\":\"priority\",\"service_tier\":\"default\""));
+        Assert.AreEqual(AdvisoryAiMalformedReason.DuplicateProperty, repeated.MalformedReason);
+        Assert.IsNull(repeated.ServiceTier);
+        AssertPausedWithWholeReservation(repeated, "a repeated tier can't hide another one");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("\"input_tokens\":900,", "\"input_tokens\":900,\"audio_tokens\":5,", DisplayName = "an extra usage counter")]
+    [DataRow("\"total_tokens\":1200", "\"total_tokens\":1200,\"cache_write_tokens\":40", DisplayName = "a cache write one level up")]
+    [DataRow("{\"cached_tokens\":0}", "{\"cached_tokens\":0,\"cache_creation_tokens\":40}", DisplayName = "a cache write under another name")]
+    [DataRow("{\"reasoning_tokens\":120}", "{\"reasoning_tokens\":120,\"accepted_prediction_tokens\":3}", DisplayName = "an extra output counter")]
+    public void AnUnknownUsageCounterStopsPaidRequestsForReview(string from, string to)
+    {
+        // Independent review F2: a counter the reader doesn't know may be a billing category the owner never priced.
+        AdvisoryAiResponse response = ReadAsRequested(Body(usage: Usage.Replace(from, to, StringComparison.Ordinal)));
+        Assert.IsTrue(response.Departures.HasFlag(AdvisoryAiResponseDeparture.UnknownUsageField));
+        AssertPausedWithWholeReservation(response, to);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void CachedInputOnANoCacheRequestStopsPaidRequestsForReview()
+    {
+        // Independent review F2: the request asked for no prompt cache, so cached input means the request wasn't honoured as approved.
+        string cached = Body(usage: Usage.Replace("\"cached_tokens\":0", "\"cached_tokens\":512", StringComparison.Ordinal));
+        AdvisoryAiResponse response = ReadAsRequested(cached);
+        Assert.AreEqual(AdvisoryAiResponseDeparture.PromptCacheUsed, response.Departures);
+        AssertPausedWithWholeReservation(response, "cached input");
+        Assert.IsTrue(Read(cached).UsageReliable, "a profile that allows the cache settles it at the cached rate");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-04")]
+    [DataRow(",\"background\":true")]
+    [DataRow(",\"previous_response_id\":\"resp_earlier\"")]
+    [DataRow(",\"conversation\":{\"id\":\"conv_1\"}")]
+    public void ConversationStateTheRequestNeverAskedForIsNotAnAnswer(string state)
+    {
+        // Independent review F2: a reply that ran in the background or continued other state isn't an answer to this request.
+        AdvisoryAiResponse response = ReadAsRequested(Body(extra: state));
+        Assert.AreEqual(AdvisoryAiAnswerStatus.Malformed, response.Status);
+        Assert.AreEqual(AdvisoryAiMalformedReason.UnexpectedState, response.MalformedReason);
+        Assert.IsNull(response.Text);
+        AssertPausedWithWholeReservation(response, state);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-04")]
+    public void ExplicitlyEmptyConversationStateIsAccepted()
+    {
+        AdvisoryAiResponse response = ReadAsRequested(Body(extra: ",\"background\":false,\"previous_response_id\":null,\"conversation\":null"));
+        Assert.AreEqual(AdvisoryAiAnswerStatus.Completed, response.Status);
+        Assert.IsTrue(response.UsageReliable);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void AnAnswerReportingNoInputCanNotSettleForNothing()
+    {
+        // Independent review F2: an answer always has input, so zero usage keeps the reservation (without a pause).
+        string zero = "\"usage\":{\"input_tokens\":0,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":0}";
+        AdvisoryAiResponse answer = ReadAsRequested(Body(usage: zero));
+        Assert.AreEqual(AdvisoryAiAnswerStatus.Completed, answer.Status);
+        Assert.IsFalse(answer.UsageReliable);
+        Assert.IsFalse(answer.UsageAboveApprovedBounds);
+        AdvisoryAiSettlement kept = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, answer, new(45_056), ReviewTariff);
+        Assert.AreEqual(AdvisoryAiRequestState.Uncertain, kept.State);
+        Assert.AreEqual(45_056, kept.Committed.Value);
+
+        AdvisoryAiResponse failed = ReadAsRequested(Body("failed", "[]", usage: zero, extra: ",\"error\":{\"code\":\"server_error\",\"message\":\"x\"}"));
+        Assert.IsTrue(failed.UsageReliable, "a provider failure can honestly have used nothing");
+    }
 }

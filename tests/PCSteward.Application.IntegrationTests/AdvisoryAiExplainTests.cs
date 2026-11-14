@@ -103,6 +103,52 @@ public sealed class AdvisoryAiExplainTests
     }
 
     [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public async Task AFailedReplyShowsItsHttpStatusAndClosedReasonButNoProviderText()
+    {
+        // Independent review F3: a 401, 404 or 429 error body must be told apart on the outcome screen, by numbers and fixed words only.
+        await using Fixture fixture = await Fixture.CreateAsync(connected: true, prices: true);
+        fixture.Transport.Next = new(AdvisoryAiTransportOutcome.ResponseReceived, 401,
+            [.. Encoding.UTF8.GetBytes("{\"error\":{\"message\":\"Incorrect API key provided: sk-synth\",\"type\":\"invalid_request_error\",\"code\":\"invalid_api_key\"}}")]);
+        AdvisoryAiExplainService service = fixture.Service();
+        AdvisoryAiEvidenceDraft draft = (await service.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Draft!;
+        AdvisoryAiSendOutcome outcome = await service.SendAsync(await service.ReviewAsync(draft, CancellationToken.None), CancellationToken.None);
+
+        Assert.AreEqual(AdvisoryAiAnswerStatus.Malformed, outcome.AnswerStatus);
+        Assert.AreEqual(AdvisoryAiRequestState.Uncertain, outcome.Settlement!.State);
+        string details = AdvisoryAiExplainText.ReplyDetails(outcome.UsageReport)!;
+        StringAssert.Contains(details, "HTTP status 401");
+        StringAssert.Contains(details, "wasn't a response object");
+        StringAssert.Contains(details, "no service tier reported");
+        Assert.IsFalse(details.Contains("Incorrect", StringComparison.Ordinal), "provider text never reaches the screen");
+        Assert.IsFalse(details.Contains("paused", StringComparison.Ordinal));
+        Assert.IsNull(AdvisoryAiExplainText.ReplyDetails(null));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public async Task AReplyFromAnotherServiceTierIsShownAndPausesPaidRequests()
+    {
+        // Independent review F1: the tier is shown with the counts, and a reply from another tier keeps the whole reservation.
+        await using Fixture fixture = await Fixture.CreateAsync(connected: true, prices: true);
+        string body = Body("Synthetic explanation.");
+        fixture.Transport.Next = new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes(body[..^1] + ",\"service_tier\":\"priority\"}")]);
+        AdvisoryAiExplainService service = fixture.Service();
+        AdvisoryAiEvidenceDraft draft = (await service.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Draft!;
+        AdvisoryAiReview review = await service.ReviewAsync(draft, CancellationToken.None);
+        AdvisoryAiSendOutcome outcome = await service.SendAsync(review, CancellationToken.None);
+
+        Assert.AreEqual(AdvisoryAiRequestState.Uncertain, outcome.Settlement!.State);
+        Assert.AreEqual(review.Reservation, outcome.Settlement.Committed);
+        Assert.IsTrue(outcome.Settlement.NeedsReview);
+        string details = AdvisoryAiExplainText.ReplyDetails(outcome.UsageReport)!;
+        StringAssert.Contains(details, "HTTP status 200");
+        StringAssert.Contains(details, "service tier \"priority\"");
+        StringAssert.Contains(details, "paused");
+        StringAssert.Contains(AdvisoryAiExplainText.Retention(AdvisoryAiProviders.OpenAI), AdvisoryAiProviders.OpenAI.DataControlsPage.ToString());
+    }
+
+    [TestMethod]
     [TestCategory("FR-AI-04")]
     public async Task AChangeAfterTheReviewRefusesTheSendBeforeAnythingIsReservedOrRead()
     {
@@ -193,9 +239,13 @@ public sealed class AdvisoryAiExplainTests
         public AdvisoryAiProviderId Provider => AdvisoryAiProviderId.OpenAI;
         public int Calls { get; private set; }
 
+        /// <summary>A reply to give instead of the synthetic answer.</summary>
+        public AdvisoryAiTransportResult? Next { get; set; }
+
         public Task<AdvisoryAiTransportResult> SendOnceAsync(AdvisoryAiApproval approval, AdvisoryAiApiKey key, CancellationToken cancellationToken)
         {
             Calls++;
+            if (Next is AdvisoryAiTransportResult next) return Task.FromResult(next);
             return Task.FromResult(new AdvisoryAiTransportResult(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes(Body("Synthetic explanation."))]));
         }
     }

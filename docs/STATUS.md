@@ -1,3 +1,13 @@
+**Advisory AI, Task 70D passed and an independent review failed on one Medium finding; fixed (2026-11-14; code, tests and docs; no paid call, no key).** Requirements: `FR-AI-02/04/05`, `FR-BUD-02/03` ([Task 90 record §6](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Reviews of `14ef51b`.** The owner's Task 70D returned PASS. An independent review returned FAIL on F1 (Medium): the reply's service tier wasn't checked. It also raised five Low findings. Neither report is in the repository.
+- **Fixed.**
+  - A reply from another service tier, an unknown usage counter, cached input on a no-cache request, or conversation state now pauses paid requests and keeps the whole reservation (F1, F2).
+  - The outcome screen shows the HTTP status, tier and fixed reason (F3).
+  - More redaction classes are covered (F4).
+  - ADR-028 addendum A2 records B1 and B2, and how a departure from the priced request is handled (F5, F6).
+- **Next.** Both reviews run again at the fixed commit. `Reviewed` stays empty and paid requests stay disabled.
+
 **Advisory AI, third Task 70 (70C) failed on one Medium finding; fixed (2026-11-14; code and tests; no paid call, no key).** Requirements: `FR-AI-04`, `FR-BUD-02/03` ([Task 90 record §5](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **70C.** The owner ran a third review of `b11da9b`. It found six earlier findings fixed and three partly fixed, with one new Medium finding, T70C-01: a repeated `usage` or `input_tokens_details` container could hide a cache write from the pause rule. The owner kept the report on their PC.

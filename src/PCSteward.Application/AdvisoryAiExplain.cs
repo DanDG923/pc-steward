@@ -262,6 +262,52 @@ public static class AdvisoryAiExplainText
         return $"The provider reported {usage}, and {cache}." + (report.UsageReliable ? string.Empty : " PC Steward didn't trust this usage to settle the charge.");
     }
 
+    /// <summary>
+    /// Independent review F1/F3: the reply's HTTP status, service tier, the closed reason it wasn't trusted and anything that departed
+    /// from the approved request, so a failed or unusual reply can be told apart and noted down. Numbers and fixed words only: no body,
+    /// header or provider message. Null when nothing was received.
+    /// </summary>
+    public static string? ReplyDetails(AdvisoryAiUsageReport? report)
+    {
+        if (report is null) return null;
+        List<string> parts = [];
+        if (report.HttpStatus is int status) parts.Add(string.Create(CultureInfo.InvariantCulture, $"HTTP status {status}"));
+        parts.Add(report.ServiceTier is string tier ? $"service tier \"{tier}\"" : "no service tier reported");
+        string details = $"Reply details: {string.Join(", ", parts)}.";
+        if (report.MalformedReason != AdvisoryAiMalformedReason.None) details += $" It wasn't trusted as an answer because {MalformedReasonText(report.MalformedReason)}.";
+        List<string> departures = [];
+        if (report.Departures.HasFlag(AdvisoryAiResponseDeparture.ServiceTier)) departures.Add("a service tier other than the one requested and priced");
+        if (report.Departures.HasFlag(AdvisoryAiResponseDeparture.UnknownUsageField)) departures.Add("a usage figure PC Steward doesn't know how to price");
+        if (report.Departures.HasFlag(AdvisoryAiResponseDeparture.PromptCacheUsed)) departures.Add("cached input although no prompt cache was asked for");
+        if (report.Departures.HasFlag(AdvisoryAiResponseDeparture.ConversationState)) departures.Add("background or conversation state that wasn't asked for");
+        if (departures.Count > 0) details += $" The reply reported {string.Join("; ", departures)}, so paid requests are paused until you review it in Settings.";
+        return details;
+    }
+
+    private static string MalformedReasonText(AdvisoryAiMalformedReason reason) => reason switch
+    {
+        AdvisoryAiMalformedReason.TooLarge => "it was larger than this request allows",
+        AdvisoryAiMalformedReason.NotJson => "it wasn't readable JSON",
+        AdvisoryAiMalformedReason.NotAResponseObject => "it wasn't a response object (an error reply usually looks like this)",
+        AdvisoryAiMalformedReason.DuplicateProperty => "a field appeared twice",
+        AdvisoryAiMalformedReason.MissingOrInvalidId => "its response ID was missing or invalid",
+        AdvisoryAiMalformedReason.ModelMismatch => "it named a different model",
+        AdvisoryAiMalformedReason.UnknownStatus => "its status was missing or unknown",
+        AdvisoryAiMalformedReason.StoredResponse => "it said the response was stored",
+        AdvisoryAiMalformedReason.ToolsPresent => "it listed tools",
+        AdvisoryAiMalformedReason.UnexpectedOutputItem => "it held output other than a message",
+        AdvisoryAiMalformedReason.InvalidOutputText => "its message text wasn't plain text",
+        AdvisoryAiMalformedReason.UnexpectedState => "it carried background or conversation state",
+        _ => "of an unknown problem"
+    };
+
+    /// <summary>ADR-028 "Provider storage disclosure", repeated before the first egress (independent review I4).</summary>
+    public static string Retention(AdvisoryAiProvider provider)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        return $"PC Steward asks {provider.Name} not to store this request or its answer, but {provider.Name} may keep data for abuse monitoring. Read {provider.Name}'s data controls at {provider.DataControlsPage}.";
+    }
+
     /// <summary>FR-AI-05, FR-BUD-02/03: what happened, what it cost as far as PC Steward knows, and whether the answer was saved.</summary>
     public static string Outcome(AdvisoryAiSendOutcome outcome)
     {

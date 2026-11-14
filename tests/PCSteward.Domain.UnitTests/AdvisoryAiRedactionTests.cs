@@ -183,4 +183,36 @@ public sealed class AdvisoryAiRedactionTests
     [TestCategory("FR-AI-05")]
     public void LinksInAnAnswerCannotBeOpened() =>
         Assert.AreEqual("Download the fix from [link] now.", AdvisoryAiRedaction.SanitizeAnswer("Download the fix from https://evil.example/fix.exe now.", 1000).Value);
+
+    [TestMethod]
+    [TestCategory("FR-AI-02")]
+    [DataRow("Authorization: Basic dXNlcjpodW50ZXIy", "dXNlcjpodW50ZXIy", "Authorization: Basic [secret]")]
+    [DataRow("header basic YWJjOmRlZg== sent", "YWJjOmRlZg", "basic [secret]")]
+    [DataRow("password is: hunter2", "hunter2", "password is: [secret]")]
+    [DataRow("PIN: 4821", "4821", "PIN: [secret]")]
+    [DataRow("passcode=99887766", "99887766", "passcode=[secret]")]
+    [DataRow("wifi psk: correcthorse", "correcthorse", "psk: [secret]")]
+    [DataRow("pre-shared key = s3cr3t", "s3cr3t", "pre-shared key = [secret]")]
+    [DataRow("link-local fe80::1c2b:3a4d:5e6f:7a8b%12 down", "1c2b:3a4d", "[address]")]
+    [DataRow("addr 2001:0db8:85a3:0000:0000:8a2e:0370:7334 seen", "85a3", "[address]")]
+    [DataRow("IP address: 192.168.1.23 unreachable", "192.168.1.23", "IP address: [address]")]
+    [DataRow("gateway 10.0.0.1 timed out", "10.0.0.1", "gateway [address]")]
+    [DataRow("dns server=8.8.4.4:53", "8.8.4.4", "dns server=[address]")]
+    public void IndependentReviewRedactionGapsAreClosed(string text, string mustNotRemain, string placeholder)
+    {
+        // Independent review F4: Basic credentials, "is:" and PIN, passcode and pre-shared-key labels, IPv6 and labelled IPv4 addresses.
+        string? clean = AdvisoryAiRedaction.SanitizeEvidence(text, 2048, Identity).Value;
+        Assert.IsNotNull(clean);
+        Assert.IsFalse(clean.Contains(mustNotRemain, StringComparison.OrdinalIgnoreCase), clean);
+        StringAssert.Contains(clean, placeholder);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-02")]
+    [DataRow("Updated from 8.0.33.0 to 8.0.34.0 on build 10.0.19045.5737")]
+    [DataRow("Follow the basic steps in the guide")]
+    [DataRow("The pinned version stays; spin up the service")]
+    [DataRow("At 12:30:45 the std::vector call failed")]
+    public void VersionsTimesAndOrdinaryWordsAreNotTakenForAddressesOrSecrets(string text) =>
+        Assert.AreEqual(text, AdvisoryAiRedaction.SanitizeEvidence(text, 2048, Identity).Value);
 }

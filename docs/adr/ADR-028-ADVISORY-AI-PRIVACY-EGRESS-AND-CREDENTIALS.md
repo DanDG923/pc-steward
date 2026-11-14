@@ -140,6 +140,16 @@ Offering more than one model also needs:
 
 Neither is part of this build. Implementation: `docs/review/TASK_67_ADVISORY_AI_PLAN.md` § Provider and model registry.
 
+## Addendum A2 (2026-11-14): the owner's token-bound decisions for the one-request test
+
+The F7 rule above says a UTF-8 byte count plus a guessed margin is not accepted proof, and that unknown bounds block the paid request. For Task 71 only, the owner accepted two scoped exceptions (Task 69 report §6 and §7):
+- **B1, option (a), "Accept the bound, check it live".** The byte-level bound (one token per UTF-8 byte of byte-level BPE text, plus a per-model framing allowance) is accepted for `gpt-6.1-sol`. The one live request checks it against the reported input count.
+- **B2, "Use wide safety margins".** The framing allowance is 8,192 tokens, the profile allows 192 bytes per output token, and the response envelope is 1 MiB. The Task 71 limits are 12,288 input tokens and 2,048 output tokens, $0.05 per request and $1.00 for the test, so the worst case is $0.045056.
+
+These are policy choices, not measurements. They cover the one supervised Task 71 request in its pinned test build and nothing else. `AdvisoryAiModelProfiles.Reviewed` stays empty and paid requests stay disabled in every other build. Ordinary use still needs the F7 evidence, or a further owner decision recorded here, together with the Task 71 result.
+
+In the same spirit, the reservation prices the request as approved: the requested service tier and no prompt cache. A reply that departs from that contract is detected afterwards rather than reserved for. This covers another service tier, a cache write, cached input, an unknown usage counter, or background or conversation state. Its usage is never trusted, the whole reservation is kept, and paid requests pause for the owner's review (independent review F1, F2 and F5, recorded in `docs/review/TASK_90_TASK_70_AI_REMEDIATION.md` §6).
+
 ## Reconsider when
 
 Required endpoint/model behavior cannot enforce the approved bounds/privacy controls, exact wire approval cannot be proven through the SDK, credential deletion/reset recovery fails, or the owner changes providers/storage/retention. Keep AI unavailable until a revised accepted design preserves optional core use and deterministic authority.
