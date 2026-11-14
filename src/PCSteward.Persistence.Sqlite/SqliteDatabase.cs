@@ -85,6 +85,8 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
             await CreateDiagnosticSnapshotSchemaAsync(connection, transaction, cancellationToken);
         if (await MigrationRequiredAsync(connection, transaction, 14, cancellationToken))
             await CreateAdvisoryAiSchemaAsync(connection, transaction, cancellationToken);
+        if (await MigrationRequiredAsync(connection, transaction, 15, cancellationToken))
+            await CreateAdvisoryAiCompactionSchemaAsync(connection, transaction, cancellationToken);
         await ValidateReviewedOperationsSchemaAsync(connection, transaction, cancellationToken);
         await ValidateUpdateDispatchSchemaAsync(connection, transaction, cancellationToken);
         await ValidateDiagnosticSnapshotSchemaAsync(connection, transaction, cancellationToken);

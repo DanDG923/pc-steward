@@ -32,7 +32,7 @@ public sealed class AdvisoryAiLedgerTests
         Assert.AreEqual(AdvisoryAiSettings.Initial, settings);
         AdvisoryAiAccountingState state = await fixture.Store.GetAccountingStateAsync(CancellationToken.None);
         Assert.AreEqual(new AdvisoryAiAccountingState(AdvisoryAiContinuity.NotEstablished, null, null, false), state);
-        Assert.AreEqual(14L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(15L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
     }
 
     [TestMethod]
@@ -80,7 +80,121 @@ public sealed class AdvisoryAiLedgerTests
         Assert.IsNull(await fixture.Store.GetLatestTariffAsync(Model.ModelId, "priority", CancellationToken.None));
         Assert.IsNull(await fixture.Store.GetLatestTariffAsync("synthetic-model", Model.ServiceTier, CancellationToken.None));
         Assert.IsNull(await fixture.Store.ConfirmTariffAsync(Rates with { CachedInputPerMillion = MicroUsd.Zero }, CancellationToken.None), "a free rate is never stored");
-        Assert.AreEqual(1L, await fixture.ScalarAsync("SELECT input_rate = 2000000 FROM ai_tariffs WHERE version=1;"));
+        // T70-05: the older prices were never used by a request, so confirming again replaced them instead of growing the ledger.
+        Assert.AreEqual(0L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_tariffs WHERE version=1;"));
+        Assert.AreEqual(1L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_tariffs;"));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-01")]
+    public async Task ConfirmingPricesEveryDayKeepsOnlyTheLatestAndThePricesARequestUsed()
+    {
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        AdvisoryAiTariff used = await fixture.TariffAsync();
+        AdvisoryAiReservationRequest request = await fixture.ClaimedAsync(used, Now.AddMinutes(1));
+        Assert.AreEqual(AdvisoryAiLedgerWrite.Done, await fixture.Store.SettleAsync(request.RequestId,
+            new(AdvisoryAiRequestState.Settled, new(100), AdvisoryAiUncertainReason.None, false), new(50, 0, 0, 0, 50), "resp_used", Now, CancellationToken.None));
+        for (int day = 1; day <= 30; day++)
+            Assert.IsNotNull(await fixture.Store.ConfirmTariffAsync(Rates with { ConfirmedAtUtc = Now.AddDays(day) }, CancellationToken.None));
+
+        Assert.AreEqual(2L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_tariffs;"), "the prices the request used, and the latest");
+        Assert.AreEqual(1L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_tariffs WHERE version=$v;", ("$v", used.Version)));
+        Assert.AreEqual(31L, (await fixture.TariffAsync()).Version);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public async Task SettledDetailOlderThanTwelveMonthsIsCompactedWithEveryTotalAndResponseIdKept()
+    {
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        AdvisoryAiTariff tariff = await fixture.TariffAsync();
+        // 2024-10 is older than the current month (2026-11) and the 12 before it; 2025-11 is the oldest month kept in detail.
+        await fixture.ExecuteAsync("""
+            INSERT INTO ai_requests(request_id,period,model_id,model_profile_version,tariff_version,settings_version,input_token_bound,max_output_tokens,reservation,committed,first_live_test,state,reason,above_reservation,reserved_at,provider_response_id,
+                input_tokens,cached_input_tokens,output_tokens,reasoning_tokens,total_tokens) VALUES
+            ('cccccccc-0000-0000-0000-000000000001',202410,'synthetic-model-2026-01-01',1,1,0,10,10,500,100,0,'Settled','None',0,'2024-10-02T00:00:00.0000000Z','resp_old_1',50,0,0,0,50),
+            ('cccccccc-0000-0000-0000-000000000002',202410,'synthetic-model-2026-01-01',1,1,0,10,10,500,100,1,'Settled','None',0,'2024-10-03T00:00:00.0000000Z','resp_old_2',50,0,0,0,50),
+            ('cccccccc-0000-0000-0000-000000000003',202410,'synthetic-model-2026-01-01',1,1,0,10,10,500,100,0,'Settled','None',0,'2024-10-04T00:00:00.0000000Z',NULL,50,0,0,0,50),
+            ('cccccccc-0000-0000-0000-000000000005',202511,'synthetic-model-2026-01-01',1,1,0,10,10,500,100,0,'Settled','None',0,'2025-11-02T00:00:00.0000000Z','resp_kept',50,0,0,0,50);
+            INSERT INTO ai_requests(request_id,period,model_id,model_profile_version,tariff_version,settings_version,input_token_bound,max_output_tokens,reservation,committed,first_live_test,state,reason,above_reservation,reserved_at) VALUES
+            ('cccccccc-0000-0000-0000-000000000004',202410,'synthetic-model-2026-01-01',1,1,0,10,10,500,0,0,'NotSent','NotSent',0,'2024-10-05T00:00:00.0000000Z'),
+            ('cccccccc-0000-0000-0000-000000000006',202409,'synthetic-model-2026-01-01',1,1,0,10,10,700,700,1,'Uncertain','Interrupted',0,'2024-09-05T00:00:00.0000000Z');
+            """);
+        AdvisoryAiSpendingSummary before = await fixture.Store.GetSummaryAsync(AdvisoryAiPeriod.Of(Now), CancellationToken.None);
+
+        AdvisoryAiRecovery recovery = await fixture.Store.RecoverInterruptedAsync(Now.AddMinutes(1), CancellationToken.None);
+
+        Assert.AreEqual(4, recovery.Compacted, "three settled and one released request from 2024-10");
+        Assert.AreEqual(2L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_requests;"), "the unresolved 2024-09 request and the kept 2025-11 one");
+        Assert.AreEqual("Uncertain", await fixture.ScalarAsync("SELECT state FROM ai_requests WHERE period=202409;"));
+        Assert.AreEqual("300|100|3|1", await fixture.ScalarAsync("SELECT settled||'|'||test_settled||'|'||settled_requests||'|'||released_requests FROM ai_monthly_totals WHERE period=202410;"));
+        Assert.AreEqual(3L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_compacted_requests WHERE period=202410 AND tariff_version=1;"));
+        AdvisoryAiSpendingSummary after = await fixture.Store.GetSummaryAsync(AdvisoryAiPeriod.Of(Now), CancellationToken.None);
+        Assert.AreEqual(before.TestSettled, after.TestSettled, "the first-live-test envelope still counts the compacted test charge");
+        Assert.AreEqual(new MicroUsd(100), after.TestSettled);
+        Assert.AreEqual(before.TestOutstanding, after.TestOutstanding);
+        Assert.AreEqual(before.UncertainInEarlierMonths, after.UncertainInEarlierMonths);
+        Assert.IsFalse(after.ReviewBlock);
+        Assert.AreEqual(0, (await fixture.Store.RecoverInterruptedAsync(Now.AddMinutes(2), CancellationToken.None)).Compacted, "nothing left to compact");
+
+        // A compacted provider response can never settle another request.
+        AdvisoryAiReservationRequest replay = await fixture.ClaimedAsync(tariff, Now.AddMinutes(3));
+        Assert.AreEqual(AdvisoryAiLedgerWrite.Conflict, await fixture.Store.SettleAsync(replay.RequestId,
+            new(AdvisoryAiRequestState.Settled, new(100), AdvisoryAiUncertainReason.None, false), new(50, 0, 0, 0, 50), "resp_old_1", Now, CancellationToken.None));
+        Assert.IsTrue((await fixture.Store.GetAccountingStateAsync(CancellationToken.None)).ReviewBlock);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("review", DisplayName = "paused for review")]
+    [DataRow("month", DisplayName = "new month not yet confirmed")]
+    public async Task NothingIsCompactedWhileTheLedgerIsPausedOrTheClockIsNotAccepted(string condition)
+    {
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        await fixture.ExecuteAsync("""
+            INSERT INTO ai_requests(request_id,period,model_id,model_profile_version,tariff_version,settings_version,input_token_bound,max_output_tokens,reservation,committed,first_live_test,state,reason,above_reservation,reserved_at,
+                input_tokens,cached_input_tokens,output_tokens,reasoning_tokens,total_tokens)
+            VALUES ('dddddddd-0000-0000-0000-000000000001',202410,'synthetic-model-2026-01-01',1,1,0,10,10,500,100,0,'Settled','None',0,'2024-10-02T00:00:00.0000000Z',50,0,0,0,50);
+            """);
+        DateTimeOffset at = Now.AddMinutes(1);
+        if (condition == "review") await fixture.ExecuteAsync("UPDATE ai_accounting_state SET review_block=1;");
+        else at = Now.AddMonths(1);
+
+        Assert.AreEqual(0, (await fixture.Store.RecoverInterruptedAsync(at, CancellationToken.None)).Compacted);
+        Assert.AreEqual(1L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_requests WHERE period=202410;"));
+        Assert.AreEqual(0L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_monthly_totals;"));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-02")]
+    public async Task AMonthlyTotalThatDoesNotAddUpStopsPaidRequestsForReview()
+    {
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        AdvisoryAiTariff tariff = await fixture.TariffAsync();
+        await fixture.ExecuteAsync("PRAGMA ignore_check_constraints=ON; INSERT INTO ai_monthly_totals VALUES (202410,100,200,1,0);");
+        Assert.AreEqual(AdvisoryAiReservationProblem.LedgerNeedsReview, (await fixture.ReserveAsync(tariff, Now.AddMinutes(1))).Problem);
+        Assert.IsTrue((await fixture.Store.GetAccountingStateAsync(CancellationToken.None)).ReviewBlock);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-02")]
+    public async Task TheSixteenMebibyteCeilingCountsCompactedRequestsAndPricesToo()
+    {
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        AdvisoryAiTariff tariff = await fixture.TariffAsync();
+        // 32,766 compacted IDs (512 bytes each), one month total and one price row leave less than one request row (1,024 bytes) of room.
+        await fixture.ExecuteAsync("""
+            INSERT INTO ai_monthly_totals VALUES (202410,0,0,32766,0);
+            WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < 32766)
+            INSERT INTO ai_compacted_requests(request_id,period,tariff_version,provider_response_id) SELECT printf('%08d-0000-0000-0000-000000000000', i),202410,1,NULL FROM n;
+            """);
+        Assert.AreEqual(448L, IAdvisoryAiLedger.MaximumLogicalBytes - IAdvisoryAiLedger.LogicalBytes(0, 1, 32_766, 1));
+        Assert.AreEqual(AdvisoryAiReservationProblem.LedgerFull, (await fixture.ReserveAsync(tariff, Now.AddMinutes(1))).Problem);
+        Assert.AreEqual(0L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_requests;"));
+
+        // Two fewer compacted IDs free 1,024 bytes more: 1,472 bytes of room, enough for one request row.
+        await fixture.ExecuteAsync("DELETE FROM ai_compacted_requests WHERE request_id IN ('00000001-0000-0000-0000-000000000000','00000002-0000-0000-0000-000000000000');");
+        Assert.AreEqual(AdvisoryAiReservationProblem.None, (await fixture.ReserveAsync(tariff, Now.AddMinutes(2))).Problem, "one request row fits again");
     }
 
     // ---- Ledger ----------------------------------------------------------------------------------------------------------------
@@ -322,6 +436,29 @@ public sealed class AdvisoryAiLedgerTests
             """);
         Assert.AreEqual(AdvisoryAiReservationProblem.LedgerFull, (await fixture.ReserveAsync(tariff, Now.AddMinutes(1))).Problem);
         Assert.AreEqual(10_000L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_requests;"));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-02")]
+    public async Task AFullLedgerWithEveryValueAtItsLongestStaysWithinTheLogicalCeilingOnDisk()
+    {
+        // T70-05 storage evidence for the accounting record alone: 10,000 settled rows with every text at its longest allowed length.
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        AdvisoryAiTariff tariff = await fixture.TariffAsync();
+        long empty = fixture.BytesOnDisk();
+        await fixture.ExecuteAsync("""
+            WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < 10000)
+            INSERT INTO ai_requests(request_id,period,model_id,model_profile_version,tariff_version,settings_version,input_token_bound,max_output_tokens,reservation,committed,first_live_test,state,reason,above_reservation,
+                reserved_at,claimed_at,finished_at,provider_response_id,input_tokens,cached_input_tokens,output_tokens,reasoning_tokens,total_tokens)
+            SELECT printf('%08d-0000-0000-0000-000000000000', i),202611,replace(hex(zeroblob(64)),'0','m'),2147483647,1,9223372036854775807,2147483647,2147483647,
+                9223372036854775807,100,0,'Settled',replace(hex(zeroblob(32)),'0','r'),0,'2026-11-01T00:00:00.0000000Z','2026-11-01T00:00:00.0000000Z','2026-11-01T00:00:00.0000000Z',
+                printf('%08d', i)||substr(replace(hex(zeroblob(124)),'0','x'),1,248),50,0,0,0,50 FROM n;
+            PRAGMA wal_checkpoint(TRUNCATE);
+            """);
+        long full = fixture.BytesOnDisk();
+        Assert.AreEqual(AdvisoryAiReservationProblem.LedgerFull, (await fixture.ReserveAsync(tariff, Now.AddMinutes(1))).Problem);
+        Assert.IsTrue(full - empty <= IAdvisoryAiLedger.MaximumLogicalBytes, $"{full - empty} bytes on disk for a full ledger");
+        Console.WriteLine($"LEDGER-DISK empty={empty} full={full} added={full - empty}");
     }
 
     [TestMethod]
@@ -816,6 +953,11 @@ public sealed class AdvisoryAiLedgerTests
         private readonly string path;
         private Fixture(string path, SqliteDatabase store) { this.path = path; Store = store; }
         public SqliteDatabase Store { get; }
+
+        /// <summary>Bytes on disk for the database and its WAL and shared-memory files.</summary>
+        private static readonly string[] Suffixes = ["", "-wal", "-shm"];
+
+        public long BytesOnDisk() => Suffixes.Select(suffix => new FileInfo(path + suffix)).Where(file => file.Exists).Sum(file => file.Length);
 
         public static async Task<Fixture> CreateAsync()
         {
