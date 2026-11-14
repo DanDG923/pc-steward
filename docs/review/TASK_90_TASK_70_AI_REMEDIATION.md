@@ -1,5 +1,7 @@
 # Task 90: fixes for the Task 70 AI review
 
+**Update (2026-11-14): a fresh Task 70 (70B) of `669c8c7` returned FAIL with two new findings, both fixed in §4.** It found T70-02, T70-03, T70-04 and T70-06 fixed, and T70-01, T70-05 and T70-07 partly fixed: the gaps it named are T70B-01 and T70B-02. The owner kept that report on their PC too.
+
 **Status (2026-11-14): all seven findings addressed in code, tests or the Task 71 packet; a fresh Task 70 is needed.** Task 70 reviewed commit `db4bc76` and returned **FAIL** (3 High, 4 Medium: T70-01 to T70-07). The owner kept the report itself on their PC, so this record names the findings without copying the report. No paid call, no account query and no key were used. `AdvisoryAiModelProfiles.Reviewed` stays empty and `AdvisoryAiBuildPolicy.PaidRequests` stays `Disabled`.
 
 Requirements: `FR-AI-01–06`, `FR-BUD-01–04`, ADR-028 and ADR-029 ([Phase G](../requirements/V2_PHASE_G.md), [Task 69 report](TASK_69_AI_EVIDENCE_GPT_6_1_SOL.md)).
@@ -28,3 +30,12 @@ Requirements: `FR-AI-01–06`, `FR-BUD-01–04`, ADR-028 and ADR-029 ([Phase G](
 - No host step, release or provider call was made. The fresh Task 70 reviews this commit. It does not review an enabled test build, which needs its own review (§7 item 2 of the Task 70 report).
 
 Tests at this commit (cloud): Domain 442 pass (3 known runner-only failures), Architecture 211 pass (59 baseline failures that need the Windows build, unchanged), Application AI suites 101 pass, migration suites 82 pass. Windows CI is the full proof.
+
+## 4. Fresh Task 70 (70B) findings and fixes
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **T70B-01 (High).** Compaction kept only IDs, so a month's test total could be lowered to zero on its own and the $1 test envelope would admit more. | Each compacted settled request now also keeps its charge, its first-live-test flag and its five usage counts. Every read checks each compacted charge against its usage at its own prices. It also checks that each month's total, test total and request count equal the sums of that month's compacted requests, and that every compacted request has its month. Anything else makes the ledger unreadable, so paid requests pause for review and the pause survives a restart. Migration 15 had not shipped in a release, so the columns were added to it. | `AdvisoryAiLedgerTests.CompactedSpendingThatDoesNotAddUpStopsPaidRequestsForReview` (7 cases: test total, month total, count, removed request, charge, test flag, removed month). Before the tampering, the compacted test charge still refuses the next test request. |
+| **T70B-02 (Medium).** A body refused early (another model, a bad ID, stored, tools, unknown status) kept its cache-write report but didn't pause paid requests. | A reported cache write, or one that isn't a plain count, now always raises the "above approved bounds" flag. Settlement then keeps the whole reservation and pauses paid requests. A refused body without a write still only keeps the reservation. | `AdvisoryAiResponseTests.ACacheWriteInARefusedBodyStillStopsPaidRequestsForReview` (5 refusal reasons × write, unreadable write, zero) |
+
+Limits that stay as accepted: a coordinated rewrite of a request's charge and usage together, or of a whole file, can't be detected locally. Detailed and compacted rows share this limit, which is disclosed as the external-restore limitation. The 70B review agreed that the open CPU, working-set and UI measurements block ordinary use but not one supervised test.
