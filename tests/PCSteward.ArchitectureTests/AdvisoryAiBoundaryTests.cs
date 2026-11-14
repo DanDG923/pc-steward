@@ -39,6 +39,7 @@ public sealed class AdvisoryAiBoundaryTests
                 Assert.IsFalse(code.Contains(forbidden, StringComparison.Ordinal), $"{project} names {forbidden}");
             string projectFile = File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", project, project + ".csproj"));
             Assert.IsFalse(projectFile.Contains("OpenAI", StringComparison.OrdinalIgnoreCase), $"{project} references an AI package or project");
+            Assert.IsFalse(projectFile.Contains("AdvisoryAi", StringComparison.OrdinalIgnoreCase), $"{project} references the AI adapters");
         }
     }
 

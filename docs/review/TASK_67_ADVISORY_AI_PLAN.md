@@ -1,6 +1,6 @@
 # Phase G — Advisory AI: staged build plan and interfaces (Tasks 67–71)
 
-**Status:** In progress (stages 1 and 2 of 6 built). The owner started Phase G on 2026-11-13 after Phase F's timeline stages merged, keeping the agreed order (Phases D installs and E removals stay paused by the owner). ADR-027, ADR-028 and ADR-029 are Accepted; nothing here widens them. OpenAI is the first provider (D2).
+**Status:** In progress (stages 1–3 of 6 built). The owner started Phase G on 2026-11-13 after Phase F's timeline stages merged, keeping the agreed order (Phases D installs and E removals stay paused by the owner). ADR-027, ADR-028 and ADR-029 are Accepted; nothing here widens them. OpenAI is the first provider (D2).
 
 **What stays true at every stage:** AI is off by default and optional; every core feature works without a key. Nothing is sent without the owner approving an exact preview of that request. No model is chosen from memory: a model becomes usable only with the Task 69 evidence for it. Paid requests stay disabled by build policy until the Task 70 review passes, and the first live call (Task 71) needs the owner's separate approval inside the cumulative $1 envelope.
 
@@ -73,6 +73,21 @@ SQLite (`src/PCSteward.Persistence.Sqlite/SqliteAdvisoryAi.cs`, migration 14): `
 Tests: `AdvisoryAiBudgetTests` (Domain); `AdvisoryAiLedgerTests` (the SQLite store, including eight concurrent reservations from separate connections, and the workflow end to end over it with a counting fake transport and fake credentials).
 
 Left for later stages, by design: the 12-month compaction of settled rows (the 10,000-row ceiling blocks new requests first, and a full row is well under 1 KiB, so the 16 MiB logical ceiling cannot be reached before it); the monotonic forward-jump check and the owner screens for the continuity question, a new month, a clock review and a breach review (stage 4); deleting the credential on factory reset (stages 3–4).
+
+## Stage 3 interfaces (implemented)
+
+Project `src/PCSteward.AdvisoryAi.Windows` (references Application and the `OpenAI` package only; composed by the desktop app in stage 4; pinned by `AdvisoryAiAdapterBoundaryTests`). The owner approved the dependency on 2026-11-13: OpenAI 2.15.0 with System.ClientModel 1.16.0, both in `Directory.Packages.props`.
+
+- `OpenAiResponsesTransport : IAdvisoryAiTransport` — `ResponsesClient.CreateResponseAsync(BinaryContent, RequestOptions)` (the protocol method) with the approval's exact bytes; `ClientRetryPolicy(maxRetries: 0)`, logging and distributed tracing off, `BufferResponse = false`, errors returned rather than thrown. The network handler is a `SocketsHttpHandler` with redirects off, a 10-second connect timeout, no cookies, credentials or decompression, and the system's certificate validation and proxy. One linked 45-second deadline covers the attempt and the response read.
+  - A guard (the last handler before the network) refuses a second attempt, any method or address other than `AdvisoryAiRoute`, a body that is not byte-identical to the approval and an authorization that is not the given key; nothing is sent and the result is `NotSent`. It then sends only `Authorization`, `Accept`, `User-Agent` (`PCSteward-AdvisoryAI/1`), `Content-Type` and `Content-Length`, plus the framing the HTTP stack adds (Host).
+  - A 3xx becomes `Redirected` inside the guard, before the SDK sees it: System.ClientModel 1.16's response handling follows some redirects itself (found by the redirect tests), whatever the HTTP handler is set to.
+  - Responses are read through a bounded stream at `AdvisoryAiResponseReader.AdmittedBytes`, so neither this class nor the SDK buffers more, error responses included; a longer body is `ResponseTooLarge`.
+  - Failures map to closed outcomes without text: nothing handed to the network is `NotSent`; then caller cancellation, deadline, connect/TLS/proxy failure and anything else.
+- `WindowsCredentialManagerStore : IAdvisoryAiCredentialStore` — CredWriteW, CredReadW, CredDeleteW and CredFree for the one generic target with local-machine persistence and no user name; the key is stored as its ASCII bytes (2,048 at most, inside Credential Manager's 2,560-byte blob limit; UTF-16 would not fit). Save reads back; presence is Absent only on "not found"; a stored value that is empty, oversized or not a valid key is never used; removal is Removed or AlreadyAbsent only when a fresh read returns "not found", otherwise Incomplete. Buffers are cleared after use.
+
+Tests: `AdvisoryAiAdapterTests` (Application.IntegrationTests): the exact bytes and closed headers on the wire, one attempt for 408/429/5xx, redirects not followed even to the same host, the handler settings, the admitted-size bound with and without a declared length (error bodies too), connect/TLS/other failures, cancellation before and during sending, the overall deadline, and the credential save/read/presence/removal paths with the documented Win32 errors. `AdvisoryAiAdapterBoundaryTests` (architecture) pins the references, the four native calls and the transport settings.
+
+Recorded for Tasks 69/70: OpenAI 2.15.0 marks the Responses client "for evaluation" (OPENAI001, suppressed in the one file that uses it). The SDK takes the key as a string, so a managed copy can't be cleared. The real Credential Manager calls are not run in CI; they are first exercised on the owner's PC.
 
 ## Decisions taken inside the accepted ADRs (recorded for review)
 

@@ -11,6 +11,7 @@
     <Project Path="src/PCSteward.Scheduling.Windows/PCSteward.Scheduling.Windows.csproj" />
     <Project Path="src/PCSteward.Diagnostics/PCSteward.Diagnostics.csproj" />
     <Project Path="src/PCSteward.Diagnostics.Windows/PCSteward.Diagnostics.Windows.csproj" />
+    <Project Path="src/PCSteward.AdvisoryAi.Windows/PCSteward.AdvisoryAi.Windows.csproj" />
     <Project Path="src/PCSteward.Desktop/PCSteward.Desktop.csproj" />
     <Project Path="src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj" />
     <Project Path="src/PCSteward.ElevatedHelper/PCSteward.ElevatedHelper.csproj" />

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- ADR-028 (Task 67 stage 3): the advisory AI adapters. Composed only by the desktop app; the scheduled host, the elevated helper
+       and update execution never reference this project (AdvisoryAiAdapterBoundaryTests). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.22000.0</SupportedOSPlatformVersion>
+    <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
+  </PropertyGroup>
+  <ItemGroup><PackageReference Include="OpenAI" /></ItemGroup>
+  <ItemGroup><ProjectReference Include="../PCSteward.Application/PCSteward.Application.csproj" /></ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="PCSteward.Application.IntegrationTests" /></ItemGroup>
+</Project>

@@ -11,6 +11,8 @@
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.14" />
     <PackageVersion Include="Microsoft.WindowsPackageManager.ComInterop" Version="1.29.380" />
     <PackageVersion Include="Microsoft.WindowsPackageManager.InProcCom" Version="1.29.380" />
+    <PackageVersion Include="OpenAI" Version="2.15.0" />
+    <PackageVersion Include="System.ClientModel" Version="1.16.0" />
     <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.14" />
   </ItemGroup>
 </Project>
