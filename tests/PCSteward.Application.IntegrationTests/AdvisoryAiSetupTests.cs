@@ -493,6 +493,40 @@ public sealed class AdvisoryAiSetupTests
         Assert.AreEqual(AdvisoryAiSetupText.SectionHeading, SettingsPresenter.Sections[^1]);
     }
 
+    [TestMethod]
+    [TestCategory("FR-AI-03")]
+    public void KeyProblemsNeverRepeatTheKeyAndSayNothingWasSaved()
+    {
+        Assert.AreEqual(string.Empty, AdvisoryAiSetupText.KeyProblem(AdvisoryAiKeyProblem.None));
+        foreach (AdvisoryAiKeyProblem problem in new[] { AdvisoryAiKeyProblem.ContainsWhitespace, AdvisoryAiKeyProblem.NotPrintableAscii, AdvisoryAiKeyProblem.TooLong })
+            StringAssert.Contains(AdvisoryAiSetupText.KeyProblem(problem), "nothing was saved", StringComparison.OrdinalIgnoreCase);
+        StringAssert.Contains(AdvisoryAiSetupText.KeyProblem(AdvisoryAiKeyProblem.TooLong), "2,048");
+        Assert.AreEqual(AdvisoryAiKeyProblem.ContainsWhitespace, AdvisoryAiApiKey.TryCreate("sk-synthetic key", out AdvisoryAiApiKey? refused));
+        Assert.IsNull(refused);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-03")]
+    public void RetriedKeyRemovalClaimsAbsenceOnlyWhenVerified()
+    {
+        StringAssert.Contains(AdvisoryAiSetupText.RetryRemovalResult(AdvisoryAiCredentialRemoval.Removed, AdvisoryAiProviders.OpenAI), "gone from Credential Manager");
+        StringAssert.Contains(AdvisoryAiSetupText.RetryRemovalResult(AdvisoryAiCredentialRemoval.AlreadyAbsent, AdvisoryAiProviders.OpenAI), "revoke it there");
+        string incomplete = AdvisoryAiSetupText.RetryRemovalResult(AdvisoryAiCredentialRemoval.Incomplete, AdvisoryAiProviders.OpenAI);
+        Assert.IsFalse(incomplete.StartsWith("Your key is gone", StringComparison.Ordinal));
+        StringAssert.Contains(incomplete, "couldn't confirm");
+        StringAssert.Contains(incomplete, AdvisoryAiProviders.OpenAI.CredentialTarget);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-01")]
+    public void NoticeActionResultsSayWhatChangedOrThatNothingDid()
+    {
+        StringAssert.Contains(AdvisoryAiSetupText.NoticeActionResult(AdvisoryAiNoticeAction.ConfirmNewMonth, AdvisoryAiAccountingWrite.Done), "New month confirmed");
+        StringAssert.Contains(AdvisoryAiSetupText.NoticeActionResult(AdvisoryAiNoticeAction.AcknowledgeReview, AdvisoryAiAccountingWrite.Done), "recorded amounts are unchanged");
+        StringAssert.Contains(AdvisoryAiSetupText.NoticeActionResult(AdvisoryAiNoticeAction.AcceptClock, AdvisoryAiAccountingWrite.NotApplicable), "Nothing needed changing");
+        StringAssert.Contains(AdvisoryAiSetupText.NoticeActionResult(AdvisoryAiNoticeAction.AcceptClock, AdvisoryAiAccountingWrite.StorageFailed), "Nothing changed");
+    }
+
     // ---- Helpers -------------------------------------------------------------------------------------------------------------------
 
     private static AdvisoryAiApiKey Key()
