@@ -1,3 +1,9 @@
+**Advisory AI, Task 70 gate passed (2026-11-14; reviews and one documentation fix; no paid call, no key).** Requirements: `FR-AI-01–06`, `FR-BUD-01–04` ([Task 90 record §8](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Reviews of `bb3c049`.** The owner's Task 70F and the independent second re-review both returned PASS for `gpt-6.1-sol`, the default tier, the Responses route, this disabled commit and the Task 71 packet. Neither report is in the repository.
+- **Fixed.** T70F-01 (Low): the packet no longer says a model-name mismatch pauses paid requests automatically. It keeps the reservation, and the owner stops by hand.
+- **Not covered.** The enabled test build needs its own review, and the key and the one send each need the owner's separate approval. Ordinary-use resource measurements are still open. `Reviewed` stays empty and paid requests stay disabled.
+
 **Advisory AI, Task 70E failed on one Medium finding and the independent re-review passed; fixed (2026-11-14; code, tests and docs; no paid call, no key).** Requirements: `FR-AI-02/05`, `FR-BUD-03` ([Task 90 record §7](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Reviews of `094bcfb`.** The independent re-review returned PASS with four notes. The owner's Task 70E returned FAIL on T70E-01 (Medium): the reply's tier text reached the outcome screen as given. It also raised three Low findings. Neither report is in the repository.
