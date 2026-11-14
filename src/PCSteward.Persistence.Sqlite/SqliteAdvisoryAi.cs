@@ -342,11 +342,15 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
         AdvisoryAiUsage? counts = usage is { InputTokens: >= 0, CachedInputTokens: >= 0, OutputTokens: >= 0, ReasoningTokens: >= 0, TotalTokens: >= 0 } ? usage : null;
         return await AiWriteAsync(async (connection, transaction) =>
         {
-            (AdvisoryAiRequestState State, long Committed, string? ResponseId)? row = await SettlementRowAsync(connection, transaction, requestId, cancellationToken).ConfigureAwait(false);
+            SettlementRow? row = await SettlementRowAsync(connection, transaction, requestId, cancellationToken).ConfigureAwait(false);
             if (row is null) return AdvisoryAiLedgerWrite.NotFound;
             if (row.Value.State is AdvisoryAiRequestState.Settled or AdvisoryAiRequestState.Uncertain)
             {
-                if (row.Value.State == settlement.State && row.Value.Committed == settlement.Committed.Value && string.Equals(row.Value.ResponseId, responseId, StringComparison.Ordinal))
+                // ADR-029: only an identical repeat is harmless. Different usage can round to the same charge, so the reason, the breach
+                // flag and every token count must match too; anything else is conflicting evidence and stops paid requests for review.
+                if (row.Value.State == settlement.State && row.Value.Committed == settlement.Committed.Value && string.Equals(row.Value.ResponseId, responseId, StringComparison.Ordinal) &&
+                    string.Equals(row.Value.Reason, settlement.Reason.ToString(), StringComparison.Ordinal) && row.Value.AboveReservation == settlement.AboveReservation &&
+                    row.Value.UsageReadable && row.Value.Usage == counts)
                     return AdvisoryAiLedgerWrite.AlreadyDone;
                 await SetReviewBlockAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
                 return AdvisoryAiLedgerWrite.Conflict;
@@ -499,13 +503,32 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
         return value is not null && TryName(value, out AdvisoryAiRequestState state) ? state : null;
     }
 
-    private static async Task<(AdvisoryAiRequestState, long, string?)?> SettlementRowAsync(SqliteConnection connection, SqliteTransaction transaction, Guid requestId, CancellationToken cancellationToken)
+    private readonly record struct SettlementRow(AdvisoryAiRequestState State, long Committed, string? ResponseId, string? Reason, bool AboveReservation,
+        AdvisoryAiUsage? Usage, bool UsageReadable);
+
+    private static async Task<SettlementRow?> SettlementRowAsync(SqliteConnection connection, SqliteTransaction transaction, Guid requestId, CancellationToken cancellationToken)
     {
-        await using SqliteCommand command = AiCommand(connection, transaction, "SELECT state,committed,provider_response_id FROM ai_requests WHERE request_id=$id;", ("$id", Id(requestId)));
+        await using SqliteCommand command = AiCommand(connection, transaction, """
+            SELECT state,committed,provider_response_id,reason,above_reservation,input_tokens,cached_input_tokens,output_tokens,reasoning_tokens,total_tokens
+            FROM ai_requests WHERE request_id=$id;
+            """, ("$id", Id(requestId)));
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) || !TryName(reader.GetValue(0), out AdvisoryAiRequestState state) || !TryLong(reader, 1, out long committed))
             return null;
-        return (state, committed, reader.IsDBNull(2) ? null : reader.GetValue(2) as string);
+        bool above = TryLong(reader, 4, out long aboveFlag) && aboveFlag == 1;
+        // Usage is all five counts or none; a partly filled or unreadable set never matches a repeat.
+        int present = 0;
+        long[] values = new long[5];
+        bool readable = true;
+        for (int index = 0; index < 5; index++)
+        {
+            if (reader.IsDBNull(5 + index)) continue;
+            present++;
+            readable &= TryLong(reader, 5 + index, out values[index]);
+        }
+        readable &= present is 0 or 5;
+        AdvisoryAiUsage? usage = readable && present == 5 ? new(values[0], values[1], values[2], values[3], values[4]) : null;
+        return new SettlementRow(state, committed, reader.IsDBNull(2) ? null : reader.GetValue(2) as string, reader.GetValue(3) as string, above, usage, readable);
     }
 
     private static async Task<bool> ResponseIdUsedAsync(SqliteConnection connection, SqliteTransaction transaction, string responseId, CancellationToken cancellationToken)

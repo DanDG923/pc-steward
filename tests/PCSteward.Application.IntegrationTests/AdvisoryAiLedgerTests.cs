@@ -162,6 +162,33 @@ public sealed class AdvisoryAiLedgerTests
 
     [TestMethod]
     [TestCategory("FR-BUD-02")]
+    [DataRow("usage", DisplayName = "different token counts, same rounded charge")]
+    [DataRow("no-usage", DisplayName = "usage missing on the repeat")]
+    [DataRow("above", DisplayName = "repeat newly marked above the reservation")]
+    [DataRow("reason", DisplayName = "different reason")]
+    public async Task ARepeatWithTheSameChargeButDifferentEvidenceIsAConflict(string difference)
+    {
+        // ADR-029: only an identical repeat is harmless; different usage can round to the same micro-dollar charge.
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        AdvisoryAiTariff tariff = await fixture.TariffAsync();
+        AdvisoryAiReservationRequest request = await fixture.ClaimedAsync(tariff, Now.AddMinutes(1));
+        AdvisoryAiSettlement settled = new(AdvisoryAiRequestState.Settled, new(4_200), AdvisoryAiUncertainReason.None, false);
+        AdvisoryAiUsage usage = new(900, 0, 300, 120, 1200);
+        Assert.AreEqual(AdvisoryAiLedgerWrite.Done, await fixture.Store.SettleAsync(request.RequestId, settled, usage, "resp_one", Now, CancellationToken.None));
+        (AdvisoryAiSettlement repeat, AdvisoryAiUsage? repeatUsage) = difference switch
+        {
+            "usage" => (settled, usage with { InputTokens = 901, TotalTokens = 1201 }),
+            "no-usage" => (settled, (AdvisoryAiUsage?)null),
+            "above" => (settled with { AboveReservation = true }, usage),
+            _ => (settled with { Reason = AdvisoryAiUncertainReason.UsageMissingOrUnreliable }, usage),
+        };
+        Assert.AreEqual(AdvisoryAiLedgerWrite.Conflict, await fixture.Store.SettleAsync(request.RequestId, repeat, repeatUsage, "resp_one", Now, CancellationToken.None));
+        Assert.IsTrue((await fixture.Store.GetAccountingStateAsync(CancellationToken.None)).ReviewBlock, "paid requests stop for review");
+        Assert.AreEqual(900L, await fixture.ScalarAsync("SELECT input_tokens FROM ai_requests;"), "the first evidence is kept");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-02")]
     public async Task AChargeAboveTheReservationIsRecordedInFullAndBlocksTheNextRequest()
     {
         await using Fixture fixture = await Fixture.CreateReadyAsync();
