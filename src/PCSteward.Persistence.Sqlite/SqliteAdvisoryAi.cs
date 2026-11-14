@@ -210,7 +210,11 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             await using SqliteConnection connection = await OpenAiAsync(cancellationToken).ConfigureAwait(false);
             await using SqliteTransaction transaction = connection.BeginTransaction(deferred: false);
             AdvisoryAiLedgerSnapshot? snapshot = await SnapshotAsync(connection, transaction, request.Period, request.ReservedAtUtc, cancellationToken).ConfigureAwait(false);
-            if (snapshot is null) return new(AdvisoryAiReservationProblem.LedgerNeedsReview, null);
+            if (snapshot is null)
+            {
+                await FlagUnreadableLedgerAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+                return new(AdvisoryAiReservationProblem.LedgerNeedsReview, null);
+            }
             // ADR-029 concurrent edit and reserve: the stored settings and prices are read in this same write transaction, so a limit,
             // consent, key or price change committed after the caller read them is seen here and the stale approval cannot reserve.
             AdvisoryAiSettings? stored = await BindingHoldsAsync(connection, transaction, request.Binding, request.ReservedAtUtc, cancellationToken).ConfigureAwait(false);
@@ -243,14 +247,22 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
         if (state is null) return null;
         long settled = 0, outstanding = 0, testSettled = 0, testOutstanding = 0, rows = 0;
         bool inFlight = false;
-        await using (SqliteCommand command = AiCommand(connection, transaction, "SELECT period,state,committed,first_live_test FROM ai_requests;"))
+        await using (SqliteCommand command = AiCommand(connection, transaction, """
+            SELECT r.period,r.state,r.committed,r.first_live_test,r.reservation,r.above_reservation,
+                (r.input_tokens IS NOT NULL)+(r.cached_input_tokens IS NOT NULL)+(r.output_tokens IS NOT NULL)+(r.reasoning_tokens IS NOT NULL)+(r.total_tokens IS NOT NULL),
+                r.input_tokens,r.cached_input_tokens,r.output_tokens,r.reasoning_tokens,r.total_tokens,t.input_rate,t.cached_input_rate,t.output_rate
+            FROM ai_requests r LEFT JOIN ai_tariffs t ON t.version=r.tariff_version;
+            """))
         await using (SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 rows++;
                 if (!TryLong(reader, 0, out long key) || !AdvisoryAiPeriod.TryParseKey(key, out AdvisoryAiPeriod rowPeriod) || !TryName(reader.GetValue(1), out AdvisoryAiRequestState rowState) ||
-                    !TryLong(reader, 2, out long committed) || committed < 0 || !TryLong(reader, 3, out long test) || test is not (0 or 1))
+                    !TryLong(reader, 2, out long committed) || committed < 0 || !TryLong(reader, 3, out long test) || test is not (0 or 1) ||
+                    !TryLong(reader, 4, out long reservation) || reservation < 0 || !TryLong(reader, 5, out long above) || above is not (0 or 1) || !TryLong(reader, 6, out long counts) ||
+                    !RowIsConsistent(rowState, committed, reservation, above == 1, counts) ||
+                    rowState == AdvisoryAiRequestState.Settled && !SettledChargeMatchesUsage(reader, committed))
                     return null;
                 try
                 {
@@ -272,6 +284,55 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
         }
         return new(new(settled), new(outstanding), new(testSettled), new(testOutstanding), inFlight, state.ReviewBlock, rows >= IAdvisoryAiLedger.MaximumDetailedRows,
             state.Continuity, AdvisoryAiClock.Evaluate(state.LastAcceptedUtc, nowUtc));
+    }
+
+    /// <summary>
+    /// Task 70 T70-01: what each state may hold. A request that holds a reservation holds exactly it; a released one holds nothing; an
+    /// uncertain one never holds less than its reservation; anything above the reservation carries the breach flag; a settled one has
+    /// all five usage counts. A row that breaks this is never trusted for a smaller figure: the whole ledger stops for review.
+    /// </summary>
+    private static bool RowIsConsistent(AdvisoryAiRequestState state, long committed, long reservation, bool above, long usageCounts) => state switch
+    {
+        AdvisoryAiRequestState.Reserved or AdvisoryAiRequestState.DispatchClaimed => committed == reservation && !above && usageCounts == 0,
+        AdvisoryAiRequestState.NotSent => committed == 0 && !above && usageCounts == 0,
+        AdvisoryAiRequestState.Uncertain => committed >= reservation && (committed == reservation || above) && usageCounts is 0 or 5,
+        AdvisoryAiRequestState.Settled => (committed <= reservation || above) && usageCounts == 5,
+        _ => false
+    };
+
+    /// <summary>
+    /// T70-01: a settled charge is exactly the cost of its recorded usage at the request's own frozen prices, so a settled row can't be
+    /// lowered on its own either. Columns 7–11 are the usage and 12–14 the tariff's rates.
+    /// </summary>
+    private static bool SettledChargeMatchesUsage(SqliteDataReader reader, long committed)
+    {
+        long[] values = new long[8];
+        for (int index = 0; index < values.Length; index++)
+            if (!TryLong(reader, 7 + index, out values[index]) || values[index] < 0) return false;
+        if (values[1] > values[0] || values[3] > values[2] || values[4] != values[0] + values[2]) return false;
+        try
+        {
+            AdvisoryAiTariff rates = new(1, "ledger-check", "ledger-check", new(values[5]), new(values[6]), new(values[7]), DateTimeOffset.UnixEpoch);
+            return AdvisoryAiCost.Actual(new(values[0], values[1], values[2], values[3], values[4]), rates).Value == committed;
+        }
+        catch (Exception exception) when (exception is OverflowException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>A ledger that can't be read or doesn't add up stops paid requests until the owner reviews it, even if the row is later changed back.</summary>
+    private static async Task FlagUnreadableLedgerAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await SetReviewBlockAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (SqliteException)
+        {
+            // The ledger stays unreadable, so every later reservation is refused here again.
+        }
     }
 
     public Task<AdvisoryAiLedgerWrite> ClaimDispatchAsync(Guid requestId, AdvisoryAiApprovalBinding binding, DateTimeOffset nowUtc, CancellationToken cancellationToken)
@@ -392,6 +453,9 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             "UPDATE ai_requests SET state='NotSent',committed=0,reason='NotSent',finished_at=$now WHERE state='Reserved';", cancellationToken, ("$now", Utc(nowUtc))).ConfigureAwait(false);
         int uncertain = await AiExecuteAsync(connection, transaction,
             "UPDATE ai_requests SET state='Uncertain',reason='Interrupted',finished_at=$now WHERE state='DispatchClaimed';", cancellationToken, ("$now", Utc(nowUtc))).ConfigureAwait(false);
+        // Recovery never repairs a row that doesn't add up: it stops paid requests for review instead.
+        if (await SnapshotAsync(connection, transaction, AdvisoryAiPeriod.Of(nowUtc), nowUtc, cancellationToken).ConfigureAwait(false) is null)
+            await SetReviewBlockAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new(released, uncertain);
     }
