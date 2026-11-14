@@ -112,6 +112,13 @@ public sealed class OpenAiResponsesWireFormat : IAdvisoryAiWireFormat
                 writer.WriteString("effort", effort);
                 writer.WriteEndObject();
             }
+            if (model.RequestNoPromptCache)
+            {
+                // Task 69: explicit caching with no breakpoint anywhere: no prompt cache is used or written.
+                writer.WriteStartObject("prompt_cache_options");
+                writer.WriteString("mode", "explicit");
+                writer.WriteEndObject();
+            }
             writer.WriteEndObject();
         }
         return stream.ToArray();

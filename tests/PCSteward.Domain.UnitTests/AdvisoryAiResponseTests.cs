@@ -137,6 +137,37 @@ public sealed class AdvisoryAiResponseTests
 
     [TestMethod]
     [TestCategory("FR-BUD-03")]
+    public void AReportedCacheWriteIsNeverTrustedAndStopsForReview()
+    {
+        // Task 69: the request asks for no prompt cache; a write is billed above the input rate, so it can't settle the request.
+        string none = Usage.Replace("{\"cached_tokens\":0}", "{\"cached_tokens\":0,\"cache_write_tokens\":0}", StringComparison.Ordinal);
+        AdvisoryAiResponse clean = Read(Body(usage: none));
+        Assert.IsTrue(clean.UsageReliable, "a reported zero is fine");
+        Assert.IsFalse(clean.UsageAboveApprovedBounds);
+        foreach (string written in new[] { "{\"cached_tokens\":0,\"cache_write_tokens\":512}", "{\"cached_tokens\":0,\"cache_write_tokens\":\"x\"}" })
+        {
+            AdvisoryAiResponse response = Read(Body(usage: Usage.Replace("{\"cached_tokens\":0}", written, StringComparison.Ordinal)));
+            Assert.AreEqual(AdvisoryAiAnswerStatus.Completed, response.Status, "the answer can still be shown");
+            Assert.IsFalse(response.UsageReliable);
+            Assert.IsTrue(response.UsageAboveApprovedBounds, "paid requests stop for review");
+        }
+        // A write is found even when the other details are missing or repeated.
+        string write = Usage.Replace("{\"cached_tokens\":0}", "{\"cached_tokens\":0,\"cache_write_tokens\":512}", StringComparison.Ordinal);
+        foreach (string incomplete in new[]
+        {
+            write.Replace("{\"reasoning_tokens\":120}", "{}", StringComparison.Ordinal),
+            write.Replace("\"cached_tokens\":0,", string.Empty, StringComparison.Ordinal),
+            write.Replace("\"cache_write_tokens\":512", "\"cache_write_tokens\":0,\"cache_write_tokens\":512", StringComparison.Ordinal)
+        })
+        {
+            AdvisoryAiResponse response = Read(Body(usage: incomplete));
+            Assert.IsFalse(response.UsageReliable);
+            Assert.IsTrue(response.UsageAboveApprovedBounds, incomplete);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
     public void UsageAboveTheApprovedBoundsIsFlagged()
     {
         Assert.IsTrue(Read(Body(), output: 299).UsageAboveApprovedBounds);

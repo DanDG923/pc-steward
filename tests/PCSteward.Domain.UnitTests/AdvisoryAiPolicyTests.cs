@@ -113,6 +113,13 @@ public sealed class AdvisoryAiPolicyTests
             AdvisoryAiLimitValidation.Validate(AdvisoryAiLimits.Defaults with { MaximumInputTokens = 120_000, MaximumOutputTokens = 8_001 }, Profile));
         Assert.AreEqual(AdvisoryAiLimitProblem.InputTooSmallForInstructions,
             AdvisoryAiLimitValidation.Validate(AdvisoryAiLimits.Defaults with { MaximumInputTokens = 964 }, Profile, 900));
+        // Task 69: above the input size billed at the standard prices, the whole request costs more, so the limit can't go there.
+        AdvisoryAiModelProfile priced = Profile with { StandardPriceInputTokens = 100_000 };
+        Assert.IsTrue(priced.IsCoherent);
+        Assert.AreEqual(AdvisoryAiLimitProblem.None, AdvisoryAiLimitValidation.Validate(AdvisoryAiLimits.Defaults with { MaximumInputTokens = 100_000 }, priced), "exactly at the bound");
+        Assert.AreEqual(AdvisoryAiLimitProblem.InputAboveStandardPrice, AdvisoryAiLimitValidation.Validate(AdvisoryAiLimits.Defaults with { MaximumInputTokens = 100_001 }, priced));
+        Assert.IsFalse((Profile with { StandardPriceInputTokens = 64 }).IsCoherent, "it must leave room beyond the framing");
+        Assert.IsFalse((Profile with { StandardPriceInputTokens = 128_001 }).IsCoherent, "it can't exceed the context window");
     }
 
     [TestMethod]

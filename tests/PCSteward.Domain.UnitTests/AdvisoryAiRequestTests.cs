@@ -269,6 +269,21 @@ public sealed class AdvisoryAiRequestTests
     }
 
     [TestMethod]
+    [TestCategory("FR-BUD-02")]
+    public void AProfileThatAsksForNoPromptCacheSelectsExplicitModeWithNoBreakpoint()
+    {
+        // Task 69: OpenAI caches prompts unless told not to and bills cache writes above the input rate; explicit mode with no
+        // breakpoint uses no cache and writes none.
+        Assert.DoesNotContain("prompt_cache", Preview(Draft()).BodyText);
+        AdvisoryAiModelProfile uncached = Profile with { ReasoningEffort = "low", RequestNoPromptCache = true };
+        Assert.IsTrue(uncached.IsCoherent);
+        Assert.AreEqual(AdvisoryAiPreviewProblem.None, AdvisoryAiRequestBuilder.TryBuild(Draft(), uncached, AdvisoryAiLimits.Defaults, out AdvisoryAiRequestPreview? preview));
+        StringAssert.EndsWith(preview!.BodyText, ",\"reasoning\":{\"effort\":\"low\"},\"prompt_cache_options\":{\"mode\":\"explicit\"}}");
+        Assert.DoesNotContain("breakpoint", preview.BodyText);
+        Assert.DoesNotContain("ttl", preview.BodyText);
+    }
+
+    [TestMethod]
     [TestCategory("FR-AI-04")]
     public void EachModelEntryCarriesItsProviderAndReasoningSetting()
     {
