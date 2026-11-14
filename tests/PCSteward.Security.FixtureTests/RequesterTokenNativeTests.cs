@@ -39,8 +39,8 @@ public sealed class RequesterTokenNativeTests
         {
             // CI: a standard user (or an administrator without split tokens) has nothing linked.
             TokenElevationKind.Default => TokenVerdict.NoLinkedToken,
-            // Non-elevated split admin: the linked token is the elevated half.
-            TokenElevationKind.Limited => TokenVerdict.EvaluationNotLimited,
+            // Non-elevated split admin: the linked token is the elevated half, in its own logon session.
+            TokenElevationKind.Limited => N1NativeFixture.LimitedRunnerSelfPeerVerdict(),
             // Elevated test run: this process as peer is not the filtered desktop.
             _ => TokenVerdict.PeerNotLimited,
         };

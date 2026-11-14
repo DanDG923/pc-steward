@@ -714,7 +714,21 @@ if ($PSVersionTable.PSEdition -eq 'Desktop') {
     }
     $ledgerSentinel = "function Test-OwnerOnlyElevated { `$false }`nfunction Assert-OwnerOnlyOldLedger { param(`$LedgerPath, `$Plan, `$InstallRoot) throw ('FIXTURE-LEDGER-REACHED ' + (Split-Path -Leaf (Split-Path -Parent `$LedgerPath)) + '\' + (Split-Path -Leaf `$LedgerPath)) }"
     $readSentinel = "function Read-OwnerOnlyStableBytes { param(`$Path, `$MaxBytes) throw 'FIXTURE-READ' }"
+    # The fresh-install row below runs the REAL baseline, so it can only pass on a host with no PC Steward install or state
+    # root, owner-only test certificate or PCSteward* process. Probe that same read-only baseline in a separate process (this
+    # fixture stubs Get-Process at script scope) so a developer PC with PC Steward installed is reported truthfully; the CI run
+    # (scripts/Test-CI.ps1) requires a fresh baseline, so CI evidence is unchanged.
+    $baselineProbe = Join-Path $WorkRoot 'fresh-baseline-probe.ps1'
+    $probeHelpers = (Join-Path $scripts 'OwnerOnlyExecution.ps1').Replace("'", "''")
+    [IO.File]::WriteAllText($baselineProbe, $harnessImports + ". '$probeHelpers'`n" + @'
+$programFiles = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
+try { Assert-OwnerOnlyFreshInstallBaseline -InstallRoot (Join-Path $programFiles 'PC Steward') -StateRoot (Join-Path $programFiles 'PC Steward OwnerOnlyTest State'); 'FRESH' }
+catch { 'NOT-FRESH ' + $_.Exception.Message }
+'@, [Text.Encoding]::ASCII)
+    $probeOutput = & { $ErrorActionPreference = 'Continue'; ((@(& $shellPath -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $baselineProbe 2>&1) | ForEach-Object { [string]$_ }) -join "`n").Trim() }
+    $hostFreshBaselineFailure = if ($probeOutput -ceq 'FRESH') { $null } elseif ($probeOutput.StartsWith('NOT-FRESH ')) { $probeOutput.Substring(10) } else { 'Baseline probe failed: ' + $probeOutput }
     $results.callerMain = [ordered]@{
+        hostFreshBaselineFailure = $hostFreshBaselineFailure
         checkOnlyReachesLedger = Invoke-CallerMain $ledgerSentinel @('-PlanPath', (New-MainScriptSource 'main-reviewed' $null))
         checkOnlyUnreviewedHelper = Invoke-CallerMain $ledgerSentinel @('-PlanPath', (New-MainScriptSource 'main-unreviewed' $untrustedHelper))
         # R2: a fresh-install plan passes every earlier check and the REAL fresh-install baseline (read-only: the CI runner has

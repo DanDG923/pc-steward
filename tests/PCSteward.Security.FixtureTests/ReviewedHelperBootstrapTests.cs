@@ -289,7 +289,8 @@ public sealed class ReviewedHelperBootstrapTests
             // plain token without a UAC split, so nothing is linked (as for an administrator without split tokens). Linked-token success is
             // owner-host evidence only (design rev 6 §8, §9).
             TokenElevationKind.Default => TokenVerdict.NoLinkedToken,
-            TokenElevationKind.Limited => TokenVerdict.EvaluationNotLimited,
+            // Non-elevated split admin (a developer PC): the linked token is the elevated half, in its own logon session.
+            TokenElevationKind.Limited => N1NativeFixture.LimitedRunnerSelfPeerVerdict(),
             _ => TokenVerdict.PeerNotLimited,
         };
         Assert.AreEqual(expected, verdict);

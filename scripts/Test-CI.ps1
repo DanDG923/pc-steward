@@ -15,6 +15,8 @@ if ($StandardUser) {
     $env:DOTNET_CLI_HOME = Join-Path $repository 'artifacts\ci-dotnet-home'
     $env:DOTNET_GENERATE_ASPNET_CERTIFICATE = 'false'
     $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
+    # A disposable runner is a fresh-install host: host-dependent rows must prove their pass here, never report inconclusive.
+    $env:PCSTEWARD_TEST_REQUIRE_FRESH_HOST = '1'
     New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
     & (Join-Path $PSScriptRoot 'Test.ps1')
     exit $LASTEXITCODE

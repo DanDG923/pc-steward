@@ -370,6 +370,7 @@ public sealed class RedeployToolingScriptTests
             foreach (string name in new[] { "notSigned", "otherSigner" }) Assert.AreEqual("The old signed deployment is not valid for the approved signer.", Text(signer, name), name);
 
             // Review L1: the real caller main dispatch (Windows PowerShell 5.1 only).
+            string? notFreshHost = null;
             if (desktop)
             {
                 JsonElement main = r.GetProperty("callerMain");
@@ -383,7 +384,18 @@ public sealed class RedeployToolingScriptTests
                 Assert.AreEqual("CheckOnly", Text(freshMain, "mode"));
                 Assert.AreEqual("Fail", Text(freshMain, "result"));
                 Assert.IsFalse(Text(freshMain, "failure").Contains("FIXTURE-LEDGER-REACHED", StringComparison.Ordinal), "a fresh-install plan never reaches the old ledger");
-                StringAssert.Contains(Text(freshMain, "failure"), "OwnerOnlyDeploymentCandidates", "it passes the real fresh-install baseline and stops at the synthetic candidate root");
+                // The row runs the REAL read-only fresh-install baseline. CI requires a fresh host, so it always proves the pass;
+                // a developer PC with PC Steward installed or running can only prove the baseline refuses, and is reported so.
+                JsonElement hostBaseline = main.GetProperty("hostFreshBaselineFailure");
+                if (hostBaseline.ValueKind == JsonValueKind.Null)
+                    StringAssert.Contains(Text(freshMain, "failure"), "OwnerOnlyDeploymentCandidates", "it passes the real fresh-install baseline and stops at the synthetic candidate root");
+                else
+                {
+                    Assert.IsFalse(FreshHostRequired(), "scripts/Test-CI.ps1 requires a fresh-install host, so CI must satisfy the real baseline: " + hostBaseline.ToString());
+                    notFreshHost = hostBaseline.GetString();
+                    if (string.IsNullOrWhiteSpace(notFreshHost)) throw new AssertFailedException("the fresh-install baseline probe gave no reason");
+                    StringAssert.Contains(Text(freshMain, "failure"), notFreshHost, "the real fresh-install baseline refuses for this host's own reason");
+                }
                 Assert.AreEqual(@"ScriptSource must be an absolute local path such as C:\...; relative, UNC and device paths are refused.", Text(main.GetProperty("newPlanRelativeSource"), "failure"), "the path is refused before any read");
             }
             else Assert.IsFalse(string.IsNullOrWhiteSpace(Text(r.GetProperty("notRun"), "callerMain")));
@@ -434,6 +446,9 @@ public sealed class RedeployToolingScriptTests
                 Assert.AreEqual("Execution infrastructure ACL has unexpected authority.", Text(acl, "usersWrite"));
                 Assert.AreEqual("Execution infrastructure must be protected and Administrators-owned.", Text(acl, "unprotected"));
                 Assert.AreEqual("Execution infrastructure must be protected and Administrators-owned.", Text(acl, "wrongOwner"));
+                if (notFreshHost is not null)
+                    Assert.Inconclusive("Every other redeploy-tooling row passed under " + Text(r, "shell") + ". This host is not a fresh-install host (" +
+                        notFreshHost + "), so the caller row could only prove that the real fresh-install baseline refuses; passing it and stopping at the candidate root is Windows-CI evidence.");
             }
             else
             {
@@ -517,6 +532,8 @@ public sealed class RedeployToolingScriptTests
         string ci = File.ReadAllText(Path.Combine(root, ".github", "workflows", "ci.yml")).Replace("\r\n", "\n", StringComparison.Ordinal);
         StringAssert.Contains(ci, "runs-on: windows-latest");
         StringAssert.Contains(ci, "./scripts/Test-CI.ps1");
+        StringAssert.Contains(File.ReadAllText(Path.Combine(root, "scripts", "Test-CI.ps1")), $"$env:{RequireFreshHostVariable} = '1'",
+            "the CI test run must not accept a non-fresh host for the real fresh-install baseline row");
         StringAssert.Contains(File.ReadAllText(Path.Combine(root, "scripts", "Test.ps1")), "dotnet test PCSteward.slnx");
         StringAssert.Contains(File.ReadAllText(Path.Combine(root, "PCSteward.slnx")), "tests/PCSteward.Security.FixtureTests/PCSteward.Security.FixtureTests.csproj");
     }
@@ -676,6 +693,14 @@ public sealed class RedeployToolingScriptTests
         catch (OperationCanceledException) { process.Kill(entireProcessTree: true); throw; }
         return (process.ExitCode, await output, await error);
     }
+
+    /// <summary>
+    /// The CI standard-user run (scripts/Test-CI.ps1) sets <see cref="RequireFreshHostVariable"/>, so on CI a host that fails the
+    /// fresh-install baseline fails the test instead of reporting it inconclusive. Setting it anywhere only makes the test stricter.
+    /// </summary>
+    private const string RequireFreshHostVariable = "PCSTEWARD_TEST_REQUIRE_FRESH_HOST";
+
+    private static bool FreshHostRequired() => Environment.GetEnvironmentVariable(RequireFreshHostVariable) == "1";
 
     private static string FindRepositoryRoot()
     {
