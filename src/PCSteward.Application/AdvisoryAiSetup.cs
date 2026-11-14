@@ -292,14 +292,20 @@ public sealed class AdvisoryAiSetupService
                 return new(AdvisoryAiConnectOutcome.NotRecorded, existingKey, null);
         }
 
-        if (await credentials.SaveAsync(key, cancellationToken).ConfigureAwait(false) != AdvisoryAiCredentialWrite.Saved)
-            return new(AdvisoryAiConnectOutcome.KeyNotSaved, existingKey, null);
-        if (await settings.AdvanceCredentialGenerationAsync(cancellationToken).ConfigureAwait(false) != AdvisoryAiSettingsWrite.Saved ||
-            await settings.SetConnectedAsync(true, utcNow(), cancellationToken).ConfigureAwait(false) != AdvisoryAiSettingsWrite.Saved)
+        // From the save on, nothing may leave a key behind that AI is not connected with: a refused record and an exception
+        // (cancellation included) both take the key out again, with a token that can't be cancelled.
+        try
         {
-            AdvisoryAiCredentialRemoval rollback = await credentials.RemoveAndVerifyAsync(cancellationToken).ConfigureAwait(false);
-            _ = await settings.AdvanceCredentialGenerationAsync(cancellationToken).ConfigureAwait(false);
-            return new(AdvisoryAiConnectOutcome.NotRecorded, existingKey, rollback);
+            if (await credentials.SaveAsync(key, cancellationToken).ConfigureAwait(false) != AdvisoryAiCredentialWrite.Saved)
+                return new(AdvisoryAiConnectOutcome.KeyNotSaved, existingKey, await RollBackAsync(credentials, connectedMayBeRecorded: false).ConfigureAwait(false));
+            if (await settings.AdvanceCredentialGenerationAsync(cancellationToken).ConfigureAwait(false) != AdvisoryAiSettingsWrite.Saved ||
+                await settings.SetConnectedAsync(true, utcNow(), cancellationToken).ConfigureAwait(false) != AdvisoryAiSettingsWrite.Saved)
+                return new(AdvisoryAiConnectOutcome.NotRecorded, existingKey, await RollBackAsync(credentials, connectedMayBeRecorded: false).ConfigureAwait(false));
+        }
+        catch
+        {
+            _ = await RollBackAsync(credentials, connectedMayBeRecorded: true).ConfigureAwait(false);
+            throw;
         }
         return new(AdvisoryAiConnectOutcome.Connected, existingKey, null);
     }
@@ -309,14 +315,23 @@ public sealed class AdvisoryAiSetupService
     /// dispatch claim can be made), then lets the desktop app stop the AI work it is running (<paramref name="stopActiveWork"/>; a
     /// request already past its dispatch claim keeps its whole reservation, ADR-029), then removes every composed provider's exact
     /// key and verifies it is gone, then raises the key generation. A failed record still removes the keys, because a missing key
-    /// also stops every send. Nothing is revoked at the provider and nothing is sent.
+    /// also stops every send. Nothing is revoked at the provider and nothing is sent. Disconnect is not cancellable: it always runs to
+    /// the end, and an exception from <paramref name="stopActiveWork"/> still removes the keys before it is rethrown.
     /// </summary>
     public async Task<AdvisoryAiDisconnectResult> DisconnectAsync(Func<Task>? stopActiveWork, CancellationToken cancellationToken)
     {
-        bool recorded = await settings.SetConnectedAsync(false, utcNow(), cancellationToken).ConfigureAwait(false) == AdvisoryAiSettingsWrite.Saved;
-        if (stopActiveWork is not null) await stopActiveWork().ConfigureAwait(false);
-        AdvisoryAiCredentialRemoval removal = await RemoveKeysAsync(cancellationToken).ConfigureAwait(false);
-        _ = await settings.AdvanceCredentialGenerationAsync(cancellationToken).ConfigureAwait(false);
+        bool recorded = await settings.SetConnectedAsync(false, utcNow(), CancellationToken.None).ConfigureAwait(false) == AdvisoryAiSettingsWrite.Saved;
+        AdvisoryAiCredentialRemoval removal;
+        // Once disconnect has started it runs to the end: cancelling it must not leave the key behind.
+        try
+        {
+            if (stopActiveWork is not null) await stopActiveWork().ConfigureAwait(false);
+        }
+        finally
+        {
+            removal = await RemoveKeysAsync(CancellationToken.None).ConfigureAwait(false);
+            _ = await settings.AdvanceCredentialGenerationAsync(CancellationToken.None).ConfigureAwait(false);
+        }
         return new(recorded, removal);
     }
 
@@ -379,6 +394,18 @@ public sealed class AdvisoryAiSetupService
 
     /// <summary>ADR-029: the owner reviewed a recorded charge above its reservation. The recorded amounts stay as they are.</summary>
     public Task<AdvisoryAiAccountingWrite> AcknowledgeReviewAsync(CancellationToken cancellationToken) => ledger.AcknowledgeReviewAsync(cancellationToken);
+
+    /// <summary>
+    /// Undoes a connect that did not finish: turns AI off again when the connection may have been recorded, removes and verifies the
+    /// key, and raises the key generation. Runs to the end whatever the caller's cancellation says.
+    /// </summary>
+    private async Task<AdvisoryAiCredentialRemoval> RollBackAsync(IAdvisoryAiCredentialStore credentials, bool connectedMayBeRecorded)
+    {
+        if (connectedMayBeRecorded) _ = await settings.SetConnectedAsync(false, utcNow(), CancellationToken.None).ConfigureAwait(false);
+        AdvisoryAiCredentialRemoval removal = await credentials.RemoveAndVerifyAsync(CancellationToken.None).ConfigureAwait(false);
+        _ = await settings.AdvanceCredentialGenerationAsync(CancellationToken.None).ConfigureAwait(false);
+        return removal;
+    }
 
     private async Task<AdvisoryAiCredentialRemoval> RemoveKeysAsync(CancellationToken cancellationToken)
     {

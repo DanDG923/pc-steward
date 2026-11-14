@@ -137,6 +137,8 @@ public static class AdvisoryAiSetupText
     {
         ArgumentNullException.ThrowIfNull(result);
         ArgumentNullException.ThrowIfNull(provider);
+        if (!result.Recorded && !result.KeyGone)
+            return $"PC Steward couldn't turn AI explanations off or confirm your key was removed, so it may still be usable. Select Disconnect again, or remove {provider.CredentialTarget} in Credential Manager yourself.";
         if (result.KeyGone)
             return result.Recorded
                 ? $"Disconnected. Your key was removed from Credential Manager. It still works at {provider.Name} until you revoke it there."

@@ -149,6 +149,62 @@ public sealed class AdvisoryAiSetupTests
 
     [TestMethod]
     [TestCategory("FR-AI-03")]
+    public async Task CancellingAConnectAfterTheKeyIsSavedTakesTheKeyOutAgain()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        using CancellationTokenSource cancel = new();
+        fixture.Credentials.OnSave = async () =>
+        {
+            await cancel.CancelAsync();
+        };
+        using AdvisoryAiApiKey key = Key();
+        bool threw = false;
+        try
+        {
+            await fixture.Service.ConnectAsync(key, AdvisoryAiPriorUseAnswer.NoPriorUse, cancel.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            threw = true;
+        }
+        Assert.IsTrue(threw, "the cancellation still reaches the caller");
+        Assert.IsNull(fixture.Credentials.SavedKey, "no key is left behind that AI is not connected with");
+        CollectionAssert.Contains(fixture.Credentials.Calls, "remove");
+        Assert.IsFalse((await fixture.Store.GetSettingsAsync(CancellationToken.None)).Connected);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-03")]
+    public async Task DisconnectRunsToTheEndEvenWhenCancelled()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        using AdvisoryAiApiKey key = Key();
+        await fixture.Service.ConnectAsync(key, AdvisoryAiPriorUseAnswer.NoPriorUse, CancellationToken.None);
+        using CancellationTokenSource cancel = new();
+        await cancel.CancelAsync();
+        AdvisoryAiDisconnectResult result = await fixture.Service.DisconnectAsync(null, cancel.Token);
+        Assert.AreEqual(new AdvisoryAiDisconnectResult(true, AdvisoryAiCredentialRemoval.Removed), result);
+        Assert.IsNull(fixture.Credentials.SavedKey);
+
+        await fixture.Service.ConnectAsync(key, null, CancellationToken.None);
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => fixture.Service.DisconnectAsync(() => throw new InvalidOperationException("stop failed"), CancellationToken.None));
+        Assert.IsNull(fixture.Credentials.SavedKey, "a failure while stopping work still removes the key");
+        Assert.IsFalse((await fixture.Store.GetSettingsAsync(CancellationToken.None)).Connected);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-03")]
+    public void ADisconnectThatRecordedNothingAndRemovedNothingIsNotCalledDisconnected()
+    {
+        string text = AdvisoryAiSetupText.DisconnectResult(new(false, AdvisoryAiCredentialRemoval.Incomplete), AdvisoryAiProviders.OpenAI);
+        StringAssert.StartsWith(text, "PC Steward couldn't turn AI explanations off");
+        Assert.IsFalse(text.Contains("Disconnected", StringComparison.Ordinal));
+        StringAssert.StartsWith(AdvisoryAiSetupText.DisconnectResult(new(true, AdvisoryAiCredentialRemoval.Incomplete), AdvisoryAiProviders.OpenAI), "Disconnected, but key removal is incomplete");
+        StringAssert.StartsWith(AdvisoryAiSetupText.DisconnectResult(new(false, AdvisoryAiCredentialRemoval.Removed), AdvisoryAiProviders.OpenAI), "Your key was removed");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-03")]
     public async Task ConnectIsRefusedWhenAlreadyConnectedOrWhenNothingIsReviewed()
     {
         await using Fixture fixture = await Fixture.CreateAsync();
