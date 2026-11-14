@@ -17,7 +17,7 @@ public sealed class SettingsDataResetPresentationTests
     private static readonly TimeZoneInfo Utc = TimeZoneInfo.Utc;
     private static readonly DateTimeOffset Cleared = new(2026, 10, 30, 9, 15, 0, TimeSpan.Zero);
     // UI polish phase 4 (approved target T-Settings): Decisions and About are in the navigation pane; Data & reset opens from Privacy & data.
-    private static readonly string[] SettingsSections = ["Update checks", "Scan scope", "Schedule", "Privacy & data"];
+    private static readonly string[] SettingsSections = ["Update checks", "Scan scope", "Schedule", "Privacy & data", "AI explanations"];
     private static readonly string[] Cadences = ["Off", "Daily", "Weekly"];
     private static readonly string[] CardTitles = ["Scan data", "Downloaded update files", "Source metadata", "Logs and history", "Mappings, pins and ignores"];
     private static readonly string[] ActionLabels = ["Clear scan data", "Clear downloaded files", "Clear source metadata", "Clear logs", "Clear update history", "Clear mappings and policies"];

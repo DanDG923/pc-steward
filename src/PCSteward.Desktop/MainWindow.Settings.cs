@@ -158,6 +158,14 @@ public sealed partial class MainWindow
         openData.Click += (_, _) => NavigateTo(ShellPage.Privacy);
         privacy.Children.Add(openData);
         panel.Children.Add(privacy);
+
+        // Task 67 stage 4a (FR-AI-01, ADR-028 D1): AI explanations, off by default. This build has no reviewed model, so only what
+        // it offers is shown: no key store or transport is composed, nothing is read from Credential Manager and nothing is sent.
+        AdvisoryAiSettingsPresentation ai = AdvisoryAiSettingsPresenter.PresentAvailability(AdvisoryAiAvailability.Current);
+        StackPanel aiSection = SettingsSection(AdvisoryAiSetupText.SectionHeading, AdvisoryAiSetupText.SectionDescription);
+        TextBlock aiState = new() { Text = "Off", Style = AppStyle("StewardBodyStyle") };
+        aiSection.Children.Add(StewardVisuals.RowCard("", ai.AvailabilityTitle, ai.AvailabilityText, aiState));
+        panel.Children.Add(aiSection);
         panel.Children.Add(StewardVisuals.FootNote("\uE946", SettingsPresenter.SaveModelText));
         return panel;
     }

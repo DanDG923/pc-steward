@@ -38,6 +38,8 @@ public interface IAdvisoryAiWireFormat
 /// <param name="AuthorizationPreview">What the preview shows in place of the key, which is never shown.</param>
 /// <param name="FixedHeaders">Further fixed, non-identifying headers the provider requires, shown in the preview and sent as shown.</param>
 /// <param name="WireFormat">The provider's request and response format.</param>
+/// <param name="DataControlsPage">The provider's own page on what it keeps, linked at connect and before the first request (ADR-028).</param>
+/// <param name="PricingPage">The provider's official price page, which the owner reads before confirming prices (ADR-029 F6).</param>
 public sealed record AdvisoryAiProvider(
     AdvisoryAiProviderId Id,
     string Name,
@@ -46,7 +48,9 @@ public sealed record AdvisoryAiProvider(
     string AuthorizationName,
     string AuthorizationPreview,
     IReadOnlyList<KeyValuePair<string, string>> FixedHeaders,
-    IAdvisoryAiWireFormat WireFormat)
+    IAdvisoryAiWireFormat WireFormat,
+    Uri DataControlsPage,
+    Uri PricingPage)
 {
     public const string Method = "POST";
 }
@@ -62,7 +66,9 @@ public static class AdvisoryAiProviders
         "Authorization",
         "Bearer [your key, never shown]",
         [],
-        OpenAiResponsesWireFormat.Instance);
+        OpenAiResponsesWireFormat.Instance,
+        new Uri("https://developers.openai.com/api/docs/guides/your-data", UriKind.Absolute),
+        new Uri("https://developers.openai.com/api/docs/pricing", UriKind.Absolute));
 
     public static IReadOnlyList<AdvisoryAiProvider> All { get; } = [OpenAI];
 
