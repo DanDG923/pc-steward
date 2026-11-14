@@ -81,18 +81,20 @@ The usage fields the reader trusts match the response example in S5: `input_toke
 | `ReasoningEffort` | `low` | S1, S6 |
 | `StandardPriceInputTokens` | 272,000 | S1 |
 | `RequestNoPromptCache` | true | S3 |
-| `TokenizerIsByteLevel` | **unproven: blocker B1** | S1 and S7 are silent |
+| `TokenizerIsByteLevel` | true, on the owner's decision for B1 (a), checked live in Task 71 | S1 and S7 are silent; owner decision 2026-11-14 |
 | `FramingAllowanceTokens` | **unproven: blocker B2** (proposed 512, to be measured) | — |
 | `MaximumTokenUtf8Bytes` | Not published. Proposed 128, which covers the longest `o200k_base` vocabulary entries with margin | Residual R2 |
 | `ResponseEnvelopeBytes` | Not published. Proposed 262,144 | Residual R3 |
 
-## 7. Blockers (the model stays unavailable until both are settled)
+## 7. Blockers (the model stays unavailable until both are settled; B1 is settled)
 
 **B1, tokenizer.** The local input bound relies on "tokens ≤ UTF-8 bytes". That holds for any tokenizer in which every token covers at least one input byte, which includes OpenAI's byte-level BPE family (`o200k_base` for `gpt-5*`, S7). OpenAI publishes no tokenizer for `gpt-6.1-sol`. Options for the owner:
 - **(a)** Accept the general argument plus the measured check in Task 71. That check compares `usage.input_tokens` against the app's own bound, and a request over the bound already pauses paid requests (above approved bounds).
 - **(b)** Wait until OpenAI publishes the tokenizer.
 
 (a) is recommended: the bound only has to be an upper bound, and any breach is caught and stops paid use.
+
+**Decision (owner, 2026-11-14): (a).** The candidate profile sets `TokenizerIsByteLevel = true`. Task 71 checks it live, and a breach stops paid use. B1 is settled. The model still stays unavailable until B2 is measured, Task 70 passes and the owner approves Task 71.
 
 **B2, framing allowance.** This covers hidden system and formatting tokens around the instructions and input. It isn't published. The proposal is 512 tokens. Task 71's single request measures it: the reported `input_tokens` must be at most the preview's `InputTokenUpperBound`. A breach stops paid use, and the value is corrected before ordinary use.
 
@@ -134,5 +136,5 @@ Evidence for all of this is in `AdvisoryAiAdapterBoundaryTests` and the transpor
 
 - It makes no host or provider check: nothing was sent to OpenAI.
 - Every figure comes from the official pages on the date above.
-- Choosing B1 option (a) or (b), the Task 71 limits and the go-ahead for the paid call are the owner's decisions.
+- The owner chose B1 option (a) on 2026-11-14. The Task 71 limits and the go-ahead for the paid call are still the owner's decisions.
 - Task 70 (the independent security, privacy and cost review) has not run.
