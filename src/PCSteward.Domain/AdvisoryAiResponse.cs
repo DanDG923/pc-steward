@@ -51,6 +51,25 @@ public enum AdvisoryAiMalformedReason
 }
 
 /// <summary>
+/// Task 70E T70E-01: what the body said about its service tier, in closed terms. The provider's own text is never kept: a named tier
+/// is one of <see cref="AdvisoryAiResponseReader.KnownServiceTiers"/>, held as PC Steward's own constant.
+/// </summary>
+public enum AdvisoryAiServiceTierReport
+{
+    /// <summary>No tier, or one null tier.</summary>
+    NotReported,
+
+    /// <summary>One known tier name; <see cref="AdvisoryAiResponse.ServiceTier"/> holds it.</summary>
+    Named,
+
+    /// <summary>More than one tier field, null ones included.</summary>
+    Repeated,
+
+    /// <summary>One tier field that isn't a known tier name.</summary>
+    Unrecognised
+}
+
+/// <summary>
 /// Independent review F1/F2: ways a body departs from the request that was approved and priced. Each one makes usage untrusted and
 /// stops paid requests for review, even in a body refused for another reason, as a cache write does (Task 70B T70B-02).
 /// </summary>
@@ -100,10 +119,14 @@ public sealed record AdvisoryAiResponse(
     public bool CacheWriteUnreadable { get; init; }
 
     /// <summary>
-    /// Independent review F1: the service tier the body says served the request, when it named exactly one as a plain lower-case name;
-    /// null when it named none. Kept for the owner to see; any tier other than the requested one is a <see cref="Departures"/> entry.
+    /// Independent review F1, Task 70E T70E-01: the known service tier the body named, as PC Steward's own constant from
+    /// <see cref="AdvisoryAiResponseReader.KnownServiceTiers"/>; null otherwise. Any tier other than the requested one, a repeated tier
+    /// or an unknown one is a <see cref="Departures"/> entry.
     /// </summary>
     public string? ServiceTier { get; init; }
+
+    /// <summary>Task 70E T70E-01: what the body said about its tier, in closed terms.</summary>
+    public AdvisoryAiServiceTierReport ServiceTierReport { get; init; }
 
     /// <summary>Independent review F1/F2: what in the body departs from the approved, priced request.</summary>
     public AdvisoryAiResponseDeparture Departures { get; init; }
@@ -123,6 +146,13 @@ public static class AdvisoryAiResponseReader
     public const int MaximumDepth = 16;
     public const int MaximumOutputItems = 64;
     public const int MaximumIdLength = 128;
+
+    /// <summary>
+    /// Task 70E T70E-01: the service tier names PC Steward knows (Task 69 §3, and earlier API names). Only these are ever shown, as
+    /// these constants; any other value is reported as unrecognised. Which one the request needs is the model profile's, so knowing a
+    /// name is never accepting it.
+    /// </summary>
+    public static readonly IReadOnlyList<string> KnownServiceTiers = ["auto", "default", "flex", "batch", "scale", "priority", "fast", "ultrafast"];
 
     public static AdvisoryAiResponse Read(ReadOnlySpan<byte> body, AdvisoryAiApproval approval)
     {
@@ -160,7 +190,7 @@ public static class AdvisoryAiResponseReader
                 new JsonDocumentOptions { MaxDepth = MaximumDepth, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
             AdvisoryAiResponse response = Read(document.RootElement, expectedModel, approvedInputTokens, approvedOutputTokens);
             (long? written, bool unreadable) = CacheWriteReport(document.RootElement);
-            (string? tier, AdvisoryAiResponseDeparture departures) = DepartureReport(document.RootElement, expectedServiceTier, noPromptCache);
+            (string? tier, AdvisoryAiServiceTierReport tierReport, AdvisoryAiResponseDeparture departures) = DepartureReport(document.RootElement, expectedServiceTier, noPromptCache);
             // Task 70B T70B-02: a reported cache write (or one that isn't a plain count) is an unexpected billing category even when the
             // body is refused earlier for another reason, so it always stops paid requests for review. Independent review F1/F2: so is
             // another service tier, an unknown usage counter, cached input on a no-cache request, or conversation state. Usage is then
@@ -175,6 +205,7 @@ public static class AdvisoryAiResponseReader
                 CacheWriteTokens = written,
                 CacheWriteUnreadable = unreadable,
                 ServiceTier = tier,
+                ServiceTierReport = tierReport,
                 Departures = departures,
                 UsageReliable = response.UsageReliable && !unexpected,
                 UsageAboveApprovedBounds = response.UsageAboveApprovedBounds || unexpected
@@ -348,17 +379,26 @@ public static class AdvisoryAiResponseReader
     /// <summary>
     /// Independent review F1/F2: the reported service tier and every departure from the approved request, read on its own like
     /// <see cref="CacheWriteReport"/> so a body refused for another reason still reports them, and over every occurrence so a repeated
-    /// field can't hide one. An absent or null tier is accepted and shown as not reported.
+    /// field can't hide one. One absent or null tier is accepted and shown as not reported.
     /// </summary>
-    private static (string? Tier, AdvisoryAiResponseDeparture Departures) DepartureReport(JsonElement root, string? expectedTier, bool noPromptCache)
+    private static (string? Tier, AdvisoryAiServiceTierReport Report, AdvisoryAiResponseDeparture Departures) DepartureReport(JsonElement root, string? expectedTier, bool noPromptCache)
     {
-        if (root.ValueKind != JsonValueKind.Object) return (null, AdvisoryAiResponseDeparture.None);
+        if (root.ValueKind != JsonValueKind.Object) return (null, AdvisoryAiServiceTierReport.NotReported, AdvisoryAiResponseDeparture.None);
         AdvisoryAiResponseDeparture departures = AdvisoryAiResponseDeparture.None;
 
-        List<JsonElement> tiers = [.. Occurrences(root, "service_tier").Where(value => value.ValueKind != JsonValueKind.Null)];
+        // Task 70E T70E-02: every occurrence counts, null ones included, so a null copy can't hide a repeated tier.
+        List<JsonElement> tiers = [.. Occurrences(root, "service_tier")];
         string? tier = null;
-        if (tiers.Count == 1 && tiers[0].ValueKind == JsonValueKind.String && IsTierName(tiers[0].GetString())) tier = tiers[0].GetString();
-        if (tiers.Count > 0 && (tier is null || expectedTier is not null && !string.Equals(tier, expectedTier, StringComparison.Ordinal)))
+        AdvisoryAiServiceTierReport report = AdvisoryAiServiceTierReport.NotReported;
+        if (tiers.Count > 1) report = AdvisoryAiServiceTierReport.Repeated;
+        else if (tiers.Count == 1 && tiers[0].ValueKind != JsonValueKind.Null)
+        {
+            // Task 70E T70E-01: only a known name is kept, and then as this app's own constant, never the provider's string.
+            tier = tiers[0].ValueKind == JsonValueKind.String ? KnownServiceTiers.FirstOrDefault(known => tiers[0].ValueEquals(known)) : null;
+            report = tier is null ? AdvisoryAiServiceTierReport.Unrecognised : AdvisoryAiServiceTierReport.Named;
+        }
+        if (report is AdvisoryAiServiceTierReport.Repeated or AdvisoryAiServiceTierReport.Unrecognised ||
+            report == AdvisoryAiServiceTierReport.Named && expectedTier is not null && !string.Equals(tier, expectedTier, StringComparison.Ordinal))
             departures |= AdvisoryAiResponseDeparture.ServiceTier;
 
         foreach (JsonElement usage in Occurrences(root, "usage"))
@@ -380,12 +420,8 @@ public static class AdvisoryAiResponseReader
             Occurrences(root, "previous_response_id").Any(value => value.ValueKind != JsonValueKind.Null) ||
             Occurrences(root, "conversation").Any(value => value.ValueKind != JsonValueKind.Null);
         if (state) departures |= AdvisoryAiResponseDeparture.ConversationState;
-        return (tier, departures);
+        return (tier, report, departures);
     }
-
-    /// <summary>A tier name is shown to the owner, so only a short plain lower-case name is accepted as one.</summary>
-    private static bool IsTierName(string? value) =>
-        !string.IsNullOrEmpty(value) && value.Length <= 32 && value.All(character => char.IsAsciiLetterLower(character) || char.IsAsciiDigit(character) || character == '_');
 
     private static bool HasUnknownKey(JsonElement element, string[] known) =>
         element.EnumerateObject().Any(property => !known.Contains(property.Name, StringComparer.Ordinal));

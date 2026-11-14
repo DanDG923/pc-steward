@@ -272,7 +272,14 @@ public static class AdvisoryAiExplainText
         if (report is null) return null;
         List<string> parts = [];
         if (report.HttpStatus is int status) parts.Add(string.Create(CultureInfo.InvariantCulture, $"HTTP status {status}"));
-        parts.Add(report.ServiceTier is string tier ? $"service tier \"{tier}\"" : "no service tier reported");
+        // Task 70E T70E-01: only a known tier name, held as PC Steward's own constant, is ever shown; anything else is fixed words.
+        parts.Add(report.ServiceTierReport switch
+        {
+            AdvisoryAiServiceTierReport.Named when report.ServiceTier is string tier && AdvisoryAiResponseReader.KnownServiceTiers.Contains(tier) => $"service tier \"{tier}\"",
+            AdvisoryAiServiceTierReport.Repeated => "more than one service tier",
+            AdvisoryAiServiceTierReport.Unrecognised or AdvisoryAiServiceTierReport.Named => "a service tier PC Steward doesn't recognise",
+            _ => "no service tier reported"
+        });
         string details = $"Reply details: {string.Join(", ", parts)}.";
         if (report.MalformedReason != AdvisoryAiMalformedReason.None) details += $" It wasn't trusted as an answer because {MalformedReasonText(report.MalformedReason)}.";
         List<string> departures = [];
@@ -281,6 +288,9 @@ public static class AdvisoryAiExplainText
         if (report.Departures.HasFlag(AdvisoryAiResponseDeparture.PromptCacheUsed)) departures.Add("cached input although no prompt cache was asked for");
         if (report.Departures.HasFlag(AdvisoryAiResponseDeparture.ConversationState)) departures.Add("background or conversation state that wasn't asked for");
         if (departures.Count > 0) details += $" The reply reported {string.Join("; ", departures)}, so paid requests are paused until you review it in Settings.";
+        // Independent re-review N4: a dearer tier or an unpriced counter can cost more than the reservation PC Steward kept.
+        if (report.Departures.HasFlag(AdvisoryAiResponseDeparture.ServiceTier) || report.Departures.HasFlag(AdvisoryAiResponseDeparture.UnknownUsageField))
+            details += " The real charge may be more than the amount PC Steward kept, so check the usage page of your AI service's account.";
         return details;
     }
 

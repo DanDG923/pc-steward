@@ -1,3 +1,5 @@
+**Update (2026-11-14): the independent re-review of `094bcfb` returned PASS with four notes, and Task 70E of the same commit returned FAIL with one Medium and three Low findings. All are fixed or answered in §7.** The owner kept the 70E report on their PC, and the independent report is kept outside the repository.
+
 **Update (2026-11-14): Task 70D of `14ef51b` returned PASS with no new finding. An independent review of the same commit returned FAIL with one Medium finding (F1) and five Low ones, fixed or answered in §6.** The owner kept the 70D report on their PC, and the independent report is kept outside the repository. Both reviews run again at the fixed commit.
 
 # Task 90: fixes for the Task 70 AI review
@@ -26,6 +28,7 @@ Requirements: `FR-AI-01–06`, `FR-BUD-01–04`, ADR-028 and ADR-029 ([Phase G](
 
 - **Full ledger on disk:** 10,000 settled rows with every text at its longest allowed length and the WAL checkpointed added **10,498,048 bytes** (an empty database is 290,816 bytes). That is below the 16 MiB logical ceiling. It covers the accounting tables only.
 - **Not measured, still open before ordinary use:** CPU, peak working set and UI responsiveness while a 4 MiB response is read, sanitized, saved and shown; idle I/O; physical storage including backups. These need the owner's PC (ADR-006) and are not claimed here. They don't affect the one-request Task 71 test, whose answer is capped at 2,048 tokens.
+- **Also open before ordinary use (§7, N3):** if the live Task 71 reply shows that the tier is always present, a missing tier becomes a pause.
 
 ## 3. What did not change
 
@@ -64,3 +67,17 @@ Task 70D reviewed `14ef51b` and returned **PASS**. It found nine earlier finding
 | **F6 (Low).** ADR-028 still said a byte count plus a margin isn't accepted proof. | ADR-028 addendum A2 records B1 and B2 as scoped exceptions for the one Task 71 request. | ADR-028 A2 |
 
 The notes also changed two things. The exact-request screen now repeats the provider's data-controls disclosure (I4). The Task 71 packet adds a throwaway key from a separate project with a small balance (I1), and it says the test build is never published through the release or updater channel. I2, I3 and I5 stay as accepted notes. I5 is a body nested deeper than 16 levels, which is refused and keeps its whole reservation.
+
+## 7. Task 70E and the independent re-review of `094bcfb`
+
+The independent re-review returned **PASS** with four notes, N1 to N4. Task 70E returned **FAIL**:
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **T70E-01 (Medium).** The reply-details line showed the tier string exactly as the reply gave it. Any short lower-case text passed, so a provider-chosen value could reach the screen the owner copies from. | Only a known tier name is kept, and then as PC Steward's own constant (`AdvisoryAiResponseReader.KnownServiceTiers`). Any other value is reported in closed terms: unrecognised, repeated or not reported. The presenter shows only those constants or fixed words. That also holds for a report that claims an unknown name as named, and for bodies refused for another reason. | `AdvisoryAiResponseTests.AReplyFromAnotherServiceTierStopsPaidRequestsForReview` (10 cases, including an account-shaped and a secret-shaped name), `AnotherTierStillStops…`; `AdvisoryAiExplainTests.AnUnknownTierNameNeverReachesTheOutcomeScreen` |
+| **T70E-02 (Low).** Null tier copies were dropped before the repeat check, so a default tier beside a null one didn't pause. | Every occurrence counts, null ones included. Exactly one null tier still means not reported. | `ARepeatedTierPausesEvenWhenACopyIsNull` (4 cases) |
+| **T70E-03 (Low).** IPv6 addresses starting with `::` weren't redacted. | A leading `::` form, including IPv4-mapped addresses, is redacted after a space or punctuation, so `std::vector` stays. | `AdvisoryAiRedactionTests.IndependentReviewRedactionGapsAreClosed` (3 new cases) |
+| **T70E-04 (Low), with N1.** "Server", "Host", "Client" and similar words counted as address labels with no separator, and octets weren't checked, so versions such as "SQL Server 8.0.33.0" were replaced. | An IPv4 address must be a valid dotted address. Only "IP", "IPv4" and "IP address" may come straight before it. Every other label needs a `:` or `=`. | `VersionsTimesAndOrdinaryWordsAreNotTakenForAddressesOrSecrets` (6 new cases) |
+| **N2 (Info).** The reader's strict shape could surprise the owner during the test. | Task 69 §10 item 5 now says that a small surprise ends the test as uncertain and paused, and why. | Task 69 §10 |
+| **N3 (Info).** An absent tier is accepted. | Kept for the test. If the live reply always carries a tier, a missing one becomes a pause before ordinary use. This joins the ordinary-use list in §2. | — |
+| **N4 (Info).** For a dearer tier, the kept reservation can be below the real charge. | The pause text for a tier departure or an unpriced counter now says the real charge may be more and points to the AI service's usage page. | `AdvisoryAiExplainTests.AReplyFromAnotherServiceTierIsShownAndPausesPaidRequests` |

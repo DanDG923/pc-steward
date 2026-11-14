@@ -310,6 +310,8 @@ public sealed class AdvisoryAiResponseTests
     [DataRow(",\"service_tier\":\"Default\"", null, DisplayName = "not a plain lower-case name")]
     [DataRow(",\"service_tier\":7", null, DisplayName = "not a name")]
     [DataRow(",\"service_tier\":[\"default\"]", null, DisplayName = "a list")]
+    [DataRow(",\"service_tier\":\"reviewaccount\"", null, DisplayName = "an unknown name, here the PC's account name")]
+    [DataRow(",\"service_tier\":\"sk_live_short\"", null, DisplayName = "an unknown, secret-shaped name")]
     public void AReplyFromAnotherServiceTierStopsPaidRequestsForReview(string tier, string? shown)
     {
         // Independent review F1: the request asks for, and the owner priced, the default tier. A reply naming another tier may have
@@ -317,6 +319,9 @@ public sealed class AdvisoryAiResponseTests
         AdvisoryAiResponse response = ReadAsRequested(Body(extra: tier));
         Assert.AreEqual(AdvisoryAiAnswerStatus.Completed, response.Status, "the answer itself is still shown");
         Assert.AreEqual(shown, response.ServiceTier);
+        // Task 70E T70E-01: an unknown name is never kept, only reported as unrecognised; a known one is the app's own constant.
+        Assert.AreEqual(shown is null ? AdvisoryAiServiceTierReport.Unrecognised : AdvisoryAiServiceTierReport.Named, response.ServiceTierReport);
+        if (shown is not null) Assert.IsTrue(AdvisoryAiResponseReader.KnownServiceTiers.Contains(shown));
         Assert.AreEqual(AdvisoryAiResponseDeparture.ServiceTier, response.Departures);
         AssertPausedWithWholeReservation(response, tier);
     }
@@ -332,7 +337,31 @@ public sealed class AdvisoryAiResponseTests
         AdvisoryAiResponse repeated = ReadAsRequested(Body(extra: ",\"service_tier\":\"priority\",\"service_tier\":\"default\""));
         Assert.AreEqual(AdvisoryAiMalformedReason.DuplicateProperty, repeated.MalformedReason);
         Assert.IsNull(repeated.ServiceTier);
+        Assert.AreEqual(AdvisoryAiServiceTierReport.Repeated, repeated.ServiceTierReport);
         AssertPausedWithWholeReservation(repeated, "a repeated tier can't hide another one");
+
+        AdvisoryAiResponse unknownRefused = ReadAsRequested(Body(extra: ",\"service_tier\":\"reviewaccount\"").Replace("\"store\":false", "\"store\":true", StringComparison.Ordinal));
+        Assert.AreEqual(AdvisoryAiMalformedReason.StoredResponse, unknownRefused.MalformedReason);
+        Assert.IsNull(unknownRefused.ServiceTier, "an early-refused body keeps no provider tier text either");
+        Assert.AreEqual(AdvisoryAiServiceTierReport.Unrecognised, unknownRefused.ServiceTierReport);
+        AssertPausedWithWholeReservation(unknownRefused, "an unknown tier in a refused body");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow(",\"service_tier\":\"default\",\"service_tier\":null", DisplayName = "default then null")]
+    [DataRow(",\"service_tier\":null,\"service_tier\":\"default\"", DisplayName = "null then default")]
+    [DataRow(",\"service_tier\":null,\"service_tier\":null", DisplayName = "two nulls")]
+    [DataRow(",\"service_tier\":\"default\",\"service_tier\":\"default\"", DisplayName = "the requested tier twice")]
+    public void ARepeatedTierPausesEvenWhenACopyIsNull(string tiers)
+    {
+        // Task 70E T70E-02: every occurrence counts, null ones included, so a repeated tier always stops paid requests for review.
+        AdvisoryAiResponse response = ReadAsRequested(Body(extra: tiers));
+        Assert.AreEqual(AdvisoryAiMalformedReason.DuplicateProperty, response.MalformedReason);
+        Assert.AreEqual(AdvisoryAiServiceTierReport.Repeated, response.ServiceTierReport);
+        Assert.IsNull(response.ServiceTier);
+        Assert.IsTrue(response.Departures.HasFlag(AdvisoryAiResponseDeparture.ServiceTier));
+        AssertPausedWithWholeReservation(response, tiers);
     }
 
     [TestMethod]

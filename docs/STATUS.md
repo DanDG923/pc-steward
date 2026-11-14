@@ -1,3 +1,14 @@
+**Advisory AI, Task 70E failed on one Medium finding and the independent re-review passed; fixed (2026-11-14; code, tests and docs; no paid call, no key).** Requirements: `FR-AI-02/05`, `FR-BUD-03` ([Task 90 record §7](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Reviews of `094bcfb`.** The independent re-review returned PASS with four notes. The owner's Task 70E returned FAIL on T70E-01 (Medium): the reply's tier text reached the outcome screen as given. It also raised three Low findings. Neither report is in the repository.
+- **Fixed.**
+  - Only a known tier name is shown, as PC Steward's own word. Anything else shows in fixed words (T70E-01).
+  - A repeated tier pauses paid requests even when one copy is null (T70E-02).
+  - IPv6 addresses that start with `::` are redacted (T70E-03).
+  - Version numbers after words like "Server" or "Host" are no longer taken for addresses (T70E-04, N1).
+  - The test plan explains the strict reply checks (N2), and the pause text points to the usage page (N4).
+- **Next.** Both reviews run again at the fixed commit. `Reviewed` stays empty and paid requests stay disabled.
+
 **Advisory AI, Task 70D passed and an independent review failed on one Medium finding; fixed (2026-11-14; code, tests and docs; no paid call, no key).** Requirements: `FR-AI-02/04/05`, `FR-BUD-02/03` ([Task 90 record §6](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Reviews of `14ef51b`.** The owner's Task 70D returned PASS. An independent review returned FAIL on F1 (Medium): the reply's service tier wasn't checked. It also raised five Low findings. Neither report is in the repository.
