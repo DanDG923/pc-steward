@@ -159,6 +159,45 @@ public static class AdvisoryAiSetupText
         return $"Disconnected, but key removal is incomplete: PC Steward couldn't confirm your key is gone from Credential Manager. Try again, or remove {provider.CredentialTarget} there yourself.";
     }
 
+    /// <summary>Stage 4b: shown when the masked key box holds something that can't be a key. The key itself is never repeated.</summary>
+    public static string KeyProblem(AdvisoryAiKeyProblem problem) => problem switch
+    {
+        AdvisoryAiKeyProblem.None => string.Empty,
+        AdvisoryAiKeyProblem.Empty => "Paste your API key first.",
+        AdvisoryAiKeyProblem.ContainsWhitespace => "The key has a space or line break in it. Copy just the key and paste it again. Nothing was saved.",
+        AdvisoryAiKeyProblem.NotPrintableAscii => "The key has a character an API key can't have. Copy just the key and paste it again. Nothing was saved.",
+        AdvisoryAiKeyProblem.TooLong => $"That is longer than any API key PC Steward accepts ({AdvisoryAiApiKey.MaximumUtf8Bytes:N0} characters), so nothing was saved.",
+        _ => "That isn't a key PC Steward can use. Nothing was saved."
+    };
+
+    /// <summary>Stage 4b: the "Try again" result after an incomplete key removal. Absence is claimed only when it was verified.</summary>
+    public static string RetryRemovalResult(AdvisoryAiCredentialRemoval removal, AdvisoryAiProvider provider)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        return removal is AdvisoryAiCredentialRemoval.Removed or AdvisoryAiCredentialRemoval.AlreadyAbsent
+            ? $"Your key is gone from Credential Manager. It still works at {provider.Name} until you revoke it there."
+            : KeyRemovalIncomplete(provider);
+    }
+
+    /// <summary>Stage 4b: the result of a notice's action (a new month, the clock or a review).</summary>
+    public static string NoticeActionResult(AdvisoryAiNoticeAction action, AdvisoryAiAccountingWrite write) => (action, write) switch
+    {
+        (AdvisoryAiNoticeAction.ConfirmNewMonth, AdvisoryAiAccountingWrite.Done) => "New month confirmed. Requests you approve from now on count in this month.",
+        (AdvisoryAiNoticeAction.AcceptClock, AdvisoryAiAccountingWrite.Done) => "PC Steward now uses the current time for AI requests.",
+        (AdvisoryAiNoticeAction.AcknowledgeReview, AdvisoryAiAccountingWrite.Done) => "Noted. Paid requests can be approved again. The recorded amounts are unchanged.",
+        (_, AdvisoryAiAccountingWrite.NotApplicable) => "Nothing needed changing: this was already up to date.",
+        _ => "PC Steward couldn't record this. Nothing changed."
+    };
+
+    /// <summary>Stage 4b: shown when an AI set-up action stopped unexpectedly, so its outcome can't be described.</summary>
+    public const string ActionUnfinished = "PC Steward couldn't finish this. Check the AI explanations section to see the current state before trying again.";
+
+    /// <summary>Stage 4b: shown when the AI settings couldn't be read.</summary>
+    public const string LoadFailed = "PC Steward couldn't read its AI settings. AI explanations stay off.";
+
+    /// <summary>Stage 4b: beside the masked key box in the connect and replace dialogs.</summary>
+    public const string KeyBoxNote = "The key is masked and never shown again. Saving it makes no request and costs nothing.";
+
     public static string ReplaceResult(AdvisoryAiKeyReplaceOutcome outcome) => outcome switch
     {
         AdvisoryAiKeyReplaceOutcome.Replaced => "Key replaced. Requests you approve from now on use the new key. Spending already recorded is kept.",
@@ -181,6 +220,18 @@ public static class AdvisoryAiSettingsPresenter
         ArgumentNullException.ThrowIfNull(availability);
         (string title, string text) = Availability(availability);
         return new(title, text, false, false, string.Empty, string.Empty, string.Empty, string.Empty, [], [], false, string.Empty, [], string.Empty, []);
+    }
+
+    /// <summary>
+    /// Codex review on #115: a snapshot read in an earlier UTC month, before its prices expired, or later than the clock now says no
+    /// longer describes the present (the new-month notice, the month's spending, whether prices are current), so it is read again.
+    /// </summary>
+    public static bool NeedsRereading(AdvisoryAiSetupSnapshot snapshot, DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        DateTime read = snapshot.ReadAtUtc.UtcDateTime, now = nowUtc.UtcDateTime;
+        return now < read || now.Year != read.Year || now.Month != read.Month ||
+            snapshot.LatestTariff is { } tariff && tariff.IsCurrent(snapshot.ReadAtUtc) && !tariff.IsCurrent(nowUtc);
     }
 
     /// <param name="snapshot">What the service read.</param>
@@ -311,6 +362,42 @@ public static class AdvisoryAiSettingsPresenter
     }
 
     private static string Tokens(int tokens, CultureInfo format) => tokens.ToString("N0", format) + (tokens == 1 ? " token" : " tokens");
+
+    /// <summary>
+    /// FR-BUD-01 (Codex review on #115): the change the owner is about to save, each limit's current value beside the new one, with
+    /// what is already counted against the monthly budget this UTC month, so a raised authorization or a budget already used up is
+    /// seen before it is saved.
+    /// </summary>
+    public static IReadOnlyList<string> LimitsChange(AdvisoryAiLimits current, AdvisoryAiLimits proposed, AdvisoryAiSpendingSummary? spending, CultureInfo? culture = null)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(proposed);
+        CultureInfo format = culture ?? CultureInfo.CurrentCulture;
+        List<string> lines =
+        [
+            Change("Input limit", Tokens(current.MaximumInputTokens, format), Tokens(proposed.MaximumInputTokens, format), proposed.MaximumInputTokens.CompareTo(current.MaximumInputTokens)),
+            Change("Output limit", Tokens(current.MaximumOutputTokens, format), Tokens(proposed.MaximumOutputTokens, format), proposed.MaximumOutputTokens.CompareTo(current.MaximumOutputTokens)),
+            Change("Limit per request", current.RequestCap.ToDollarString(), proposed.RequestCap.ToDollarString(), proposed.RequestCap.CompareTo(current.RequestCap)),
+            Change("Monthly budget", current.MonthlyBudget.ToDollarString(), proposed.MonthlyBudget.ToDollarString(), proposed.MonthlyBudget.CompareTo(current.MonthlyBudget))
+        ];
+        if (spending is null) lines.Add("PC Steward couldn't read this month's spending just now, so it can't show what is already counted.");
+        else
+        {
+            MicroUsd counted = Sum(spending.Settled, spending.Outstanding);
+            lines.Add($"Already counted this UTC month: {spending.Settled.ToDollarString()} spent and {spending.Outstanding.ToDollarString()} reserved, not settled yet. Changing a limit changes none of it.");
+            if (!proposed.MonthlyBudget.IsZero && proposed.MonthlyBudget <= counted)
+                lines.Add($"The new monthly budget is no more than the {counted.ToDollarString()} already counted, so no paid request can be made until next month.");
+        }
+        if (proposed.PaidRequestsDisabled) lines.Add(AdvisoryAiSetupText.PaidRequestsOffBySettings);
+        return lines;
+    }
+
+    private static string Change(string label, string from, string to, int direction) => direction switch
+    {
+        0 => $"{label}: {from} (unchanged)",
+        > 0 => $"{label}: {from} now, {to} after saving (raised)",
+        _ => $"{label}: {from} now, {to} after saving (lowered)"
+    };
 
     private static MicroUsd Sum(MicroUsd left, MicroUsd right)
     {

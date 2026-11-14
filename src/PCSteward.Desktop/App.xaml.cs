@@ -161,7 +161,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
                 catch (Exception exception) when (exception is not OutOfMemoryException) { return null; }
             });
         // Independent review L5 (FR-UPD-15, ADR-031): a fault building the compiled reviewed-release list never fails startup; it shows as unavailable.
-        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, chocolateyClientUpdates.CreateSession, chocolateyPackageUpdates.CreateSession, CreateDiagnostics(database), showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory, database));
+        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, chocolateyClientUpdates.CreateSession, chocolateyPackageUpdates.CreateSession, CreateDiagnostics(database), showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory, database), CreateAdvisoryAiSetup(database));
         ActivateWindow(window);
         }
         catch (Exception exception)
@@ -189,6 +189,21 @@ public partial class App : global::Microsoft.UI.Xaml.Application
     {
         public Task<(IReadOnlyList<DiagnosticAppHistoryEntry?> Entries, bool MoreMatched)> GetUpdateHistoryBetweenAsync(DateTimeOffset fromUtc, DateTimeOffset toUtc, int maximumEntries, CancellationToken cancellationToken) =>
             DataOperationLease.RunReadAsync(token => history.GetUpdateHistoryBetweenAsync(fromUtc, toUtc, maximumEntries, token), cancellationToken);
+    }
+
+    /// <summary>
+    /// Task 67 stage 4b (ADR-028, addendum A1): AI set-up is composed only when this build has a reviewed model. Then the provider's
+    /// exact Credential Manager store and its transport are its one adapter pair; composing them reads and sends nothing. Otherwise
+    /// nothing AI-related is composed and Settings only says what this version offers.
+    /// </summary>
+    private static AdvisoryAiSetupService? CreateAdvisoryAiSetup(SqliteDatabase database)
+    {
+        AdvisoryAiAvailability availability = AdvisoryAiAvailability.Current;
+        if (!availability.CanSetUp || availability.Provider is not PCSteward.Domain.AdvisoryAiProvider provider) return null;
+        AdvisoryAiProviderAdapters adapters = provider.Id == PCSteward.Domain.AdvisoryAiProviderId.OpenAI
+            ? new((new WindowsCredentialManagerStore(provider), new OpenAiResponsesTransport()))
+            : new();
+        return new AdvisoryAiSetupService(database, database, adapters, availability, () => DateTimeOffset.UtcNow);
     }
 
     /// <summary>
