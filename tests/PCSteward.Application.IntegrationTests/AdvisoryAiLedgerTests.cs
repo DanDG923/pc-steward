@@ -337,6 +337,7 @@ public sealed class AdvisoryAiLedgerTests
         Assert.AreEqual(AdvisoryAiExplanationSave.Saved, await fixture.Store.SaveExplanationAsync(old, Now, CancellationToken.None));
         Assert.HasCount(1, await fixture.Store.ListExplanationsAsync(AdvisoryAiSourceKind.FailedUpdate, "job-1", Now, CancellationToken.None));
         Assert.HasCount(0, await fixture.Store.ListExplanationsAsync(AdvisoryAiSourceKind.FailedUpdate, "job-1", Now.AddSeconds(1), CancellationToken.None));
+        Assert.AreEqual(0L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_explanations;"), "listing removed the expired row, not only hid it");
         Assert.AreEqual(AdvisoryAiExplanationSave.Invalid, await fixture.Store.SaveExplanationAsync(Explanation(AdvisoryAiSourceKind.FailedUpdate, "job-1", Now.AddDays(-31)), Now, CancellationToken.None));
 
         string huge = new('a', (int)AdvisoryAiResourcePolicy.MaximumSavedItemBytes);
@@ -348,6 +349,21 @@ public sealed class AdvisoryAiLedgerTests
         Assert.HasCount(0, await fixture.Store.ListExplanationsAsync(AdvisoryAiSourceKind.FailedUpdate, "big-0", Now.AddMinutes(3), CancellationToken.None), "the oldest went to keep 8 MiB");
         Assert.HasCount(1, await fixture.Store.ListExplanationsAsync(AdvisoryAiSourceKind.FailedUpdate, "big-2", Now.AddMinutes(3), CancellationToken.None));
         Assert.IsLessThanOrEqualTo(AdvisoryAiResourcePolicy.MaximumSavedContentBytes, (long)(await fixture.ScalarAsync("SELECT SUM(item_bytes) FROM ai_explanations;"))!);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-06")]
+    public async Task ExpiredExplanationsAreRemovedWithoutAnotherSaveOrListing()
+    {
+        // FR-AI-06: the 30 days hold when the owner stops saving or disconnects; start-up removes what has expired.
+        await using Fixture fixture = await Fixture.CreateAsync();
+        Assert.AreEqual(AdvisoryAiExplanationSave.Saved, await fixture.Store.SaveExplanationAsync(Explanation(AdvisoryAiSourceKind.FailedUpdate, "job-1", Now.AddDays(-29)), Now, CancellationToken.None));
+        Assert.AreEqual(AdvisoryAiExplanationSave.Saved, await fixture.Store.SaveExplanationAsync(Explanation(AdvisoryAiSourceKind.DiagnosticTimeline, "incident-1", Now), Now, CancellationToken.None));
+        Assert.AreEqual(0, await fixture.Store.RemoveExpiredExplanationsAsync(Now, CancellationToken.None));
+        Assert.AreEqual(1, await fixture.Store.RemoveExpiredExplanationsAsync(Now.AddDays(1), CancellationToken.None));
+        Assert.AreEqual(1L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_explanations;"));
+        Assert.AreEqual(1, await fixture.Store.RemoveExpiredExplanationsAsync(Now.AddDays(30), CancellationToken.None));
+        Assert.AreEqual(0L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_explanations;"));
     }
 
     [TestMethod]
@@ -518,6 +534,36 @@ public sealed class AdvisoryAiLedgerTests
         await using Fixture second = await Fixture.CreateReadyAsync();
         FakeTransport transport = new(_ => Received(Body("x")));
         (AdvisoryAiRequestWorkflow workflow, _) = second.Workflow(transport, onRead: () => second.ChangeAsync(change).GetAwaiter().GetResult());
+        (AdvisoryAiApproval approval, AdvisoryAiRequestPreview preview) = await second.ApproveAsync();
+        AdvisoryAiSendOutcome outcome = await workflow.SendAsync(approval, preview, null, CancellationToken.None);
+        Assert.AreEqual(AdvisoryAiSendRefusal.ApprovalStale, outcome.Refusal);
+        Assert.AreEqual(0, transport.Calls, "nothing reached the transport");
+        Assert.AreEqual("NotSent", await second.ScalarAsync("SELECT state FROM ai_requests;"));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-01")]
+    public async Task PricesThatRunOutAfterTheReservationStopTheClaimAndTheSend()
+    {
+        // ADR-029: owner-confirmed prices last 24 hours. A reservation made just inside the window cannot be claimed once it has passed.
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        AdvisoryAiTariff tariff = await fixture.TariffAsync();
+        AdvisoryAiApprovalBinding binding = await fixture.BindingAsync(tariff);
+        DateTimeOffset lastMinute = tariff.ExpiresAtUtc.AddMinutes(-1);
+        AdvisoryAiReservationRequest request = Request(tariff, binding, lastMinute);
+        Assert.IsTrue((await fixture.Store.ReserveAsync(request, AdvisoryAiLimits.Defaults, AdvisoryAiPaidRequestMode.Ordinary, tariff, Model, CancellationToken.None)).Reserved);
+        Assert.AreEqual(AdvisoryAiLedgerWrite.Outdated, await fixture.Store.ClaimDispatchAsync(request.RequestId, binding, tariff.ExpiresAtUtc, CancellationToken.None));
+        Assert.AreEqual(AdvisoryAiLedgerWrite.Outdated, await fixture.Store.ClaimDispatchAsync(request.RequestId, binding, tariff.ConfirmedAtUtc.AddSeconds(-1), CancellationToken.None),
+            "a clock before the confirmation is not current either");
+        Assert.AreEqual("Reserved", await fixture.ScalarAsync("SELECT state FROM ai_requests;"), "nothing was claimed");
+        Assert.AreEqual(AdvisoryAiLedgerWrite.Done, await fixture.Store.ClaimDispatchAsync(request.RequestId, binding, lastMinute, CancellationToken.None));
+
+        // End to end: the window closes while the key is read, after the reservation and before the claim.
+        await using Fixture second = await Fixture.CreateReadyAsync();
+        AdvisoryAiTariff secondTariff = await second.TariffAsync();
+        DateTimeOffset clock = secondTariff.ExpiresAtUtc.AddMinutes(-1);
+        FakeTransport transport = new(_ => Received(Body("x")));
+        (AdvisoryAiRequestWorkflow workflow, _) = second.Workflow(transport, onRead: () => clock = secondTariff.ExpiresAtUtc.AddMinutes(1), utcNow: () => clock);
         (AdvisoryAiApproval approval, AdvisoryAiRequestPreview preview) = await second.ApproveAsync();
         AdvisoryAiSendOutcome outcome = await workflow.SendAsync(approval, preview, null, CancellationToken.None);
         Assert.AreEqual(AdvisoryAiSendRefusal.ApprovalStale, outcome.Refusal);
@@ -705,11 +751,12 @@ public sealed class AdvisoryAiLedgerTests
         }
 
         public (AdvisoryAiRequestWorkflow Workflow, FakeCredentials Credentials) Workflow(IAdvisoryAiTransport transport, string? key = "sk-synthetic-not-a-real-key",
-            AdvisoryAiPaidRequestMode mode = AdvisoryAiPaidRequestMode.Ordinary, IReadOnlyList<AdvisoryAiModelProfile>? reviewed = null, Action? onRead = null)
+            AdvisoryAiPaidRequestMode mode = AdvisoryAiPaidRequestMode.Ordinary, IReadOnlyList<AdvisoryAiModelProfile>? reviewed = null, Action? onRead = null,
+            Func<DateTimeOffset>? utcNow = null)
         {
             FakeCredentials credentials = new(key, onRead);
             DateTimeOffset clock = Now.AddMinutes(1);
-            return (new AdvisoryAiRequestWorkflow(Store, Store, credentials, transport, Store, reviewed ?? Reviewed, mode, () => clock = clock.AddSeconds(1)), credentials);
+            return (new AdvisoryAiRequestWorkflow(Store, Store, credentials, transport, Store, reviewed ?? Reviewed, mode, utcNow ?? (() => clock = clock.AddSeconds(1))), credentials);
         }
 
         public async Task ExecuteAsync(string sql, params (string Name, object Value)[] parameters)

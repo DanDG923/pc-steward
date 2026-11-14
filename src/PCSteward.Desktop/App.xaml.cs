@@ -87,6 +87,8 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         Directory.CreateDirectory(stateDirectory);
         SqliteDatabase database = new(Path.Combine(stateDirectory, "pcsteward.db"), new ChocolateyHelperVersionGrammar());
         database.MigrateAsync(CancellationToken.None).GetAwaiter().GetResult();
+        // FR-AI-06: saved AI explanations past their 30 days are removed at every start, not only when another one is saved.
+        _ = database.RemoveExpiredExplanationsAsync(DateTimeOffset.UtcNow, CancellationToken.None).GetAwaiter().GetResult();
         DataOperationLease.ConfigureReconciliation(new UpdateDispatchReconciliation(database).ReconcileAsync);
         // An unresolved update barrier keeps read-only UI available; every mutating operation fails closed until reconciled.
         try { DataOperationLease.ReconcileBootstrap(CancellationToken.None); }

@@ -213,7 +213,7 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             if (snapshot is null) return new(AdvisoryAiReservationProblem.LedgerNeedsReview, null);
             // ADR-029 concurrent edit and reserve: the stored settings and prices are read in this same write transaction, so a limit,
             // consent, key or price change committed after the caller read them is seen here and the stale approval cannot reserve.
-            AdvisoryAiSettings? stored = await BindingHoldsAsync(connection, transaction, request.Binding, cancellationToken).ConfigureAwait(false);
+            AdvisoryAiSettings? stored = await BindingHoldsAsync(connection, transaction, request.Binding, request.ReservedAtUtc, cancellationToken).ConfigureAwait(false);
             if (stored is null || stored.Limits != limits) return new(AdvisoryAiReservationProblem.ApprovalOutdated, snapshot);
             AdvisoryAiReservationProblem problem = AdvisoryAiReservationRule.Check(request.Reservation, stored.Limits, snapshot, mode, tariff, model, request.ReservedAtUtc);
             if (problem != AdvisoryAiReservationProblem.None) return new(problem, snapshot);
@@ -283,9 +283,9 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             if (current is null) return AdvisoryAiLedgerWrite.NotFound;
             if (current == AdvisoryAiRequestState.DispatchClaimed) return AdvisoryAiLedgerWrite.AlreadyDone;
             if (current != AdvisoryAiRequestState.Reserved) return AdvisoryAiLedgerWrite.WrongState;
-            // The last check before the network: a disconnect, or a settings, consent, key or price change since the reservation, stops
-            // the claim in the same write transaction that would make it.
-            if (await BindingHoldsAsync(connection, transaction, binding, cancellationToken).ConfigureAwait(false) is null) return AdvisoryAiLedgerWrite.Outdated;
+            // The last check before the network: a disconnect, a settings, consent, key or price change since the reservation, or prices
+            // whose 24-hour confirmation has run out by now, stops the claim in the same write transaction that would make it.
+            if (await BindingHoldsAsync(connection, transaction, binding, nowUtc, cancellationToken).ConfigureAwait(false) is null) return AdvisoryAiLedgerWrite.Outdated;
             int changed = await AiExecuteAsync(connection, transaction,
                 "UPDATE ai_requests SET state='DispatchClaimed',claimed_at=$now WHERE request_id=$id AND state='Reserved' AND settings_version=$settings AND tariff_version=$tariff;",
                 cancellationToken, ("$id", Id(requestId)), ("$now", Utc(nowUtc)), ("$settings", binding.SettingsVersion), ("$tariff", binding.TariffVersion)).ConfigureAwait(false);
@@ -294,11 +294,12 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
     }
 
     /// <summary>
-    /// The stored settings when AI is connected, the settings, consent and key-generation versions equal <paramref name="binding"/>'s and
-    /// its tariff version is still the newest for that tariff's model and tier; otherwise null. Read inside the caller's write transaction.
+    /// The stored settings when AI is connected, the settings, consent and key-generation versions equal <paramref name="binding"/>'s,
+    /// its tariff version is still the newest for that tariff's model and tier and that tariff is current at <paramref name="nowUtc"/>
+    /// (ADR-029: owner-confirmed prices last 24 hours); otherwise null. Read inside the caller's write transaction.
     /// </summary>
     private static async Task<AdvisoryAiSettings?> BindingHoldsAsync(SqliteConnection connection, SqliteTransaction transaction, AdvisoryAiApprovalBinding binding,
-        CancellationToken cancellationToken)
+        DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
         AdvisoryAiSettings? stored = await ReadSettingsAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         if (stored is null || !stored.Connected || stored.SettingsVersion != binding.SettingsVersion || stored.ConsentVersion != binding.ConsentVersion ||
@@ -307,11 +308,15 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
         await using SqliteCommand command = AiCommand(connection, transaction, """
             SELECT (SELECT COUNT(*) FROM ai_tariffs WHERE version=$version),
                    (SELECT COUNT(*) FROM ai_tariffs newer JOIN ai_tariffs approved ON approved.version=$version
-                    WHERE newer.model_id=approved.model_id AND newer.service_tier=approved.service_tier AND newer.version>approved.version);
+                    WHERE newer.model_id=approved.model_id AND newer.service_tier=approved.service_tier AND newer.version>approved.version),
+                   (SELECT confirmed_at FROM ai_tariffs WHERE version=$version);
             """, ("$version", binding.TariffVersion));
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) || !TryLong(reader, 0, out long exists) || !TryLong(reader, 1, out long newer)) return null;
-        return exists == 1 && newer == 0 ? stored : null;
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) || !TryLong(reader, 0, out long exists) || !TryLong(reader, 1, out long newer) ||
+            reader.GetValue(2) is not string confirmedText || !TryParseUtc(confirmedText, out DateTimeOffset confirmed))
+            return null;
+        bool current = nowUtc >= confirmed && nowUtc < confirmed + AdvisoryAiTariff.Validity;
+        return exists == 1 && newer == 0 && current ? stored : null;
     }
 
     public Task<AdvisoryAiLedgerWrite> ReleaseUnclaimedAsync(Guid requestId, DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
@@ -541,9 +546,17 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
         }, AdvisoryAiExplanationSave.StorageFailed, cancellationToken).ConfigureAwait(false);
     }
 
+    public Task<int?> RemoveExpiredExplanationsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
+        AiWriteAsync<int?>(async (connection, transaction) =>
+            await AiExecuteAsync(connection, transaction, "DELETE FROM ai_explanations WHERE expires_at <= $now;", cancellationToken, ("$now", Utc(nowUtc))).ConfigureAwait(false),
+            null, cancellationToken);
+
     public async Task<IReadOnlyList<AdvisoryAiSavedExplanation>> ListExplanationsAsync(AdvisoryAiSourceKind source, string originId, DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(originId);
+        // FR-AI-06: opening saved explanations also removes every expired one, so the 30 days hold without another save. A failed
+        // removal still lists only unexpired rows.
+        await RemoveExpiredExplanationsAsync(nowUtc, cancellationToken).ConfigureAwait(false);
         List<AdvisoryAiSavedExplanation> result = [];
         await using SqliteConnection connection = await OpenAiAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteCommand command = AiCommand(connection, null,

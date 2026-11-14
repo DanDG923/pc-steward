@@ -237,7 +237,13 @@ public interface IAdvisoryAiExplanationStore
     /// <summary>Saves one explanation, removing expired ones and then the oldest others until the total fits 8 MiB.</summary>
     Task<AdvisoryAiExplanationSave> SaveExplanationAsync(AdvisoryAiSavedExplanation explanation, DateTimeOffset nowUtc, CancellationToken cancellationToken);
 
-    /// <summary>Unexpired explanations for one origin, newest first. Rows that fail validation are left out.</summary>
+    /// <summary>
+    /// FR-AI-06: removes every explanation that has expired at <paramref name="nowUtc"/>. Run at start-up and before each listing, so
+    /// the 30-day retention holds without another save. Returns how many were removed, or null when storage failed.
+    /// </summary>
+    Task<int?> RemoveExpiredExplanationsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken);
+
+    /// <summary>Unexpired explanations for one origin, newest first, after expired ones are removed. Rows that fail validation are left out.</summary>
     Task<IReadOnlyList<AdvisoryAiSavedExplanation>> ListExplanationsAsync(AdvisoryAiSourceKind source, string originId, DateTimeOffset nowUtc, CancellationToken cancellationToken);
 
     Task<bool> DeleteExplanationAsync(Guid id, CancellationToken cancellationToken);
