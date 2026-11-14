@@ -10,15 +10,16 @@ namespace PCSteward.Domain;
 /// <para>
 /// It first applies <see cref="DiagnosticTextSanitizer"/> (control, format and bidirectional characters, paths, links, account
 /// SIDs, email addresses and the host-supplied account, domain and computer names), then the classes ADR-028 adds for text that
-/// leaves the PC: secrets and keys (bearer tokens, <c>name=value</c> secrets, well-known key prefixes, JSON web tokens, product keys,
-/// long hexadecimal or base64 runs), device instance paths, GUIDs and hardware addresses. All text is hostile data: nothing here
-/// interprets it. Redaction is best effort, so the preview always says some secrets may remain.
+/// leaves the PC: secrets and keys (bearer and Basic credentials, <c>name=value</c> and <c>name is: value</c> secrets, well-known
+/// key prefixes, JSON web tokens, product keys, long hexadecimal or base64 runs), device instance paths, GUIDs, hardware addresses,
+/// IPv6 addresses and labelled IPv4 addresses. All text is hostile data: nothing here interprets it. Redaction is best effort, so the preview always says some secrets may remain.
 /// </para>
 /// </summary>
 public static class AdvisoryAiRedaction
 {
     public const string SecretPlaceholder = "[secret]";
     public const string IdPlaceholder = "[id]";
+    public const string AddressPlaceholder = "[address]";
 
     /// <summary>The longest text accepted for redaction; anything longer is cut first and marked as cut.</summary>
     public const int MaximumInputScalars = 16 * 1024;
@@ -27,10 +28,19 @@ public static class AdvisoryAiRedaction
     private const RegexOptions Options = RegexOptions.CultureInvariant | RegexOptions.NonBacktracking;
 
     private static readonly Regex Bearer = new(@"(?i)\bbearer\s+[A-Za-z0-9._~+/=\-]{6,}", Options, MatchTimeout);
+    // Independent review F4: HTTP Basic credentials, after an Authorization label or as padded Base64. A bare "basic" followed by an
+    // ordinary word ("basic steps") is left alone.
+    private static readonly Regex Basic = new(@"(?i)\b(authorization\s*[:=]\s*basic\s+)[A-Za-z0-9+/=]{4,}|\b(basic\s+)[A-Za-z0-9+/]{6,}={1,2}", Options, MatchTimeout);
+    // Independent review F4: an IPv6 address written with "::" or in full; an IPv4 address only after a label naming it as an address,
+    // because four-part version numbers (10.0.19045.1) look the same and matter to a diagnosis.
+    private static readonly Regex Ipv6 = new(@"(?i)\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b|\b[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6}::(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6}\b)?", Options, MatchTimeout);
+    private static readonly Regex LabelledIpv4 = new(
+        @"(?i)\b(ip|ipv4|ip address|address|addr|gateway|dns|dns server|server|host|client|remote|peer)(\s*[:=]?\s*)\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?\b",
+        Options, MatchTimeout);
     // The name may be quoted (JSON or INI style); a quoted value is consumed whole, spaces and backslash-escaped quotes included, up
     // to its closing quote or the end of the text; an unquoted value runs to the next space, comma, semicolon, quote or brace.
     private static readonly Regex NamedSecret = new(
-        @"(?i)\b(password|passwd|pwd|passphrase|secret|client[_\- ]?secret|token|access[_\- ]?token|refresh[_\- ]?token|api[_\- ]?key|access[_\- ]?key|private[_\- ]?key|licen[cs]e[_\- ]?key|product[_\- ]?key|serial[_\- ]?number|serial[_\- ]?no|serial|s/n)([""']?\s*[:=]\s*)(?:(""(?:[^""\\]|\\.)*""?)|('(?:[^'\\]|\\.)*'?)|([^\s,;""'{}]+))",
+        @"(?i)\b(password|passwd|pwd|passphrase|secret|client[_\- ]?secret|token|access[_\- ]?token|refresh[_\- ]?token|api[_\- ]?key|access[_\- ]?key|private[_\- ]?key|licen[cs]e[_\- ]?key|product[_\- ]?key|serial[_\- ]?number|serial[_\- ]?no|serial|s/n|passcode|pin|psk|pre[_\- ]?shared[_\- ]?key)([""']?(?:\s+is)?\s*[:=]\s*)(?:(""(?:[^""\\]|\\.)*""?)|('(?:[^'\\]|\\.)*'?)|([^\s,;""'{}]+))",
         Options, MatchTimeout);
     private static readonly Regex PrefixedKey = new(
         @"\b(?:sk|rk|pk)-[A-Za-z0-9_\-]{16,}|\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bAKIA[0-9A-Z]{16}\b|\bxox[abprs]-[A-Za-z0-9\-]{10,}|\bAIza[0-9A-Za-z_\-]{30,}",
@@ -146,6 +156,7 @@ public static class AdvisoryAiRedaction
     private static string RedactSecrets(string value)
     {
         value = Bearer.Replace(value, "Bearer " + SecretPlaceholder);
+        value = Basic.Replace(value, match => (match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value) + SecretPlaceholder);
         value = NamedSecret.Replace(value, RedactNamedValue);
         value = PrefixedKey.Replace(value, SecretPlaceholder);
         value = JsonWebToken.Replace(value, SecretPlaceholder);
@@ -153,6 +164,8 @@ public static class AdvisoryAiRedaction
         value = Guid.Replace(value, IdPlaceholder);
         value = ProductKey.Replace(value, SecretPlaceholder);
         value = HardwareAddress.Replace(value, IdPlaceholder);
+        value = Ipv6.Replace(value, AddressPlaceholder);
+        value = LabelledIpv4.Replace(value, match => match.Groups[1].Value + match.Groups[2].Value + AddressPlaceholder);
         value = LongHex.Replace(value, SecretPlaceholder);
         value = LongBase64.Replace(value, SecretPlaceholder);
         return value;

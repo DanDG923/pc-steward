@@ -44,7 +44,32 @@ public enum AdvisoryAiMalformedReason
     StoredResponse,
     ToolsPresent,
     UnexpectedOutputItem,
-    InvalidOutputText
+    InvalidOutputText,
+
+    /// <summary>Independent review F2: the body carries background, continuation or conversation state the request never asked for.</summary>
+    UnexpectedState
+}
+
+/// <summary>
+/// Independent review F1/F2: ways a body departs from the request that was approved and priced. Each one makes usage untrusted and
+/// stops paid requests for review, even in a body refused for another reason, as a cache write does (Task 70B T70B-02).
+/// </summary>
+[Flags]
+public enum AdvisoryAiResponseDeparture
+{
+    None = 0,
+
+    /// <summary>The body names a service tier other than the one requested and priced, or names one more than once or not as a plain name.</summary>
+    ServiceTier = 1,
+
+    /// <summary>A usage or usage-details object holds a key the reader doesn't know, which could be an unpriced billing category.</summary>
+    UnknownUsageField = 2,
+
+    /// <summary>Cached input is reported, or isn't a plain zero, although the request asked for no prompt cache.</summary>
+    PromptCacheUsed = 4,
+
+    /// <summary>The body says it ran in the background or continued an earlier response or a conversation.</summary>
+    ConversationState = 8
 }
 
 /// <summary>ADR-029: provider-reported token usage. Only <see cref="AdvisoryAiResponse.UsageReliable"/> usage can settle a charge.</summary>
@@ -74,6 +99,15 @@ public sealed record AdvisoryAiResponse(
     /// <summary>The provider reported <c>cache_write_tokens</c> but not as one plain count.</summary>
     public bool CacheWriteUnreadable { get; init; }
 
+    /// <summary>
+    /// Independent review F1: the service tier the body says served the request, when it named exactly one as a plain lower-case name;
+    /// null when it named none. Kept for the owner to see; any tier other than the requested one is a <see cref="Departures"/> entry.
+    /// </summary>
+    public string? ServiceTier { get; init; }
+
+    /// <summary>Independent review F1/F2: what in the body departs from the approved, priced request.</summary>
+    public AdvisoryAiResponseDeparture Departures { get; init; }
+
     public static AdvisoryAiResponse Malformed(AdvisoryAiMalformedReason reason) =>
         new(AdvisoryAiAnswerStatus.Malformed, AdvisoryAiIncompleteReason.None, reason, null, null, null, false, false);
 }
@@ -81,8 +115,8 @@ public sealed record AdvisoryAiResponse(
 /// <summary>
 /// FR-AI-04/05 (ADR-028 Q1, ADR-029 F4): reads a Responses API body for one approved request. It refuses anything over the admitted
 /// response size, deeper than needed, with duplicate properties where it reads, for another model, stored, with tools, or with any
-/// output item other than a message or reasoning. Unknown top-level fields are ignored, not trusted. Usage is reliable only when every
-/// count is present, non-negative and consistent; a body that is malformed has no reliable usage, so its cost stays uncertain.
+/// output item other than a message or reasoning. Unknown top-level fields are ignored, not trusted, except the service tier and
+/// conversation state, which are checked. Usage is reliable only when every count is present, non-negative and consistent; a body that is malformed has no reliable usage, so its cost stays uncertain.
 /// </summary>
 public static class AdvisoryAiResponseReader
 {
@@ -94,7 +128,8 @@ public static class AdvisoryAiResponseReader
     {
         ArgumentNullException.ThrowIfNull(approval);
         AdvisoryAiRequestPreview preview = approval.Preview;
-        return Read(body, preview.Model.ModelId, AdmittedBytes(approval), preview.InputTokenUpperBound, preview.Limits.MaximumOutputTokens);
+        return Read(body, preview.Model.ModelId, AdmittedBytes(approval), preview.InputTokenUpperBound, preview.Limits.MaximumOutputTokens,
+            preview.Model.ServiceTier, preview.Model.RequestNoPromptCache);
     }
 
     /// <summary>
@@ -109,7 +144,13 @@ public static class AdvisoryAiResponseReader
             preview.Model.ResponseBytes(preview.Limits.MaximumInputTokens, preview.Limits.MaximumOutputTokens));
     }
 
-    public static AdvisoryAiResponse Read(ReadOnlySpan<byte> body, string expectedModel, long maximumBytes, long approvedInputTokens, long approvedOutputTokens)
+    /// <summary>
+    /// Reads one body for <paramref name="expectedModel"/>. <paramref name="expectedServiceTier"/> is the tier requested and priced: a
+    /// body naming another is a departure (null checks only that a named tier is readable). When <paramref name="noPromptCache"/> is
+    /// set, the request asked for no prompt cache, so any cached input is a departure.
+    /// </summary>
+    public static AdvisoryAiResponse Read(ReadOnlySpan<byte> body, string expectedModel, long maximumBytes, long approvedInputTokens, long approvedOutputTokens,
+        string? expectedServiceTier = null, bool noPromptCache = false)
     {
         ArgumentNullException.ThrowIfNull(expectedModel);
         if (body.Length > maximumBytes) return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.TooLarge);
@@ -119,13 +160,23 @@ public static class AdvisoryAiResponseReader
                 new JsonDocumentOptions { MaxDepth = MaximumDepth, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
             AdvisoryAiResponse response = Read(document.RootElement, expectedModel, approvedInputTokens, approvedOutputTokens);
             (long? written, bool unreadable) = CacheWriteReport(document.RootElement);
+            (string? tier, AdvisoryAiResponseDeparture departures) = DepartureReport(document.RootElement, expectedServiceTier, noPromptCache);
             // Task 70B T70B-02: a reported cache write (or one that isn't a plain count) is an unexpected billing category even when the
-            // body is refused earlier for another reason, so it always stops paid requests for review. Its usage is still never trusted.
-            bool unexpected = unreadable || written > 0;
+            // body is refused earlier for another reason, so it always stops paid requests for review. Independent review F1/F2: so is
+            // another service tier, an unknown usage counter, cached input on a no-cache request, or conversation state. Usage is then
+            // never trusted, so the whole reservation is kept.
+            bool unexpected = unreadable || written > 0 || departures != AdvisoryAiResponseDeparture.None;
+            // A body that continues other state isn't an answer to this request, so its text is never shown or saved.
+            if (departures.HasFlag(AdvisoryAiResponseDeparture.ConversationState) && response.Status != AdvisoryAiAnswerStatus.Malformed)
+                response = response with { Status = AdvisoryAiAnswerStatus.Malformed, IncompleteReason = AdvisoryAiIncompleteReason.None,
+                    MalformedReason = AdvisoryAiMalformedReason.UnexpectedState, Text = null };
             return response with
             {
                 CacheWriteTokens = written,
                 CacheWriteUnreadable = unreadable,
+                ServiceTier = tier,
+                Departures = departures,
+                UsageReliable = response.UsageReliable && !unexpected,
                 UsageAboveApprovedBounds = response.UsageAboveApprovedBounds || unexpected
             };
         }
@@ -173,6 +224,8 @@ public static class AdvisoryAiResponseReader
         }
 
         (AdvisoryAiUsage? usage, bool reliable, bool cacheWritten) = ReadUsage(root);
+        // Independent review F2: an answer always has input (the instructions at least), so usage reporting none can't settle it at $0.
+        if (reliable && usage!.InputTokens == 0 && status != AdvisoryAiAnswerStatus.ProviderFailed) reliable = false;
         // Task 69: a reported cache write was never requested and is billed above the input rate, so the usage can't settle the
         // request and paid requests stop for review, as for usage above the approved bounds.
         bool above = cacheWritten || reliable && (usage!.InputTokens > approvedInputTokens || usage.OutputTokens > approvedOutputTokens);
@@ -287,6 +340,55 @@ public static class AdvisoryAiResponseReader
         if (fields == 0) return (null, false);
         return fields == 1 && !ambiguous && !notACount ? (count, false) : (null, true);
     }
+
+    private static readonly string[] UsageKeys = ["input_tokens", "input_tokens_details", "output_tokens", "output_tokens_details", "total_tokens"];
+    private static readonly string[] InputDetailKeys = ["cached_tokens", "cache_write_tokens"];
+    private static readonly string[] OutputDetailKeys = ["reasoning_tokens"];
+
+    /// <summary>
+    /// Independent review F1/F2: the reported service tier and every departure from the approved request, read on its own like
+    /// <see cref="CacheWriteReport"/> so a body refused for another reason still reports them, and over every occurrence so a repeated
+    /// field can't hide one. An absent or null tier is accepted and shown as not reported.
+    /// </summary>
+    private static (string? Tier, AdvisoryAiResponseDeparture Departures) DepartureReport(JsonElement root, string? expectedTier, bool noPromptCache)
+    {
+        if (root.ValueKind != JsonValueKind.Object) return (null, AdvisoryAiResponseDeparture.None);
+        AdvisoryAiResponseDeparture departures = AdvisoryAiResponseDeparture.None;
+
+        List<JsonElement> tiers = [.. Occurrences(root, "service_tier").Where(value => value.ValueKind != JsonValueKind.Null)];
+        string? tier = null;
+        if (tiers.Count == 1 && tiers[0].ValueKind == JsonValueKind.String && IsTierName(tiers[0].GetString())) tier = tiers[0].GetString();
+        if (tiers.Count > 0 && (tier is null || expectedTier is not null && !string.Equals(tier, expectedTier, StringComparison.Ordinal)))
+            departures |= AdvisoryAiResponseDeparture.ServiceTier;
+
+        foreach (JsonElement usage in Occurrences(root, "usage"))
+        {
+            if (usage.ValueKind != JsonValueKind.Object) continue;
+            if (HasUnknownKey(usage, UsageKeys)) departures |= AdvisoryAiResponseDeparture.UnknownUsageField;
+            foreach (JsonElement details in Occurrences(usage, "input_tokens_details"))
+            {
+                if (details.ValueKind != JsonValueKind.Object) continue;
+                if (HasUnknownKey(details, InputDetailKeys)) departures |= AdvisoryAiResponseDeparture.UnknownUsageField;
+                if (noPromptCache && Occurrences(details, "cached_tokens").Any(value => !(value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long cached) && cached == 0)))
+                    departures |= AdvisoryAiResponseDeparture.PromptCacheUsed;
+            }
+            foreach (JsonElement details in Occurrences(usage, "output_tokens_details"))
+                if (details.ValueKind == JsonValueKind.Object && HasUnknownKey(details, OutputDetailKeys)) departures |= AdvisoryAiResponseDeparture.UnknownUsageField;
+        }
+
+        bool state = Occurrences(root, "background").Any(value => value.ValueKind != JsonValueKind.False) ||
+            Occurrences(root, "previous_response_id").Any(value => value.ValueKind != JsonValueKind.Null) ||
+            Occurrences(root, "conversation").Any(value => value.ValueKind != JsonValueKind.Null);
+        if (state) departures |= AdvisoryAiResponseDeparture.ConversationState;
+        return (tier, departures);
+    }
+
+    /// <summary>A tier name is shown to the owner, so only a short plain lower-case name is accepted as one.</summary>
+    private static bool IsTierName(string? value) =>
+        !string.IsNullOrEmpty(value) && value.Length <= 32 && value.All(character => char.IsAsciiLetterLower(character) || char.IsAsciiDigit(character) || character == '_');
+
+    private static bool HasUnknownKey(JsonElement element, string[] known) =>
+        element.EnumerateObject().Any(property => !known.Contains(property.Name, StringComparer.Ordinal));
 
     private static IEnumerable<JsonElement> Occurrences(JsonElement element, string name) =>
         element.EnumerateObject().Where(property => property.NameEquals(name)).Select(property => property.Value);

@@ -199,6 +199,7 @@ public sealed partial class MainWindow
         StackPanel body = new() { Spacing = StewardSpacing.Small };
         body.Children.Add(Wrapped(AdvisoryAiExplainText.Route(preview)));
         body.Children.Add(Wrapped(AdvisoryAiExplainText.Cost(review, preview.Provider)));
+        body.Children.Add(Wrapped(AdvisoryAiExplainText.Retention(preview.Provider)));
         body.Children.Add(StewardVisuals.InformationBanner("Advice only", AdvisoryAiExplainText.AdviceOnly, "neutral"));
         body.Children.Add(StewardVisuals.InformationBanner("Check for secrets", AdvisoryAiExplainText.ResidualSecrets, "attention"));
         body.Children.Add(SectionHeading("Headers", AutomationHeadingLevel.Level3));
@@ -268,6 +269,7 @@ public sealed partial class MainWindow
         StackPanel body = new() { Spacing = StewardSpacing.Small };
         body.Children.Add(Wrapped(AdvisoryAiExplainText.Outcome(outcome)));
         if (AdvisoryAiExplainText.UsageCounts(outcome.UsageReport) is string counts) body.Children.Add(Wrapped(counts));
+        if (AdvisoryAiExplainText.ReplyDetails(outcome.UsageReport) is string details) body.Children.Add(Wrapped(details));
         if (outcome.AnswerText is string answer)
         {
             body.Children.Add(StewardVisuals.InformationBanner("Advice only", AdvisoryAiExplainText.AdviceOnly, "neutral"));

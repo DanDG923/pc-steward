@@ -20,7 +20,20 @@ public enum AdvisoryAiSendRefusal
 }
 
 /// <summary>T70-07: the usage counts a response reported, whether they could settle the charge, and its cache-write report.</summary>
-public sealed record AdvisoryAiUsageReport(AdvisoryAiUsage? Usage, bool UsageReliable, long? CacheWriteTokens, bool CacheWriteUnreadable);
+public sealed record AdvisoryAiUsageReport(AdvisoryAiUsage? Usage, bool UsageReliable, long? CacheWriteTokens, bool CacheWriteUnreadable)
+{
+    /// <summary>Independent review F3: the reply's HTTP status number, so a failed request can be told apart (never its text or headers).</summary>
+    public int? HttpStatus { get; init; }
+
+    /// <summary>Independent review F3: the closed reason the body wasn't trusted as an answer, never provider text.</summary>
+    public AdvisoryAiMalformedReason MalformedReason { get; init; }
+
+    /// <summary>Independent review F1: the service tier the body named, if it named one plainly.</summary>
+    public string? ServiceTier { get; init; }
+
+    /// <summary>Independent review F1/F2: what in the body departed from the approved, priced request.</summary>
+    public AdvisoryAiResponseDeparture Departures { get; init; }
+}
 
 /// <summary>
 /// The result of one approved request. When <see cref="Dispatched"/> is false nothing left the PC and nothing is owed. Otherwise the
@@ -193,7 +206,15 @@ public sealed class AdvisoryAiRequestWorkflow
         AdvisoryAiLedgerWrite written = await ledger.SettleAsync(request.RequestId, settlement, response?.Usage, response?.ResponseId, utcNow(), CancellationToken.None)
             .ConfigureAwait(false);
 
-        AdvisoryAiUsageReport? report = response is null ? null : new(response.Usage, response.UsageReliable, response.CacheWriteTokens, response.CacheWriteUnreadable);
+        AdvisoryAiUsageReport? report = response is null
+            ? sent.HttpStatus is int status ? new(null, false, null, false) { HttpStatus = status } : null
+            : new(response.Usage, response.UsageReliable, response.CacheWriteTokens, response.CacheWriteUnreadable)
+            {
+                HttpStatus = sent.HttpStatus,
+                MalformedReason = response.MalformedReason,
+                ServiceTier = response.ServiceTier,
+                Departures = response.Departures
+            };
         if (response is null || response.Status == AdvisoryAiAnswerStatus.Malformed)
             return new(AdvisoryAiSendRefusal.None, AdvisoryAiReservationProblem.None, true, request.Reservation, settlement, written,
                 response?.Status, AdvisoryAiIncompleteReason.None, null, false, null) { UsageReport = report };
