@@ -28,7 +28,8 @@ public sealed partial class MainWindow
     {
         if (advisoryAiExplain is not AdvisoryAiExplainService explain || !entry.CanExplain) return null;
         DiagnosticRecordKey key = entry.Key;
-        return ExplainButton(entry.Heading, token => explain.DraftForIncidentAsync(DiagnosticTimelineBuilder.Build(snapshot), key, token));
+        return ExplainButton(entry.Heading, AdvisoryAiSourceKind.DiagnosticTimeline, AdvisoryAiDiagnosticDraftBuilder.OriginId(snapshot, key),
+            token => explain.DraftForIncidentAsync(DiagnosticTimelineBuilder.Build(snapshot), key, token));
     }
 
     /// <summary>The row action for one failed update in Activity, or null when this build or this outcome can't be explained.</summary>
@@ -36,19 +37,20 @@ public sealed partial class MainWindow
     {
         if (advisoryAiExplain is not AdvisoryAiExplainService explain || entry.Job is not UpdateJobRecord job || !AdvisoryAiFailedUpdateEvidence.IsExplainable(job.Final.Status)) return null;
         AdvisoryAiFailedUpdateFacts facts = AdvisoryAiFailedUpdateEvidence.Facts(job, updateHistory, entry.ProductName);
-        return ExplainButton(entry.Title, token => explain.DraftForFailedUpdateAsync(job.JobId, facts, token));
+        return ExplainButton(entry.Title, AdvisoryAiSourceKind.FailedUpdate, AdvisoryAiFailedUpdateDraftBuilder.OriginId(job.JobId),
+            token => explain.DraftForFailedUpdateAsync(job.JobId, facts, token));
     }
 
-    private Button ExplainButton(string subject, Func<CancellationToken, Task<AdvisoryAiDraftResult>> draft)
+    private Button ExplainButton(string subject, AdvisoryAiSourceKind source, string originId, Func<CancellationToken, Task<AdvisoryAiDraftResult>> draft)
     {
         Button button = StewardVisuals.ActionButton(AdvisoryAiExplainText.ActionLabel, "(shows exactly what would be sent; nothing is sent until you approve it)");
         AutomationProperties.SetName(button, $"{AdvisoryAiExplainText.ActionLabel} {subject}");
         button.IsEnabled = !isExplainingWithAi;
-        button.Click += async (_, _) => await ExplainWithAiAsync(subject, draft);
+        button.Click += async (_, _) => await ExplainWithAiAsync(subject, source, originId, draft);
         return button;
     }
 
-    private async Task ExplainWithAiAsync(string subject, Func<CancellationToken, Task<AdvisoryAiDraftResult>> makeDraft)
+    private async Task ExplainWithAiAsync(string subject, AdvisoryAiSourceKind source, string originId, Func<CancellationToken, Task<AdvisoryAiDraftResult>> makeDraft)
     {
         if (advisoryAiExplain is not AdvisoryAiExplainService explain || isExplainingWithAi) return;
         if (HasActiveOperation) { await ShowDataOperationUnavailableAsync(); return; }
@@ -61,14 +63,19 @@ public sealed partial class MainWindow
             if (windowClosed) return;
             if (result.Draft is not AdvisoryAiEvidenceDraft draft)
             {
-                await ShowExplainMessageAsync(subject, AdvisoryAiExplainText.Blocked(result.Block, result.DraftProblem));
+                // ADR-028: disconnecting or lowering the limits keeps saved answers, and reading or deleting one needs no key and no
+                // draft, so they stay reachable when no new request can be made.
+                IReadOnlyList<AdvisoryAiSavedExplanation> kept = await ReadSavedExplanationsAsync(explain, source, originId);
+                if (windowClosed) return;
+                if (await ShowExplainNoDraftAsync(subject, AdvisoryAiExplainText.Blocked(result.Block, result.DraftProblem), kept.Count))
+                    await ShowSavedExplanationsAsync(explain, subject, kept);
                 return;
             }
 
             List<string?> texts = [.. draft.Items.Select(item => (string?)item.Text)];
             while (!windowClosed)
             {
-                IReadOnlyList<AdvisoryAiSavedExplanation> saved = await ReadSavedExplanationsAsync(explain, draft);
+                IReadOnlyList<AdvisoryAiSavedExplanation> saved = await ReadSavedExplanationsAsync(explain, draft.Source, draft.OriginId);
                 (DraftChoice choice, AdvisoryAiEvidenceDraft? edited) = await ShowExplainDraftAsync(explain, subject, draft, texts, saved.Count);
                 if (choice == DraftChoice.Cancel || windowClosed) return;
                 if (choice == DraftChoice.Saved) { await ShowSavedExplanationsAsync(explain, subject, saved); continue; }
@@ -296,10 +303,17 @@ public sealed partial class MainWindow
         await new ContentDialog { XamlRoot = Content.XamlRoot, Title = $"Earlier answers: {subject}", Content = new ScrollViewer { Content = body }, CloseButtonText = "Back" }.ShowAsync();
     }
 
-    private static async Task<IReadOnlyList<AdvisoryAiSavedExplanation>> ReadSavedExplanationsAsync(AdvisoryAiExplainService explain, AdvisoryAiEvidenceDraft draft)
+    private static async Task<IReadOnlyList<AdvisoryAiSavedExplanation>> ReadSavedExplanationsAsync(AdvisoryAiExplainService explain, AdvisoryAiSourceKind source, string originId)
     {
-        try { return await DataOperationLease.RunReadAsync(token => explain.SavedAsync(draft.Source, draft.OriginId, token), CancellationToken.None); }
+        try { return await DataOperationLease.RunReadAsync(token => explain.SavedAsync(source, originId, token), CancellationToken.None); }
         catch (Exception exception) when (exception is not OutOfMemoryException) { return []; }
+    }
+
+    /// <summary>No new request is possible: says why, and offers the earlier answers when there are any. Returns true to show them.</summary>
+    private async Task<bool> ShowExplainNoDraftAsync(string subject, string message, int savedCount)
+    {
+        if (savedCount == 0) { await ShowExplainMessageAsync(subject, message); return false; }
+        return await new ContentDialog { XamlRoot = Content.XamlRoot, Title = subject, Content = Wrapped(message), SecondaryButtonText = $"Earlier answers ({savedCount})", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Close }.ShowAsync() == ContentDialogResult.Secondary;
     }
 
     /// <summary>A blocked review: says why. Returns true when the owner goes back to the draft.</summary>

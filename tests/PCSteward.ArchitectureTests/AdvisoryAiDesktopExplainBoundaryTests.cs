@@ -36,8 +36,8 @@ public sealed class AdvisoryAiDesktopExplainBoundaryTests
         StringAssert.Contains(explain, "ContentDialogResult.Primary => ReviewChoice.Approve,");
         int confirmations = Regex.Count(explain, @"PrimaryButtonText = ");
         Assert.AreEqual(2, confirmations, "the draft and the review");
-        Assert.AreEqual(3, Regex.Count(explain, @"SecondaryButtonText = "), "earlier answers, back from the review, back from a block");
-        Assert.AreEqual(3, Regex.Count(explain, @"DefaultButton = ContentDialogButton\.Close"), "Cancel is the default wherever there is a choice");
+        Assert.AreEqual(4, Regex.Count(explain, @"SecondaryButtonText = "), "earlier answers from the draft or when no draft is possible, back from the review, back from a block");
+        Assert.AreEqual(4, Regex.Count(explain, @"DefaultButton = ContentDialogButton\.Close"), "Cancel is the default wherever there is a choice");
         Assert.IsFalse(explain.Contains("DefaultButton = ContentDialogButton.Primary", StringComparison.Ordinal));
         Assert.IsFalse(explain.Contains("DefaultButton = ContentDialogButton.Secondary", StringComparison.Ordinal));
         // Nothing retries: there is no loop around the send.
@@ -62,6 +62,18 @@ public sealed class AdvisoryAiDesktopExplainBoundaryTests
         Assert.AreEqual(3, Regex.Count(explain, @"DataOperationLease\.RunReadAsync\("), "the draft, the review and the saved answers");
         // Edits are applied by the service, which redacts them again.
         StringAssert.Contains(explain, "explain.ApplyEdits(draft, texts, out AdvisoryAiEvidenceDraft changed)");
+    }
+
+    [TestMethod]
+    public void SavedAnswersStayReachableWhenNoNewDraftIsPossible()
+    {
+        // ADR-028: disconnect and lower limits keep saved answers; reading or deleting them needs no key and no draft.
+        string explain = DesktopFile("MainWindow.AdvisoryAiExplain.cs");
+        string noDraft = Between(explain, "if (result.Draft is not AdvisoryAiEvidenceDraft draft)", "List<string?> texts =");
+        StringAssert.Contains(noDraft, "ReadSavedExplanationsAsync(explain, source, originId)");
+        StringAssert.Contains(noDraft, "await ShowSavedExplanationsAsync(explain, subject, kept);");
+        StringAssert.Contains(explain, "AdvisoryAiDiagnosticDraftBuilder.OriginId(snapshot, key)");
+        StringAssert.Contains(explain, "AdvisoryAiFailedUpdateDraftBuilder.OriginId(job.JobId)");
     }
 
     private static string DesktopFile(string name) => File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Desktop", name));

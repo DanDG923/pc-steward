@@ -135,8 +135,14 @@ public static class AdvisoryAiDiagnosticDraftBuilder
             Item(AdvisoryAiEvidenceRole.Coverage, DescribeCoverage(timeline.Snapshot), context)];
         List<AdvisoryAiEvidenceItem> optional = [.. changes.Select(change => Item(AdvisoryAiEvidenceRole.NearbyPcStewardChange, DescribeRecord(change.Change), context)),
             .. others.Select(record => Item(AdvisoryAiEvidenceRole.OtherNearbyRecord, DescribeRecord(record), context))];
-        string origin = string.Create(CultureInfo.InvariantCulture, $"{timeline.Snapshot.Id:D}/{incident.Source}/{incident.SourceRecordId}");
-        return Fit(AdvisoryAiSourceKind.DiagnosticTimeline, origin, required, optional, from, to, allowance, out draft);
+        return Fit(AdvisoryAiSourceKind.DiagnosticTimeline, OriginId(timeline.Snapshot, incident), required, optional, from, to, allowance, out draft);
+    }
+
+    /// <summary>FR-AI-06: the app-local identity a draft for <paramref name="incident"/> in <paramref name="snapshot"/> carries, so saved answers can be found without a draft.</summary>
+    public static string OriginId(DiagnosticSnapshot snapshot, DiagnosticRecordKey incident)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        return string.Create(CultureInfo.InvariantCulture, $"{snapshot.Id:D}/{incident.Source}/{incident.SourceRecordId}");
     }
 
     /// <summary>Takes the required items, then optional items in order until the first that does not fit; counts the rest by role.</summary>
@@ -246,8 +252,11 @@ public static class AdvisoryAiFailedUpdateDraftBuilder
             $"{AdvisoryAiInputText.FormatUtc(item.AtUtc)} | {item.Status}{(item.ExitCode is int exit ? $" | exit code {exit} (0x{exit:X8})" : string.Empty)}{(string.IsNullOrWhiteSpace(item.Diagnostic) ? string.Empty : " | " + item.Diagnostic)}"), context))];
         DateTimeOffset? from = events.Length == 0 ? null : events[0].AtUtc.ToUniversalTime();
         DateTimeOffset? to = events.Length == 0 ? null : events[^1].AtUtc.ToUniversalTime();
-        return AdvisoryAiDiagnosticDraftBuilder.Fit(AdvisoryAiSourceKind.FailedUpdate, jobId.ToString("D"), required, optional, from, to, allowance, out draft);
+        return AdvisoryAiDiagnosticDraftBuilder.Fit(AdvisoryAiSourceKind.FailedUpdate, OriginId(jobId), required, optional, from, to, allowance, out draft);
     }
+
+    /// <summary>FR-AI-06: the app-local identity a draft for job <paramref name="jobId"/> carries, so saved answers can be found without a draft.</summary>
+    public static string OriginId(Guid jobId) => jobId.ToString("D", CultureInfo.InvariantCulture);
 
     private static AdvisoryAiEvidenceItem Item(AdvisoryAiEvidenceRole role, string text, DiagnosticRedactionContext? context)
     {
