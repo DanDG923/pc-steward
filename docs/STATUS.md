@@ -1,3 +1,5 @@
+**Release 0.1.17 (2026-11-14; version number only).** VersionPrefix 0.1.17 for the release that carries Windows Installer install and remove records in Diagnostics (#108), the publisher check wording for admin installers (#109), and the advisory AI code with no reviewed model, so AI explanations show as not available and nothing is sent (#110 to #127; Task 70F and the independent re-review passed at `bb3c049`). The database moves from schema 13 to 15 on first start; the store tests upgrade older databases with data through migrations 14 and 15. No code change here.
+
 **Advisory AI, Task 70E failed on one Medium finding and the independent re-review passed; fixed (2026-11-14; code, tests and docs; no paid call, no key).** Requirements: `FR-AI-02/05`, `FR-BUD-03` ([Task 90 record §7](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Reviews of `094bcfb`.** The independent re-review returned PASS with four notes. The owner's Task 70E returned FAIL on T70E-01 (Medium): the reply's tier text reached the outcome screen as given. It also raised three Low findings. Neither report is in the repository.
