@@ -174,7 +174,10 @@ public sealed class AdvisoryAiRequestWorkflow
                 response?.Status, AdvisoryAiIncompleteReason.None, null, false, null);
 
         AdvisoryAiModelProfile model = approval.Preview.Model;
-        int answerScalars = (int)Math.Min(int.MaxValue, (long)request.MaximumOutputTokens * model.MaximumTokenUtf8Bytes);
+        // Redaction can lengthen an admitted answer (a one-letter account name becomes "[account]"). The bound therefore includes the
+        // same sanitizer expansion that SavedItemBytes admits, so a complete answer is never cut just because it was redacted.
+        int answerScalars = (int)Math.Min(int.MaxValue,
+            (long)AdvisoryAiResourcePolicy.AnswerSanitizerExpansion * request.MaximumOutputTokens * model.MaximumTokenUtf8Bytes);
         DiagnosticSanitizedText answer = response.Text is null ? new(null, false) : AdvisoryAiRedaction.SanitizeAnswer(response.Text, Math.Max(2, answerScalars), redaction);
         AdvisoryAiSavedExplanation saved = new(Guid.NewGuid(), request.RequestId, approval.Preview.Draft.Source, approval.Preview.Draft.OriginId, model.ModelId,
             response.Status, response.IncompleteReason, answer.Value, answer.Truncated, utcNow());

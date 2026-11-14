@@ -410,6 +410,28 @@ public sealed class AdvisoryAiLedgerTests
     // ---- The workflow over the real store --------------------------------------------------------------------------------------
 
     [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public async Task AnAnswerThatGrowsWhenRedactedIsKeptWhole()
+    {
+        // The raw answer fills the admitted output; redaction makes every line longer. The redacted answer is shown and saved whole.
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        int rawBound = AdvisoryAiLimits.Defaults.MaximumOutputTokens * Model.MaximumTokenUtf8Bytes;
+        const string line = "password=a\n";
+        string text = string.Concat(Enumerable.Repeat(line, (rawBound / line.Length) - 1)) + "end";
+        FakeTransport transport = new(_ => Received(Body(text)));
+        (AdvisoryAiRequestWorkflow workflow, _) = fixture.Workflow(transport);
+        (AdvisoryAiApproval approval, AdvisoryAiRequestPreview preview) = await fixture.ApproveAsync();
+        AdvisoryAiSendOutcome outcome = await workflow.SendAsync(approval, preview, null, CancellationToken.None);
+        Assert.AreEqual(AdvisoryAiAnswerStatus.Completed, outcome.AnswerStatus);
+        Assert.IsFalse(outcome.AnswerTruncated, "nothing was cut");
+        Assert.IsNotNull(outcome.AnswerText);
+        Assert.IsGreaterThan(text.Length, outcome.AnswerText.Length, "redaction made it longer");
+        Assert.DoesNotContain("password=a", outcome.AnswerText);
+        Assert.EndsWith("end", outcome.AnswerText);
+        Assert.AreEqual(AdvisoryAiExplanationSave.Saved, outcome.Saved);
+    }
+
+    [TestMethod]
     [TestCategory("FR-AI-04")]
     public async Task AnApprovedRequestIsSentOnceSettledRedactedAndSaved()
     {
