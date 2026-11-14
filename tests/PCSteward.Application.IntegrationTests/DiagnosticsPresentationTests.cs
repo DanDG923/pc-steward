@@ -91,6 +91,12 @@ public sealed class DiagnosticsPresentationTests
         Assert.AreEqual("PC Steward update: Contoso Widget", change.Heading);
         Assert.IsTrue(change.Facts.Any(fact => fact.Label == "Exit code" && fact.Value == "0"));
         Assert.HasCount(0, change.Nearby, "a PC Steward change is not labelled near itself");
+        // Task 67 stage 4c: each row carries its record's key; only a Windows record with a known time can be explained with AI.
+        Assert.AreEqual(shutdown.Key, first.Key);
+        Assert.IsTrue(first.CanExplain);
+        Assert.AreEqual(update.Key, change.Key);
+        Assert.IsFalse(change.CanExplain, "PC Steward's own updates are explained from Activity");
+        Assert.IsFalse(timeline.Untimed[0].CanExplain, "a record without a known time can't be explained");
 
         Assert.HasCount(1, timeline.Untimed);
         Assert.AreEqual("App stopped responding: Fabrikam Viewer", timeline.Untimed[0].Heading);

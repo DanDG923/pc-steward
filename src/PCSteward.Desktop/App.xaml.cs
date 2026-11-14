@@ -160,8 +160,9 @@ public partial class App : global::Microsoft.UI.Xaml.Application
                 try { return await DataOperationLease.RunReadAsync(cancellation => database.GetReviewedUpdateHistoryAsync(ChocolateyClientUpdateAttention.HistoryWindow, cancellation), token); }
                 catch (Exception exception) when (exception is not OutOfMemoryException) { return null; }
             });
+        (AdvisoryAiSetupService? Setup, AdvisoryAiExplainService? Explain) advisoryAi = CreateAdvisoryAi(database);
         // Independent review L5 (FR-UPD-15, ADR-031): a fault building the compiled reviewed-release list never fails startup; it shows as unavailable.
-        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, chocolateyClientUpdates.CreateSession, chocolateyPackageUpdates.CreateSession, CreateDiagnostics(database), showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory, database), CreateAdvisoryAiSetup(database));
+        MainWindow window = new(workflow, viewModel, downloads, updates, database, new ScheduledCheckRegistrationService(scheduleRegistrar), database, database, ChocolateyReviewedRouteProbe.ProbeSplitTokenState, ChocolateyClientReleaseCatalogFacts.ReadOrUnavailable(() => ChocolateyClientReleaseCatalog.Current), ChocolateyInstalledClientProbe.ObserveAsync, chocolateyClientUpdates.CreateSession, chocolateyPackageUpdates.CreateSession, CreateDiagnostics(database), showPostResetOnboarding, () => AcknowledgeOnboarding(stateDirectory, database), advisoryAi.Setup, advisoryAi.Explain);
         ActivateWindow(window);
         }
         catch (Exception exception)
@@ -179,9 +180,15 @@ public partial class App : global::Microsoft.UI.Xaml.Application
     private static DiagnosticsServices CreateDiagnostics(SqliteDatabase database)
     {
         GatedDiagnosticAppHistory history = new(database);
-        string[] identity = [.. new[] { Environment.MachineName, Environment.UserName, Environment.UserDomainName }.Where(token => !string.IsNullOrWhiteSpace(token)).Distinct(StringComparer.OrdinalIgnoreCase)];
-        PCSteward.Domain.DiagnosticRedactionContext redaction = new(identity);
+        PCSteward.Domain.DiagnosticRedactionContext redaction = IdentityRedaction();
         return new(database, () => new DiagnosticCollectionOrchestrator([new PcStewardHistoryDiagnosticReader(history), .. PCSteward.Diagnostics.Windows.WindowsDiagnosticReaders.Create()], redaction));
+    }
+
+    /// <summary>The PC's computer, account and domain names, redacted from diagnostic records and from AI drafts, edits and answers.</summary>
+    private static PCSteward.Domain.DiagnosticRedactionContext IdentityRedaction()
+    {
+        string[] identity = [.. new[] { Environment.MachineName, Environment.UserName, Environment.UserDomainName }.Where(token => !string.IsNullOrWhiteSpace(token)).Distinct(StringComparer.OrdinalIgnoreCase)];
+        return new(identity);
     }
 
     /// <summary>Reads PC Steward's update history for a diagnostic collection under the same gate as every other read.</summary>
@@ -192,18 +199,23 @@ public partial class App : global::Microsoft.UI.Xaml.Application
     }
 
     /// <summary>
-    /// Task 67 stage 4b (ADR-028, addendum A1): AI set-up is composed only when this build has a reviewed model. Then the provider's
-    /// exact Credential Manager store and its transport are its one adapter pair; composing them reads and sends nothing. Otherwise
-    /// nothing AI-related is composed and Settings only says what this version offers.
+    /// Task 67 stages 4b and 4c (ADR-028, addendum A1): AI is composed only when this build has a reviewed model. Then the provider's
+    /// exact Credential Manager store and its transport are its one adapter pair, shared by set-up and by "Explain with AI…", whose
+    /// one request workflow runs under the compiled paid-request policy. Composing them reads and sends nothing. Otherwise nothing
+    /// AI-related is composed: Settings only says what this version offers and no row offers "Explain with AI…".
     /// </summary>
-    private static AdvisoryAiSetupService? CreateAdvisoryAiSetup(SqliteDatabase database)
+    private static (AdvisoryAiSetupService? Setup, AdvisoryAiExplainService? Explain) CreateAdvisoryAi(SqliteDatabase database)
     {
         AdvisoryAiAvailability availability = AdvisoryAiAvailability.Current;
-        if (!availability.CanSetUp || availability.Provider is not PCSteward.Domain.AdvisoryAiProvider provider) return null;
+        if (!availability.CanSetUp || availability.Provider is not PCSteward.Domain.AdvisoryAiProvider provider) return (null, null);
         AdvisoryAiProviderAdapters adapters = provider.Id == PCSteward.Domain.AdvisoryAiProviderId.OpenAI
             ? new((new WindowsCredentialManagerStore(provider), new OpenAiResponsesTransport()))
             : new();
-        return new AdvisoryAiSetupService(database, database, adapters, availability, () => DateTimeOffset.UtcNow);
+        AdvisoryAiSetupService setup = new(database, database, adapters, availability, () => DateTimeOffset.UtcNow);
+        AdvisoryAiRequestWorkflow workflow = new(database, database, adapters, database, PCSteward.Domain.AdvisoryAiModelProfiles.Reviewed,
+            PCSteward.Domain.AdvisoryAiBuildPolicy.PaidRequests, () => DateTimeOffset.UtcNow);
+        AdvisoryAiExplainService explain = new(database, database, database, workflow, availability, () => DateTimeOffset.UtcNow, IdentityRedaction());
+        return (setup, explain);
     }
 
     /// <summary>

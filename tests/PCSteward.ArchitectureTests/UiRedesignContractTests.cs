@@ -803,7 +803,7 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(activity, "ActivityPresenter.Build(entries, activityFilter, DateTimeOffset.UtcNow)");
         StringAssert.Contains(activity, "foreach (ActivityDay day in page.Days)");
         // UI polish phase 4 (approved target T-Activity): each record's facts and details are behind its expandable row.
-        StringAssert.Contains(Between(source, "private static FrameworkElement ActivityEntryRow(ActivityEntry entry)", "private void AddReviewedUpdateOutcomesSection("), "Expander expander = new() { Header = header, Content = details");
+        StringAssert.Contains(Between(source, "private static FrameworkElement ActivityEntryRow(ActivityEntry entry, Button? explain = null)", "private void AddReviewedUpdateOutcomesSection("), "Expander expander = new() { Header = header, Content = details");
         StringAssert.Contains(activity, "AutomationProperties.SetItemStatus(filter, \"Selected\");");
         int days = activity.IndexOf("foreach (ActivityDay day in page.Days)", StringComparison.Ordinal);
         int reviewed = activity.IndexOf("AddReviewedUpdateOutcomesSection(panel);", StringComparison.Ordinal);
@@ -912,7 +912,7 @@ public sealed class UiRedesignContractTests
         Assert.IsFalse(home.Contains("activityFilter = ActivityFilter.", StringComparison.Ordinal), "every Activity filter Home opens comes from the presenter");
         // Names sit on elements with an automation peer (a Button or HyperlinkButton), never on a Grid or Border.
         Assert.IsFalse(home.Contains("AutomationProperties.SetName(card,", StringComparison.Ordinal) || home.Contains("AutomationProperties.SetName(copy,", StringComparison.Ordinal), "a Grid has no automation peer");
-        string row = Between(source, "private static FrameworkElement ActivityEntryRow(ActivityEntry entry)", "private void AddReviewedUpdateOutcomesSection(");
+        string row = Between(source, "private static FrameworkElement ActivityEntryRow(ActivityEntry entry, Button? explain = null)", "private void AddReviewedUpdateOutcomesSection(");
         StringAssert.Contains(row, "AutomationProperties.SetName(title, entry.AccessibleName);");
         StringAssert.Contains(row, "AutomationProperties.SetName(expander, entry.AccessibleName);");
         Assert.IsFalse(row.Contains("AutomationProperties.SetName(row,", StringComparison.Ordinal), "a Border has no automation peer");

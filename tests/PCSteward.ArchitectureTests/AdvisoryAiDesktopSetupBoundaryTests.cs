@@ -18,10 +18,16 @@ public sealed class AdvisoryAiDesktopSetupBoundaryTests
         string app = DesktopFile("App.xaml.cs");
         Assert.AreEqual(2, Regex.Count(app, @"new WindowsCredentialManagerStore\("), "the store is made for set-up and for reset only");
         Assert.AreEqual(1, Regex.Count(app, @"new OpenAiResponsesTransport\("), "the transport is made for set-up only");
-        string setup = Between(app, "private static AdvisoryAiSetupService? CreateAdvisoryAiSetup(SqliteDatabase database)", "private static async Task<bool> RemoveAdvisoryAiKeysAsync(");
-        StringAssert.Contains(setup, "if (!availability.CanSetUp || availability.Provider is not PCSteward.Domain.AdvisoryAiProvider provider) return null;");
-        Assert.IsTrue(setup.IndexOf("return null;", StringComparison.Ordinal) < setup.IndexOf("new WindowsCredentialManagerStore(", StringComparison.Ordinal),
+        string setup = Between(app, "private static (AdvisoryAiSetupService? Setup, AdvisoryAiExplainService? Explain) CreateAdvisoryAi(SqliteDatabase database)", "private static async Task<bool> RemoveAdvisoryAiKeysAsync(");
+        StringAssert.Contains(setup, "if (!availability.CanSetUp || availability.Provider is not PCSteward.Domain.AdvisoryAiProvider provider) return (null, null);");
+        Assert.IsTrue(setup.IndexOf("return (null, null);", StringComparison.Ordinal) < setup.IndexOf("new WindowsCredentialManagerStore(", StringComparison.Ordinal),
             "nothing is composed before the reviewed-model check");
+        // Stage 4c: the one request workflow uses the compiled model list and paid-request policy, and the same adapters as set-up.
+        StringAssert.Contains(setup, "AdvisoryAiRequestWorkflow workflow = new(database, database, adapters, database, PCSteward.Domain.AdvisoryAiModelProfiles.Reviewed,");
+        StringAssert.Contains(setup, "PCSteward.Domain.AdvisoryAiBuildPolicy.PaidRequests, () => DateTimeOffset.UtcNow);");
+        StringAssert.Contains(setup, "IdentityRedaction());");
+        Assert.AreEqual(1, Regex.Count(app, @"new AdvisoryAiRequestWorkflow\(|AdvisoryAiRequestWorkflow workflow = new\("), "one request workflow");
+        Assert.AreEqual(1, Regex.Count(app, @"CreateAdvisoryAi\(database\)"), "composed once at start-up");
         foreach (string forbidden in new[] { "CheckPresenceAsync", "ReadAsync", "SaveAsync", "SendAsync", "LoadAsync" })
             Assert.IsFalse(setup.Contains(forbidden, StringComparison.Ordinal), $"composition calls {forbidden}");
 
