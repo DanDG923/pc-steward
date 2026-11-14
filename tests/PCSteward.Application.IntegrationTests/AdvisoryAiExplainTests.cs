@@ -86,6 +86,15 @@ public sealed class AdvisoryAiExplainTests
         StringAssert.Contains(text, "Sent once.");
         StringAssert.Contains(text, "It cost " + outcome.Settlement.Committed.ToDollarString());
         StringAssert.Contains(text, "saved for 30 days");
+        // T70-07: the reported counts reach the outcome so the owner can note them; nothing else from the response does.
+        Assert.IsNotNull(outcome.UsageReport);
+        Assert.IsTrue(outcome.UsageReport.UsageReliable);
+        Assert.IsNotNull(outcome.UsageReport.Usage);
+        string counts = AdvisoryAiExplainText.UsageCounts(outcome.UsageReport, System.Globalization.CultureInfo.InvariantCulture)!;
+        StringAssert.Contains(counts, outcome.UsageReport.Usage.InputTokens.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) + " input tokens");
+        StringAssert.Contains(counts, outcome.UsageReport.Usage.TotalTokens.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) + " in total");
+        Assert.IsFalse(counts.Contains("didn't trust", StringComparison.Ordinal));
+        Assert.IsNull(AdvisoryAiExplainText.UsageCounts(null));
         IReadOnlyList<AdvisoryAiSavedExplanation> saved = await service.SavedAsync(AdvisoryAiSourceKind.FailedUpdate, job.ToString("D"), CancellationToken.None);
         Assert.AreEqual(1, saved.Count);
         Assert.AreEqual("Synthetic explanation.", saved[0].Text);

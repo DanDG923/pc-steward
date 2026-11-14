@@ -65,6 +65,15 @@ public sealed record AdvisoryAiResponse(
     bool UsageReliable,
     bool UsageAboveApprovedBounds)
 {
+    /// <summary>
+    /// Task 70 T70-07: the exact <c>cache_write_tokens</c> count when the provider reported one as a count; null when it reported none
+    /// or <see cref="CacheWriteUnreadable"/>. Kept for the owner to see, never for settlement: any write already makes usage untrusted.
+    /// </summary>
+    public long? CacheWriteTokens { get; init; }
+
+    /// <summary>The provider reported <c>cache_write_tokens</c> but not as one plain count.</summary>
+    public bool CacheWriteUnreadable { get; init; }
+
     public static AdvisoryAiResponse Malformed(AdvisoryAiMalformedReason reason) =>
         new(AdvisoryAiAnswerStatus.Malformed, AdvisoryAiIncompleteReason.None, reason, null, null, null, false, false);
 }
@@ -108,7 +117,9 @@ public static class AdvisoryAiResponseReader
         {
             using JsonDocument document = JsonDocument.Parse(body.ToArray(),
                 new JsonDocumentOptions { MaxDepth = MaximumDepth, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
-            return Read(document.RootElement, expectedModel, approvedInputTokens, approvedOutputTokens);
+            AdvisoryAiResponse response = Read(document.RootElement, expectedModel, approvedInputTokens, approvedOutputTokens);
+            (long? written, bool unreadable) = CacheWriteReport(document.RootElement);
+            return response with { CacheWriteTokens = written, CacheWriteUnreadable = unreadable };
         }
         catch (JsonException)
         {
@@ -233,6 +244,16 @@ public static class AdvisoryAiResponseReader
         AdvisoryAiUsage value = new(input, cached, output, reasoning, total);
         bool consistent = details && !written && input >= 0 && output >= 0 && cached <= input && reasoning <= output && total == input + output;
         return (value, consistent, written);
+    }
+
+    /// <summary>T70-07: what the body says about cache writes, read on its own so a malformed body still reports it.</summary>
+    private static (long? Tokens, bool Unreadable) CacheWriteReport(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("usage", out JsonElement usage) || usage.ValueKind != JsonValueKind.Object ||
+            !usage.TryGetProperty("input_tokens_details", out JsonElement details) || details.ValueKind != JsonValueKind.Object ||
+            !details.TryGetProperty("cache_write_tokens", out _))
+            return (null, false);
+        return !HasDuplicate(usage) && !HasDuplicate(details) && TryCount(details, "cache_write_tokens", out long count) ? (count, false) : (null, true);
     }
 
     private static bool TryCount(JsonElement element, string name, out long value)

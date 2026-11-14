@@ -19,6 +19,9 @@ public enum AdvisoryAiSendRefusal
     ProviderUnavailable
 }
 
+/// <summary>T70-07: the usage counts a response reported, whether they could settle the charge, and its cache-write report.</summary>
+public sealed record AdvisoryAiUsageReport(AdvisoryAiUsage? Usage, bool UsageReliable, long? CacheWriteTokens, bool CacheWriteUnreadable);
+
 /// <summary>
 /// The result of one approved request. When <see cref="Dispatched"/> is false nothing left the PC and nothing is owed. Otherwise the
 /// settlement says what stays committed, and the answer (already redacted), its status and whether it was saved are independent of it.
@@ -36,6 +39,12 @@ public sealed record AdvisoryAiSendOutcome(
     bool AnswerTruncated,
     AdvisoryAiExplanationSave? Saved)
 {
+    /// <summary>
+    /// Task 70 T70-07: the counts the provider reported, for the owner to see and note down (Task 71's evidence). Counts only: no body,
+    /// header, key or identifier. Null when nothing was received.
+    /// </summary>
+    public AdvisoryAiUsageReport? UsageReport { get; init; }
+
     internal static AdvisoryAiSendOutcome Refused(AdvisoryAiSendRefusal refusal, AdvisoryAiReservationProblem problem = AdvisoryAiReservationProblem.None, MicroUsd reservation = default) =>
         new(refusal, problem, false, reservation, null, null, null, AdvisoryAiIncompleteReason.None, null, false, null);
 }
@@ -180,9 +189,10 @@ public sealed class AdvisoryAiRequestWorkflow
         AdvisoryAiLedgerWrite written = await ledger.SettleAsync(request.RequestId, settlement, response?.Usage, response?.ResponseId, utcNow(), CancellationToken.None)
             .ConfigureAwait(false);
 
+        AdvisoryAiUsageReport? report = response is null ? null : new(response.Usage, response.UsageReliable, response.CacheWriteTokens, response.CacheWriteUnreadable);
         if (response is null || response.Status == AdvisoryAiAnswerStatus.Malformed)
             return new(AdvisoryAiSendRefusal.None, AdvisoryAiReservationProblem.None, true, request.Reservation, settlement, written,
-                response?.Status, AdvisoryAiIncompleteReason.None, null, false, null);
+                response?.Status, AdvisoryAiIncompleteReason.None, null, false, null) { UsageReport = report };
 
         AdvisoryAiModelProfile model = approval.Preview.Model;
         // Redaction can lengthen an admitted answer (a one-letter account name becomes "[account]"). The bound therefore includes the
@@ -204,7 +214,7 @@ public sealed class AdvisoryAiRequestWorkflow
             save = AdvisoryAiExplanationSave.StorageFailed;
         }
         return new(AdvisoryAiSendRefusal.None, AdvisoryAiReservationProblem.None, true, request.Reservation, settlement, written,
-            response.Status, response.IncompleteReason, answer.Value, answer.Truncated, save);
+            response.Status, response.IncompleteReason, answer.Value, answer.Truncated, save) { UsageReport = report };
     }
 
     private static AdvisoryAiDispatchOutcome Map(AdvisoryAiTransportOutcome outcome) => outcome switch

@@ -267,6 +267,7 @@ public sealed partial class MainWindow
     {
         StackPanel body = new() { Spacing = StewardSpacing.Small };
         body.Children.Add(Wrapped(AdvisoryAiExplainText.Outcome(outcome)));
+        if (AdvisoryAiExplainText.UsageCounts(outcome.UsageReport) is string counts) body.Children.Add(Wrapped(counts));
         if (outcome.AnswerText is string answer)
         {
             body.Children.Add(StewardVisuals.InformationBanner("Advice only", AdvisoryAiExplainText.AdviceOnly, "neutral"));
