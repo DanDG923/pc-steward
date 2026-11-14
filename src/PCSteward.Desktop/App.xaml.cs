@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using PCSteward.AdvisoryAi.Windows;
 using PCSteward.Application;
 using PCSteward.Diagnostics;
 using PCSteward.Execution;
@@ -61,7 +62,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         FactoryResetMarkerState markerState = FactoryReset.GetMarkerState(stateDirectory);
         if (markerState is FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.Partial or FactoryResetMarkerState.TransitionPending)
         {
-            FactoryResetResult reset = FactoryReset.CompletePendingAsync(scheduleRegistrar.EnsureAbsentAsync, CancellationToken.None, stateDirectory).GetAwaiter().GetResult();
+            FactoryResetResult reset = FactoryReset.CompletePendingAsync(scheduleRegistrar.EnsureAbsentAsync, RemoveAdvisoryAiKeysAsync, CancellationToken.None, stateDirectory).GetAwaiter().GetResult();
             if (!reset.Succeeded)
             {
                 ActivateWindow(new ResetRecoveryWindow(reset));
@@ -187,6 +188,22 @@ public partial class App : global::Microsoft.UI.Xaml.Application
     {
         public Task<(IReadOnlyList<DiagnosticAppHistoryEntry?> Entries, bool MoreMatched)> GetUpdateHistoryBetweenAsync(DateTimeOffset fromUtc, DateTimeOffset toUtc, int maximumEntries, CancellationToken cancellationToken) =>
             DataOperationLease.RunReadAsync(token => history.GetUpdateHistoryBetweenAsync(fromUtc, toUtc, maximumEntries, token), cancellationToken);
+    }
+
+    /// <summary>
+    /// ADR-028 "Factory reset" and ADR-029 (Task 67 stage 4b): the reset's one AI step. For every registered provider it runs the
+    /// same compiled removal of that provider's one exact Credential Manager entry, with absence verified by a fresh read, and
+    /// returns true only when every entry is verifiably gone. It reads nothing else, needs no database and makes no network call.
+    /// It runs only while a reset is pending, never at ordinary start-up.
+    /// </summary>
+    private static async Task<bool> RemoveAdvisoryAiKeysAsync(CancellationToken cancellationToken)
+    {
+        foreach (PCSteward.Domain.AdvisoryAiProvider provider in PCSteward.Domain.AdvisoryAiProviders.All)
+        {
+            AdvisoryAiCredentialRemoval removal = await new WindowsCredentialManagerStore(provider).RemoveAndVerifyAsync(cancellationToken).ConfigureAwait(false);
+            if (removal is not (AdvisoryAiCredentialRemoval.Removed or AdvisoryAiCredentialRemoval.AlreadyAbsent)) return false;
+        }
+        return true;
     }
 
     /// <summary>Stage C4: the current Windows account's SID, frozen into a per-user reviewed operation (data only).</summary>

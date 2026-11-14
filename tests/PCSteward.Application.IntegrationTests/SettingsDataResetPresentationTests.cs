@@ -89,6 +89,9 @@ public sealed class SettingsDataResetPresentationTests
         StringAssert.Contains(page.FactoryReset.Keeps, "installed apps, provider caches and your exports");
         StringAssert.Contains(page.FactoryReset.Afterwards, "typing RESET");
         StringAssert.Contains(page.FactoryReset.Afterwards, "next time it starts");
+        // ADR-028/029 (Task 67 stage 4b): reset removes the AI record and key, and says what that can't undo.
+        StringAssert.Contains(page.FactoryReset.Deletes, "the AI spending record and PC Steward's AI key in Windows Credential Manager");
+        StringAssert.Contains(page.FactoryReset.Afterwards, "doesn't cancel any charge at the AI provider");
         Assert.IsFalse(DataResetPresenter.Build(Inputs(active: 0), Culture, Utc).Cards[1].Facts.Any(fact => fact.Label == "In use"));
     }
 
