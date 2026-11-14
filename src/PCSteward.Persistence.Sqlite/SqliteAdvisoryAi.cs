@@ -102,6 +102,9 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
     /// Migration 15 (Task 70 T70-05, ADR-029 Q8): settled detail older than the current and previous 12 UTC months is compacted into
     /// one total per month. Each compacted settled request keeps its app request ID, its provider response ID (so the same response
     /// can never settle again) and its tariff reference (for a dispute). Unresolved requests are never compacted.
+    /// Task 70B T70B-01: each compacted settled request also keeps its charge, its first-live-test flag and its five usage counts, so
+    /// every later read can check each charge against its usage at its own prices and each monthly total against its requests.
+    /// Migration 15 has not shipped in a release; these columns were added to it before it did.
     /// </summary>
     private static async Task CreateAdvisoryAiCompactionSchemaAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken cancellationToken) =>
         await ExecuteAsync(connection, """
@@ -116,14 +119,21 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
                 request_id TEXT NOT NULL PRIMARY KEY CHECK(length(request_id)=36),
                 period INTEGER NOT NULL REFERENCES ai_monthly_totals(period),
                 tariff_version INTEGER NOT NULL REFERENCES ai_tariffs(version),
-                provider_response_id TEXT UNIQUE CHECK(provider_response_id IS NULL OR length(provider_response_id) BETWEEN 1 AND 256)
+                provider_response_id TEXT UNIQUE CHECK(provider_response_id IS NULL OR length(provider_response_id) BETWEEN 1 AND 256),
+                committed INTEGER NOT NULL CHECK(committed >= 0),
+                first_live_test INTEGER NOT NULL CHECK(first_live_test IN (0,1)),
+                input_tokens INTEGER NOT NULL CHECK(input_tokens >= 0),
+                cached_input_tokens INTEGER NOT NULL CHECK(cached_input_tokens >= 0),
+                output_tokens INTEGER NOT NULL CHECK(output_tokens >= 0),
+                reasoning_tokens INTEGER NOT NULL CHECK(reasoning_tokens >= 0),
+                total_tokens INTEGER NOT NULL CHECK(total_tokens >= 0)
             );
             INSERT INTO schema_migrations(version) VALUES (15);
             """, cancellationToken, transaction).ConfigureAwait(false);
 
     private static async Task ValidateAdvisoryAiSchemaAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken cancellationToken) =>
         await ExecuteAsync(connection, "SELECT connected FROM ai_settings LIMIT 0; SELECT continuity FROM ai_accounting_state LIMIT 0; SELECT version FROM ai_tariffs LIMIT 0; SELECT state, committed FROM ai_requests LIMIT 0; SELECT answer FROM ai_explanations LIMIT 0; " +
-            "SELECT settled, test_settled FROM ai_monthly_totals LIMIT 0; SELECT provider_response_id FROM ai_compacted_requests LIMIT 0;",
+            "SELECT settled, test_settled FROM ai_monthly_totals LIMIT 0; SELECT provider_response_id, committed, first_live_test, total_tokens FROM ai_compacted_requests LIMIT 0;",
             cancellationToken, transaction).ConfigureAwait(false);
 
     // ---- Settings and tariffs -------------------------------------------------------------------------------------------------
@@ -313,6 +323,38 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
                 inFlight |= AdvisoryAiRequestStates.IsInFlight(rowState);
             }
         }
+        // T70B-01: every compacted request must add up on its own (its charge is the cost of its usage at its own prices), and its month's
+        // total, test total and request count must equal the sums of its requests. Otherwise the ledger stops for review.
+        Dictionary<long, (long Settled, long Test, long Count)> compactedByMonth = [];
+        long compacted = 0;
+        await using (SqliteCommand command = AiCommand(connection, transaction, """
+            SELECT c.period,c.committed,c.first_live_test,0,0,0,0,c.input_tokens,c.cached_input_tokens,c.output_tokens,c.reasoning_tokens,c.total_tokens,
+                t.input_rate,t.cached_input_rate,t.output_rate
+            FROM ai_compacted_requests c LEFT JOIN ai_tariffs t ON t.version=c.tariff_version;
+            """))
+        await using (SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                compacted++;
+                if (!TryLong(reader, 0, out long key) || !AdvisoryAiPeriod.TryParseKey(key, out _) || !TryLong(reader, 1, out long committed) || committed < 0 ||
+                    !TryLong(reader, 2, out long test) || test is not (0 or 1) || !SettledChargeMatchesUsage(reader, committed))
+                    return null;
+                try
+                {
+                    checked
+                    {
+                        (long monthSettled, long monthTest, long count) = compactedByMonth.GetValueOrDefault(key);
+                        compactedByMonth[key] = (monthSettled + committed, monthTest + (test == 1 ? committed : 0), count + 1);
+                    }
+                }
+                catch (OverflowException)
+                {
+                    return null;
+                }
+            }
+        }
+
         // T70-05: compacted months still count. Their settled totals stay in the month they belong to and in the cumulative test figure.
         long months = 0;
         await using (SqliteCommand command = AiCommand(connection, transaction, "SELECT period,settled,test_settled,settled_requests,released_requests FROM ai_monthly_totals;"))
@@ -323,8 +365,10 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
                 months++;
                 if (!TryLong(reader, 0, out long key) || !AdvisoryAiPeriod.TryParseKey(key, out AdvisoryAiPeriod totalPeriod) || !TryLong(reader, 1, out long total) || total < 0 ||
                     !TryLong(reader, 2, out long testTotal) || testTotal < 0 || testTotal > total || !TryLong(reader, 3, out long settledCount) || settledCount < 0 ||
-                    !TryLong(reader, 4, out long releasedCount) || releasedCount < 0)
+                    !TryLong(reader, 4, out long releasedCount) || releasedCount < 0 ||
+                    compactedByMonth.GetValueOrDefault(key) != (total, testTotal, settledCount))
                     return null;
+                compactedByMonth.Remove(key);
                 try
                 {
                     checked
@@ -339,8 +383,8 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
                 }
             }
         }
-        if (await CountAsync(connection, transaction, "SELECT COUNT(*) FROM ai_tariffs;", cancellationToken).ConfigureAwait(false) is not long tariffs ||
-            await CountAsync(connection, transaction, "SELECT COUNT(*) FROM ai_compacted_requests;", cancellationToken).ConfigureAwait(false) is not long compacted)
+        // A compacted request whose month has no total doesn't add up either.
+        if (compactedByMonth.Count > 0 || await CountAsync(connection, transaction, "SELECT COUNT(*) FROM ai_tariffs;", cancellationToken).ConfigureAwait(false) is not long tariffs)
             return null;
         long logical = IAdvisoryAiLedger.LogicalBytes(rows, tariffs, compacted, months);
         bool full = rows >= IAdvisoryAiLedger.MaximumDetailedRows || logical + IAdvisoryAiLedger.RequestRowBytes > IAdvisoryAiLedger.MaximumLogicalBytes;
@@ -383,8 +427,10 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             FROM ai_requests WHERE period < $cutoff AND state IN ('Settled','NotSent') GROUP BY period
             ON CONFLICT(period) DO UPDATE SET settled=settled+excluded.settled, test_settled=test_settled+excluded.test_settled,
                 settled_requests=settled_requests+excluded.settled_requests, released_requests=released_requests+excluded.released_requests;
-            INSERT INTO ai_compacted_requests(request_id,period,tariff_version,provider_response_id)
-            SELECT request_id,period,tariff_version,provider_response_id FROM ai_requests WHERE period < $cutoff AND state='Settled';
+            INSERT INTO ai_compacted_requests(request_id,period,tariff_version,provider_response_id,committed,first_live_test,
+                input_tokens,cached_input_tokens,output_tokens,reasoning_tokens,total_tokens)
+            SELECT request_id,period,tariff_version,provider_response_id,committed,first_live_test,
+                input_tokens,cached_input_tokens,output_tokens,reasoning_tokens,total_tokens FROM ai_requests WHERE period < $cutoff AND state='Settled';
             DELETE FROM ai_requests WHERE period < $cutoff AND state IN ('Settled','NotSent');
             """, cancellationToken, ("$cutoff", cutoff)).ConfigureAwait(false);
 
@@ -417,7 +463,7 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
 
     /// <summary>
     /// T70-01: a settled charge is exactly the cost of its recorded usage at the request's own frozen prices, so a settled row can't be
-    /// lowered on its own either. Columns 7–11 are the usage and 12–14 the tariff's rates.
+    /// lowered on its own either. Columns 7–11 are the usage and 12–14 the tariff's rates (for detailed and compacted rows alike).
     /// </summary>
     private static bool SettledChargeMatchesUsage(SqliteDataReader reader, long committed)
     {

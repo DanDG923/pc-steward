@@ -119,7 +119,15 @@ public static class AdvisoryAiResponseReader
                 new JsonDocumentOptions { MaxDepth = MaximumDepth, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
             AdvisoryAiResponse response = Read(document.RootElement, expectedModel, approvedInputTokens, approvedOutputTokens);
             (long? written, bool unreadable) = CacheWriteReport(document.RootElement);
-            return response with { CacheWriteTokens = written, CacheWriteUnreadable = unreadable };
+            // Task 70B T70B-02: a reported cache write (or one that isn't a plain count) is an unexpected billing category even when the
+            // body is refused earlier for another reason, so it always stops paid requests for review. Its usage is still never trusted.
+            bool unexpected = unreadable || written > 0;
+            return response with
+            {
+                CacheWriteTokens = written,
+                CacheWriteUnreadable = unreadable,
+                UsageAboveApprovedBounds = response.UsageAboveApprovedBounds || unexpected
+            };
         }
         catch (JsonException)
         {

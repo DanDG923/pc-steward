@@ -1,3 +1,11 @@
+**Advisory AI, fresh Task 70 (70B) failed; two more fixes (2026-11-14; code and tests; no paid call, no key).** Requirements: `FR-AI-04`, `FR-BUD-02/03` ([Task 90 record §4](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **70B.** The owner ran a fresh review of `669c8c7`. It returned **FAIL**. Four earlier findings were fixed and three partly fixed, with two new findings: T70B-01 (High) and T70B-02 (Medium). The owner kept the report on their PC.
+- **Fixed.**
+  - Compacted requests now keep their charge, test flag and usage. Every read checks them against their month's totals, so a lowered compacted test total pauses paid requests (T70B-01).
+  - A cache write reported in a body refused for another reason now pauses paid requests too (T70B-02).
+- **Next.** Another fresh Task 70. `Reviewed` stays empty and paid requests stay disabled.
+
 **Advisory AI, Task 70 failed; Task 90 fixes (2026-11-14; code, tests and the Task 71 packet; no paid call, no key).** Requirements: `FR-AI-01–06`, `FR-BUD-01–04` ([Task 90 record](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Task 70.** The independent review of `db4bc76` (run by the owner) returned **FAIL** with 3 High and 4 Medium findings, T70-01 to T70-07. The owner kept the report on their PC.

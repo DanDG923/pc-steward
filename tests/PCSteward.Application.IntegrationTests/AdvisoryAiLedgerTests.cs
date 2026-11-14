@@ -178,6 +178,40 @@ public sealed class AdvisoryAiLedgerTests
 
     [TestMethod]
     [TestCategory("FR-BUD-02")]
+    [DataRow("UPDATE ai_monthly_totals SET test_settled=0;", DisplayName = "compacted test total lowered to zero")]
+    [DataRow("UPDATE ai_monthly_totals SET settled=settled-1;", DisplayName = "compacted month total lowered")]
+    [DataRow("UPDATE ai_monthly_totals SET settled_requests=settled_requests-1;", DisplayName = "compacted request count changed")]
+    [DataRow("DELETE FROM ai_compacted_requests WHERE request_id='eeeeeeee-0000-0000-0000-000000000002';", DisplayName = "compacted request removed")]
+    [DataRow("UPDATE ai_compacted_requests SET committed=1 WHERE first_live_test=1;", DisplayName = "compacted charge no longer matches its usage")]
+    [DataRow("UPDATE ai_compacted_requests SET first_live_test=0;", DisplayName = "compacted test flag cleared")]
+    [DataRow("PRAGMA foreign_keys=OFF; DELETE FROM ai_monthly_totals;", DisplayName = "compacted month total removed")]
+    public async Task CompactedSpendingThatDoesNotAddUpStopsPaidRequestsForReview(string tamper)
+    {
+        // Task 70B T70B-01: once compacted, a first-live-test charge still counts towards the $1 envelope, and lowering any part of the
+        // compacted record on its own is caught on every later read, including after a restart.
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        AdvisoryAiTariff tariff = await fixture.TariffAsync();
+        await fixture.ExecuteAsync("""
+            INSERT INTO ai_requests(request_id,period,model_id,model_profile_version,tariff_version,settings_version,input_token_bound,max_output_tokens,reservation,committed,first_live_test,state,reason,above_reservation,reserved_at,provider_response_id,
+                input_tokens,cached_input_tokens,output_tokens,reasoning_tokens,total_tokens) VALUES
+            ('eeeeeeee-0000-0000-0000-000000000001',202410,'synthetic-model-2026-01-01',1,1,0,10,10,1000000,990000,1,'Settled','None',0,'2024-10-02T00:00:00.0000000Z','resp_test',495000,0,0,0,495000),
+            ('eeeeeeee-0000-0000-0000-000000000002',202410,'synthetic-model-2026-01-01',1,1,0,10,10,500,100,0,'Settled','None',0,'2024-10-03T00:00:00.0000000Z',NULL,50,0,0,0,50);
+            """);
+        Assert.AreEqual(2, (await fixture.Store.RecoverInterruptedAsync(Now.AddMinutes(1), CancellationToken.None)).Compacted);
+        Assert.AreEqual(new MicroUsd(990_000), (await fixture.Store.GetSummaryAsync(AdvisoryAiPeriod.Of(Now), CancellationToken.None)).TestSettled);
+        Assert.AreEqual(AdvisoryAiReservationProblem.AboveFirstLiveTestEnvelope,
+            (await fixture.ReserveAsync(tariff, Now.AddMinutes(2), AdvisoryAiPaidRequestMode.FirstLiveTest)).Problem, "the compacted test charge still counts");
+
+        await fixture.ExecuteAsync(tamper);
+
+        Assert.AreEqual(AdvisoryAiReservationProblem.LedgerNeedsReview, (await fixture.ReserveAsync(tariff, Now.AddMinutes(3), AdvisoryAiPaidRequestMode.FirstLiveTest)).Problem);
+        Assert.AreEqual(0L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_requests;"), "nothing is reserved");
+        AdvisoryAiSpendingSummary summary = await fixture.NewStore().GetSummaryAsync(AdvisoryAiPeriod.Of(Now), CancellationToken.None);
+        Assert.IsTrue(summary.ReviewBlock, "the block is stored and shown after a restart");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-02")]
     public async Task TheSixteenMebibyteCeilingCountsCompactedRequestsAndPricesToo()
     {
         await using Fixture fixture = await Fixture.CreateReadyAsync();
@@ -186,14 +220,15 @@ public sealed class AdvisoryAiLedgerTests
         await fixture.ExecuteAsync("""
             INSERT INTO ai_monthly_totals VALUES (202410,0,0,32766,0);
             WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < 32766)
-            INSERT INTO ai_compacted_requests(request_id,period,tariff_version,provider_response_id) SELECT printf('%08d-0000-0000-0000-000000000000', i),202410,1,NULL FROM n;
+            INSERT INTO ai_compacted_requests(request_id,period,tariff_version,provider_response_id,committed,first_live_test,input_tokens,cached_input_tokens,output_tokens,reasoning_tokens,total_tokens)
+            SELECT printf('%08d-0000-0000-0000-000000000000', i),202410,1,NULL,0,0,0,0,0,0,0 FROM n;
             """);
         Assert.AreEqual(448L, IAdvisoryAiLedger.MaximumLogicalBytes - IAdvisoryAiLedger.LogicalBytes(0, 1, 32_766, 1));
         Assert.AreEqual(AdvisoryAiReservationProblem.LedgerFull, (await fixture.ReserveAsync(tariff, Now.AddMinutes(1))).Problem);
         Assert.AreEqual(0L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_requests;"));
 
         // Two fewer compacted IDs free 1,024 bytes more: 1,472 bytes of room, enough for one request row.
-        await fixture.ExecuteAsync("DELETE FROM ai_compacted_requests WHERE request_id IN ('00000001-0000-0000-0000-000000000000','00000002-0000-0000-0000-000000000000');");
+        await fixture.ExecuteAsync("DELETE FROM ai_compacted_requests WHERE request_id IN ('00000001-0000-0000-0000-000000000000','00000002-0000-0000-0000-000000000000'); UPDATE ai_monthly_totals SET settled_requests=32764;");
         Assert.AreEqual(AdvisoryAiReservationProblem.None, (await fixture.ReserveAsync(tariff, Now.AddMinutes(2))).Problem, "one request row fits again");
     }
 

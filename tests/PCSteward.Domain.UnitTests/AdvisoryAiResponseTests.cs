@@ -188,4 +188,37 @@ public sealed class AdvisoryAiResponseTests
     public void AnUnknownContentPartIsNotTrusted() =>
         Assert.AreEqual(AdvisoryAiMalformedReason.InvalidOutputText,
             Read(Body(output: "[{\"type\":\"message\",\"content\":[{\"type\":\"output_image\",\"url\":\"x\"}]}]")).MalformedReason);
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("model", AdvisoryAiMalformedReason.ModelMismatch)]
+    [DataRow("id", AdvisoryAiMalformedReason.MissingOrInvalidId)]
+    [DataRow("store", AdvisoryAiMalformedReason.StoredResponse)]
+    [DataRow("tools", AdvisoryAiMalformedReason.ToolsPresent)]
+    [DataRow("status", AdvisoryAiMalformedReason.UnknownStatus)]
+    public void ACacheWriteInARefusedBodyStillStopsPaidRequestsForReview(string change, AdvisoryAiMalformedReason expected)
+    {
+        // Task 70B T70B-02: the body is refused before its usage is read, but the reported write is still an unexpected billing
+        // category, so settlement keeps the whole reservation and stops for review. Without a write, a refused body only keeps it.
+        AdvisoryAiTariff tariff = new(1, Model, "default", new(2_000_000), new(100_000), new(10_000_000), DateTimeOffset.UnixEpoch);
+        foreach ((string written, bool review) in new[] { ("\"cache_write_tokens\":12", true), ("\"cache_write_tokens\":\"x\"", true), ("\"cache_write_tokens\":0", false) })
+        {
+            string body = Body(usage: Usage.Replace("{\"cached_tokens\":0}", "{\"cached_tokens\":0," + written + "}", StringComparison.Ordinal));
+            body = change switch
+            {
+                "model" => body.Replace(Model, "other-model", StringComparison.Ordinal),
+                "id" => body.Replace("\"resp_abc123\"", "\"\"", StringComparison.Ordinal),
+                "store" => body.Replace("\"store\":false", "\"store\":true", StringComparison.Ordinal),
+                "tools" => body.Replace("\"tools\":[]", "\"tools\":[{}]", StringComparison.Ordinal),
+                _ => body.Replace("\"status\":\"completed\"", "\"status\":\"queued\"", StringComparison.Ordinal)
+            };
+            AdvisoryAiResponse response = Read(body);
+            Assert.AreEqual(AdvisoryAiAnswerStatus.Malformed, response.Status);
+            Assert.AreEqual(expected, response.MalformedReason);
+            Assert.AreEqual(review, response.UsageAboveApprovedBounds, written);
+            AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), tariff);
+            Assert.AreEqual(AdvisoryAiRequestState.Uncertain, settlement.State);
+            Assert.AreEqual(45_056, settlement.Committed.Value, "the whole reservation is kept");
+            Assert.AreEqual(review, settlement.NeedsReview, written);
+        }
+    }
 }
