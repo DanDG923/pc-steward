@@ -211,7 +211,11 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             await using SqliteTransaction transaction = connection.BeginTransaction(deferred: false);
             AdvisoryAiLedgerSnapshot? snapshot = await SnapshotAsync(connection, transaction, request.Period, request.ReservedAtUtc, cancellationToken).ConfigureAwait(false);
             if (snapshot is null) return new(AdvisoryAiReservationProblem.LedgerNeedsReview, null);
-            AdvisoryAiReservationProblem problem = AdvisoryAiReservationRule.Check(request.Reservation, limits, snapshot, mode, tariff, model, request.ReservedAtUtc);
+            // ADR-029 concurrent edit and reserve: the stored settings and prices are read in this same write transaction, so a limit,
+            // consent, key or price change committed after the caller read them is seen here and the stale approval cannot reserve.
+            AdvisoryAiSettings? stored = await BindingHoldsAsync(connection, transaction, request.Binding, cancellationToken).ConfigureAwait(false);
+            if (stored is null || stored.Limits != limits) return new(AdvisoryAiReservationProblem.ApprovalOutdated, snapshot);
+            AdvisoryAiReservationProblem problem = AdvisoryAiReservationRule.Check(request.Reservation, stored.Limits, snapshot, mode, tariff, model, request.ReservedAtUtc);
             if (problem != AdvisoryAiReservationProblem.None) return new(problem, snapshot);
             await AiExecuteAsync(connection, transaction, """
                 INSERT INTO ai_requests(request_id,period,model_id,model_profile_version,tariff_version,settings_version,input_token_bound,max_output_tokens,
@@ -270,9 +274,45 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             state.Continuity, AdvisoryAiClock.Evaluate(state.LastAcceptedUtc, nowUtc));
     }
 
-    public Task<AdvisoryAiLedgerWrite> ClaimDispatchAsync(Guid requestId, DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
-        MoveAsync(requestId, AdvisoryAiRequestState.Reserved, AdvisoryAiRequestState.DispatchClaimed,
-            "UPDATE ai_requests SET state='DispatchClaimed',claimed_at=$now WHERE request_id=$id AND state='Reserved';", nowUtc, cancellationToken);
+    public Task<AdvisoryAiLedgerWrite> ClaimDispatchAsync(Guid requestId, AdvisoryAiApprovalBinding binding, DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        return AiWriteAsync(async (connection, transaction) =>
+        {
+            AdvisoryAiRequestState? current = await RequestStateAsync(connection, transaction, requestId, cancellationToken).ConfigureAwait(false);
+            if (current is null) return AdvisoryAiLedgerWrite.NotFound;
+            if (current == AdvisoryAiRequestState.DispatchClaimed) return AdvisoryAiLedgerWrite.AlreadyDone;
+            if (current != AdvisoryAiRequestState.Reserved) return AdvisoryAiLedgerWrite.WrongState;
+            // The last check before the network: a disconnect, or a settings, consent, key or price change since the reservation, stops
+            // the claim in the same write transaction that would make it.
+            if (await BindingHoldsAsync(connection, transaction, binding, cancellationToken).ConfigureAwait(false) is null) return AdvisoryAiLedgerWrite.Outdated;
+            int changed = await AiExecuteAsync(connection, transaction,
+                "UPDATE ai_requests SET state='DispatchClaimed',claimed_at=$now WHERE request_id=$id AND state='Reserved' AND settings_version=$settings AND tariff_version=$tariff;",
+                cancellationToken, ("$id", Id(requestId)), ("$now", Utc(nowUtc)), ("$settings", binding.SettingsVersion), ("$tariff", binding.TariffVersion)).ConfigureAwait(false);
+            return changed == 1 ? AdvisoryAiLedgerWrite.Done : AdvisoryAiLedgerWrite.Outdated;
+        }, AdvisoryAiLedgerWrite.StorageFailed, cancellationToken);
+    }
+
+    /// <summary>
+    /// The stored settings when AI is connected, the settings, consent and key-generation versions equal <paramref name="binding"/>'s and
+    /// its tariff version is still the newest for that tariff's model and tier; otherwise null. Read inside the caller's write transaction.
+    /// </summary>
+    private static async Task<AdvisoryAiSettings?> BindingHoldsAsync(SqliteConnection connection, SqliteTransaction transaction, AdvisoryAiApprovalBinding binding,
+        CancellationToken cancellationToken)
+    {
+        AdvisoryAiSettings? stored = await ReadSettingsAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        if (stored is null || !stored.Connected || stored.SettingsVersion != binding.SettingsVersion || stored.ConsentVersion != binding.ConsentVersion ||
+            stored.CredentialGeneration != binding.CredentialGeneration)
+            return null;
+        await using SqliteCommand command = AiCommand(connection, transaction, """
+            SELECT (SELECT COUNT(*) FROM ai_tariffs WHERE version=$version),
+                   (SELECT COUNT(*) FROM ai_tariffs newer JOIN ai_tariffs approved ON approved.version=$version
+                    WHERE newer.model_id=approved.model_id AND newer.service_tier=approved.service_tier AND newer.version>approved.version);
+            """, ("$version", binding.TariffVersion));
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) || !TryLong(reader, 0, out long exists) || !TryLong(reader, 1, out long newer)) return null;
+        return exists == 1 && newer == 0 ? stored : null;
+    }
 
     public Task<AdvisoryAiLedgerWrite> ReleaseUnclaimedAsync(Guid requestId, DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
         MoveAsync(requestId, AdvisoryAiRequestState.Reserved, AdvisoryAiRequestState.NotSent,

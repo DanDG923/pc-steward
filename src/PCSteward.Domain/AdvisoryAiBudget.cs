@@ -71,14 +71,25 @@ public static class AdvisoryAiCost
         return MicroUsd.Add(Charge(inputTokenUpperBound, inputRate), Charge(maximumOutputTokens, tariff.OutputPerMillion));
     }
 
-    /// <summary>ADR-029: the cost of reliable reported usage at the request's frozen rates. Reasoning is part of output and is not added again.</summary>
+    /// <summary>
+    /// ADR-029: the cost of reliable reported usage at the request's frozen rates. Reasoning is part of output and is not added again.
+    /// Uncached and cached input are priced together and rounded up once, exactly as <see cref="Reservation"/> rounds its input
+    /// bound, so usage within the approved bounds can never cost more than the reservation (rounding the two parts separately could
+    /// add a micro-dollar).
+    /// </summary>
     public static MicroUsd Actual(AdvisoryAiUsage usage, AdvisoryAiTariff tariff)
     {
         ArgumentNullException.ThrowIfNull(usage);
         ArgumentNullException.ThrowIfNull(tariff);
+        ArgumentOutOfRangeException.ThrowIfNegative(usage.InputTokens);
+        ArgumentOutOfRangeException.ThrowIfNegative(usage.CachedInputTokens);
         if (usage.CachedInputTokens > usage.InputTokens) throw new ArgumentException("Cached input cannot exceed input.", nameof(usage));
-        return MicroUsd.Add(MicroUsd.Add(Charge(usage.InputTokens - usage.CachedInputTokens, tariff.InputPerMillion),
-            Charge(usage.CachedInputTokens, tariff.CachedInputPerMillion)), Charge(usage.OutputTokens, tariff.OutputPerMillion));
+        ArgumentOutOfRangeException.ThrowIfNegative(tariff.InputPerMillion.Value);
+        ArgumentOutOfRangeException.ThrowIfNegative(tariff.CachedInputPerMillion.Value);
+        Int128 input = checked(((Int128)(usage.InputTokens - usage.CachedInputTokens) * tariff.InputPerMillion.Value) +
+            ((Int128)usage.CachedInputTokens * tariff.CachedInputPerMillion.Value));
+        MicroUsd inputCharge = new(checked((long)((input + (TokensPerRateUnit - 1)) / TokensPerRateUnit)));
+        return MicroUsd.Add(inputCharge, Charge(usage.OutputTokens, tariff.OutputPerMillion));
     }
 }
 
@@ -193,7 +204,13 @@ public enum AdvisoryAiReservationProblem
     AboveRequestCap,
     AboveMonthlyBudget,
     AboveFirstLiveTestEnvelope,
-    AmountTooLarge
+    AmountTooLarge,
+
+    /// <summary>
+    /// ADR-029 (concurrent edit and reserve): inside the reservation's write transaction the stored settings, consent, key generation,
+    /// limits or newest prices no longer match what the owner approved, or AI was disconnected. A fresh preview is needed.
+    /// </summary>
+    ApprovalOutdated
 }
 
 /// <summary>

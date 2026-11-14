@@ -90,6 +90,7 @@ public sealed class AdvisoryAiLedgerTests
     public async Task NothingIsReservedUntilTheOwnerAnswersThePriorUseQuestion()
     {
         await using Fixture fixture = await Fixture.CreateAsync();
+        await fixture.Store.SetConnectedAsync(true, Now, CancellationToken.None);
         AdvisoryAiTariff tariff = await fixture.ConfirmAsync();
         Assert.AreEqual(AdvisoryAiReservationProblem.ContinuityNotEstablished, (await fixture.ReserveAsync(tariff, Now.AddMinutes(1))).Problem);
         Assert.AreEqual(AdvisoryAiAccountingWrite.Done, await fixture.Store.DeclareContinuityAsync(AdvisoryAiContinuity.DeclaredNoPriorUse, Now, CancellationToken.None));
@@ -105,8 +106,9 @@ public sealed class AdvisoryAiLedgerTests
         await using Fixture fixture = await Fixture.CreateReadyAsync();
         AdvisoryAiTariff tariff = (await fixture.Store.GetLatestTariffAsync(Model.ModelId, Model.ServiceTier, CancellationToken.None))!;
         // Separate store instances use separate connections, as two app processes would.
+        AdvisoryAiApprovalBinding binding = await fixture.BindingAsync(tariff);
         AdvisoryAiReserveResult[] results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() => fixture.NewStore().ReserveAsync(
-            Request(tariff, Now.AddMinutes(1)), AdvisoryAiLimits.Defaults, AdvisoryAiPaidRequestMode.Ordinary, tariff, Model, CancellationToken.None))));
+            Request(tariff, binding, Now.AddMinutes(1)), AdvisoryAiLimits.Defaults, AdvisoryAiPaidRequestMode.Ordinary, tariff, Model, CancellationToken.None))));
         Assert.AreEqual(1, results.Count(result => result.Reserved));
         Assert.IsTrue(results.Where(result => !result.Reserved).All(result => result.Problem == AdvisoryAiReservationProblem.AnotherRequestInFlight), string.Join(",", results.Select(r => r.Problem)));
         Assert.AreEqual(1L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_requests;"));
@@ -118,18 +120,19 @@ public sealed class AdvisoryAiLedgerTests
     {
         await using Fixture fixture = await Fixture.CreateReadyAsync();
         AdvisoryAiTariff tariff = await fixture.TariffAsync();
-        AdvisoryAiReservationRequest claimed = Request(tariff, Now.AddMinutes(1));
+        AdvisoryAiApprovalBinding binding = await fixture.BindingAsync(tariff);
+        AdvisoryAiReservationRequest claimed = Request(tariff, binding, Now.AddMinutes(1));
         Assert.IsTrue((await fixture.Store.ReserveAsync(claimed, AdvisoryAiLimits.Defaults, AdvisoryAiPaidRequestMode.Ordinary, tariff, Model, CancellationToken.None)).Reserved);
-        Assert.AreEqual(AdvisoryAiLedgerWrite.Done, await fixture.Store.ClaimDispatchAsync(claimed.RequestId, Now, CancellationToken.None));
-        Assert.AreEqual(AdvisoryAiLedgerWrite.AlreadyDone, await fixture.Store.ClaimDispatchAsync(claimed.RequestId, Now, CancellationToken.None));
+        Assert.AreEqual(AdvisoryAiLedgerWrite.Done, await fixture.Store.ClaimDispatchAsync(claimed.RequestId, binding, Now, CancellationToken.None));
+        Assert.AreEqual(AdvisoryAiLedgerWrite.AlreadyDone, await fixture.Store.ClaimDispatchAsync(claimed.RequestId, binding, Now, CancellationToken.None));
         Assert.AreEqual(AdvisoryAiLedgerWrite.WrongState, await fixture.Store.ReleaseUnclaimedAsync(claimed.RequestId, Now, CancellationToken.None));
         Assert.AreEqual(AdvisoryAiLedgerWrite.Done, await fixture.SettleAsync(claimed.RequestId, AdvisoryAiSettlementRule.Interrupted(claimed.Reservation)));
 
-        AdvisoryAiReservationRequest released = Request(tariff, Now.AddMinutes(2));
+        AdvisoryAiReservationRequest released = Request(tariff, binding, Now.AddMinutes(2));
         Assert.IsTrue((await fixture.Store.ReserveAsync(released, AdvisoryAiLimits.Defaults, AdvisoryAiPaidRequestMode.Ordinary, tariff, Model, CancellationToken.None)).Reserved);
         Assert.AreEqual(AdvisoryAiLedgerWrite.Done, await fixture.Store.ReleaseUnclaimedAsync(released.RequestId, Now, CancellationToken.None));
-        Assert.AreEqual(AdvisoryAiLedgerWrite.WrongState, await fixture.Store.ClaimDispatchAsync(released.RequestId, Now, CancellationToken.None));
-        Assert.AreEqual(AdvisoryAiLedgerWrite.NotFound, await fixture.Store.ClaimDispatchAsync(Guid.NewGuid(), Now, CancellationToken.None));
+        Assert.AreEqual(AdvisoryAiLedgerWrite.WrongState, await fixture.Store.ClaimDispatchAsync(released.RequestId, binding, Now, CancellationToken.None));
+        Assert.AreEqual(AdvisoryAiLedgerWrite.NotFound, await fixture.Store.ClaimDispatchAsync(Guid.NewGuid(), binding, Now, CancellationToken.None));
 
         AdvisoryAiSpendingSummary summary = await fixture.Store.GetSummaryAsync(AdvisoryAiPeriod.Of(Now), CancellationToken.None);
         Assert.AreEqual(claimed.Reservation, summary.Outstanding, "the uncertain request keeps its reservation; the released one costs nothing");
@@ -232,6 +235,7 @@ public sealed class AdvisoryAiLedgerTests
     public async Task UnknownPriorUseWaitsForALaterConfirmedMonthAndNeverReopensTheTest()
     {
         await using Fixture fixture = await Fixture.CreateAsync();
+        await fixture.Store.SetConnectedAsync(true, Now, CancellationToken.None);
         await fixture.Store.DeclareContinuityAsync(AdvisoryAiContinuity.PriorUseUnknown, Now, CancellationToken.None);
         AdvisoryAiTariff tariff = await fixture.ConfirmAsync();
         Assert.AreEqual(AdvisoryAiReservationProblem.PriorUseUnknown, (await fixture.ReserveAsync(tariff, Now.AddMinutes(1))).Problem);
@@ -474,6 +478,54 @@ public sealed class AdvisoryAiLedgerTests
     }
 
     [TestMethod]
+    [TestCategory("FR-BUD-01")]
+    [DataRow("limits", DisplayName = "limit lowered to zero")]
+    [DataRow("disconnect", DisplayName = "disconnected")]
+    [DataRow("key", DisplayName = "key replaced")]
+    [DataRow("prices", DisplayName = "new prices confirmed")]
+    public async Task AChangeCommittedAfterTheApprovalIsSeenInsideTheReservationAndTheClaim(string change)
+    {
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        AdvisoryAiTariff tariff = await fixture.TariffAsync();
+        AdvisoryAiApprovalBinding binding = await fixture.BindingAsync(tariff);
+
+        // Reserve: the caller read the settings before another connection changed them.
+        AdvisoryAiReservationRequest stale = Request(tariff, binding, Now.AddMinutes(1));
+        await fixture.ChangeAsync(change);
+        AdvisoryAiReserveResult refused = await fixture.Store.ReserveAsync(stale, AdvisoryAiLimits.Defaults, AdvisoryAiPaidRequestMode.Ordinary, tariff, Model, CancellationToken.None);
+        Assert.AreEqual(AdvisoryAiReservationProblem.ApprovalOutdated, refused.Problem);
+        Assert.AreEqual(0L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_requests;"));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-01")]
+    [DataRow("limits", DisplayName = "limit lowered to zero")]
+    [DataRow("disconnect", DisplayName = "disconnected")]
+    [DataRow("key", DisplayName = "key replaced")]
+    [DataRow("prices", DisplayName = "new prices confirmed")]
+    public async Task AChangeAfterTheReservationStopsTheClaimAndTheSend(string change)
+    {
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        AdvisoryAiTariff tariff = await fixture.TariffAsync();
+        AdvisoryAiApprovalBinding binding = await fixture.BindingAsync(tariff);
+        AdvisoryAiReservationRequest request = Request(tariff, binding, Now.AddMinutes(1));
+        Assert.IsTrue((await fixture.Store.ReserveAsync(request, AdvisoryAiLimits.Defaults, AdvisoryAiPaidRequestMode.Ordinary, tariff, Model, CancellationToken.None)).Reserved);
+        await fixture.ChangeAsync(change);
+        Assert.AreEqual(AdvisoryAiLedgerWrite.Outdated, await fixture.Store.ClaimDispatchAsync(request.RequestId, binding, Now.AddMinutes(1), CancellationToken.None));
+        Assert.AreEqual("Reserved", await fixture.ScalarAsync("SELECT state FROM ai_requests;"), "nothing was claimed");
+
+        // End to end: the change lands while the key is read, after the reservation and before the claim.
+        await using Fixture second = await Fixture.CreateReadyAsync();
+        FakeTransport transport = new(_ => Received(Body("x")));
+        (AdvisoryAiRequestWorkflow workflow, _) = second.Workflow(transport, onRead: () => second.ChangeAsync(change).GetAwaiter().GetResult());
+        (AdvisoryAiApproval approval, AdvisoryAiRequestPreview preview) = await second.ApproveAsync();
+        AdvisoryAiSendOutcome outcome = await workflow.SendAsync(approval, preview, null, CancellationToken.None);
+        Assert.AreEqual(AdvisoryAiSendRefusal.ApprovalStale, outcome.Refusal);
+        Assert.AreEqual(0, transport.Calls, "nothing reached the transport");
+        Assert.AreEqual("NotSent", await second.ScalarAsync("SELECT state FROM ai_requests;"));
+    }
+
+    [TestMethod]
     [TestCategory("FR-BUD-02")]
     public async Task CancellingBeforeTheClaimSendsNothingAndCostsNothing()
     {
@@ -506,8 +558,8 @@ public sealed class AdvisoryAiLedgerTests
 
     // ---- Fixtures -----------------------------------------------------------------------------------------------------------------
 
-    private static AdvisoryAiReservationRequest Request(AdvisoryAiTariff tariff, DateTimeOffset at, bool test = false) =>
-        new(Guid.NewGuid(), Model.ModelId, Model.ProfileVersion, tariff.Version, 0, 2_000, 1_024, AdvisoryAiCost.Reservation(2_000, 1_024, tariff), test, at);
+    private static AdvisoryAiReservationRequest Request(AdvisoryAiTariff tariff, AdvisoryAiApprovalBinding binding, DateTimeOffset at, bool test = false) =>
+        new(Guid.NewGuid(), Model.ModelId, Model.ProfileVersion, binding, 2_000, 1_024, AdvisoryAiCost.Reservation(2_000, 1_024, tariff), test, at);
 
     private static AdvisoryAiSavedExplanation Explanation(AdvisoryAiSourceKind source, string origin, DateTimeOffset created) =>
         new(Guid.NewGuid(), Guid.NewGuid(), source, origin, Model.ModelId, AdvisoryAiAnswerStatus.Completed, AdvisoryAiIncompleteReason.None, "Synthetic explanation.", false, created);
@@ -593,11 +645,37 @@ public sealed class AdvisoryAiLedgerTests
 
         public async Task<AdvisoryAiTariff> ConfirmAsync() => (await Store.ConfirmTariffAsync(Rates, CancellationToken.None))!;
 
+        /// <summary>One committed change that makes an earlier approval stale, as another app window or process would make it.</summary>
+        public async Task ChangeAsync(string change)
+        {
+            AdvisoryAiSettings settings = await Store.GetSettingsAsync(CancellationToken.None);
+            switch (change)
+            {
+                case "limits":
+                    Assert.AreEqual(AdvisoryAiSettingsWrite.Saved, await Store.SaveLimitsAsync(AdvisoryAiLimits.Defaults with { RequestCap = new(0) }, settings.SettingsVersion, CancellationToken.None));
+                    break;
+                case "disconnect":
+                    Assert.AreEqual(AdvisoryAiSettingsWrite.Saved, await Store.SetConnectedAsync(false, Now, CancellationToken.None));
+                    break;
+                case "key":
+                    Assert.AreEqual(AdvisoryAiSettingsWrite.Saved, await Store.AdvanceCredentialGenerationAsync(CancellationToken.None));
+                    break;
+                case "prices":
+                    Assert.IsNotNull(await Store.ConfirmTariffAsync(Rates with { ConfirmedAtUtc = Now.AddMinutes(1) }, CancellationToken.None));
+                    break;
+                default:
+                    Assert.Fail(change);
+                    break;
+            }
+        }
+
+        public async Task<AdvisoryAiApprovalBinding> BindingAsync(AdvisoryAiTariff tariff) => (await Store.GetSettingsAsync(CancellationToken.None)).BindingFor(tariff);
+
         public async Task<AdvisoryAiTariff> TariffAsync() => (await Store.GetLatestTariffAsync(Model.ModelId, Model.ServiceTier, CancellationToken.None))!;
 
         public async Task<AdvisoryAiReserveResult> ReserveAsync(AdvisoryAiTariff tariff, DateTimeOffset at, AdvisoryAiPaidRequestMode mode = AdvisoryAiPaidRequestMode.Ordinary, bool release = false)
         {
-            AdvisoryAiReservationRequest request = Request(tariff, at, mode == AdvisoryAiPaidRequestMode.FirstLiveTest);
+            AdvisoryAiReservationRequest request = Request(tariff, await BindingAsync(tariff), at, mode == AdvisoryAiPaidRequestMode.FirstLiveTest);
             AdvisoryAiReserveResult result = await Store.ReserveAsync(request, AdvisoryAiLimits.Defaults, mode, tariff, Model, CancellationToken.None);
             if (release && result.Reserved) await Store.ReleaseUnclaimedAsync(request.RequestId, at, CancellationToken.None);
             return result;
@@ -605,9 +683,9 @@ public sealed class AdvisoryAiLedgerTests
 
         public async Task<AdvisoryAiReservationRequest> ClaimedAsync(AdvisoryAiTariff tariff, DateTimeOffset at)
         {
-            AdvisoryAiReservationRequest request = Request(tariff, at);
+            AdvisoryAiReservationRequest request = Request(tariff, await BindingAsync(tariff), at);
             Assert.IsTrue((await Store.ReserveAsync(request, AdvisoryAiLimits.Defaults, AdvisoryAiPaidRequestMode.Ordinary, tariff, Model, CancellationToken.None)).Reserved);
-            Assert.AreEqual(AdvisoryAiLedgerWrite.Done, await Store.ClaimDispatchAsync(request.RequestId, at, CancellationToken.None));
+            Assert.AreEqual(AdvisoryAiLedgerWrite.Done, await Store.ClaimDispatchAsync(request.RequestId, request.Binding, at, CancellationToken.None));
             return request;
         }
 

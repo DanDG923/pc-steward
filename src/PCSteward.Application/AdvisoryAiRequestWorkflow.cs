@@ -106,7 +106,7 @@ public sealed class AdvisoryAiRequestWorkflow
             return AdvisoryAiSendOutcome.Refused(AdvisoryAiSendRefusal.ReservationRefused, AdvisoryAiReservationProblem.AmountTooLarge);
         }
 
-        AdvisoryAiReservationRequest request = new(approval.RequestId, model.ModelId, model.ProfileVersion, tariff.Version, current.SettingsVersion,
+        AdvisoryAiReservationRequest request = new(approval.RequestId, model.ModelId, model.ProfileVersion, current.BindingFor(tariff),
             preview.InputTokenUpperBound, preview.Limits.MaximumOutputTokens, reservation, mode == AdvisoryAiPaidRequestMode.FirstLiveTest, utcNow());
         AdvisoryAiReserveResult reserved = await ledger.ReserveAsync(request, current.Limits, mode, tariff, model, cancellationToken).ConfigureAwait(false);
         if (reserved.StorageFailed) return AdvisoryAiSendOutcome.Refused(AdvisoryAiSendRefusal.LedgerUnavailable, reservation: reservation);
@@ -130,13 +130,15 @@ public sealed class AdvisoryAiRequestWorkflow
         {
             AdvisoryAiLedgerWrite claim = cancellationToken.IsCancellationRequested
                 ? AdvisoryAiLedgerWrite.WrongState
-                : await ledger.ClaimDispatchAsync(request.RequestId, utcNow(), CancellationToken.None).ConfigureAwait(false);
+                : await ledger.ClaimDispatchAsync(request.RequestId, request.Binding, utcNow(), CancellationToken.None).ConfigureAwait(false);
             if (claim != AdvisoryAiLedgerWrite.Done)
             {
                 // Fail closed: no claim, no send. The release only succeeds while the row is still Reserved; if the claim did commit
                 // despite the error, the row stays claimed and recovery records it as uncertain.
                 await ledger.ReleaseUnclaimedAsync(request.RequestId, utcNow(), CancellationToken.None).ConfigureAwait(false);
-                return AdvisoryAiSendOutcome.Refused(AdvisoryAiSendRefusal.ClaimNotRecorded, reservation: reservation);
+                // A settings, consent, key or price change (or a disconnect) after the reservation needs a fresh preview.
+                return AdvisoryAiSendOutcome.Refused(claim == AdvisoryAiLedgerWrite.Outdated ? AdvisoryAiSendRefusal.ApprovalStale : AdvisoryAiSendRefusal.ClaimNotRecorded,
+                    reservation: reservation);
             }
 
             AdvisoryAiTransportResult sent;

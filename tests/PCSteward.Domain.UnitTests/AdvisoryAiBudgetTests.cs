@@ -26,6 +26,22 @@ public sealed class AdvisoryAiBudgetTests
 
     [TestMethod]
     [TestCategory("FR-BUD-02")]
+    public void UsageWithinTheApprovedBoundsNeverCostsMoreThanTheReservationHoweverTheInputIsCached()
+    {
+        // Codex review of #111: rounding cached and uncached input separately could cost one micro-dollar more than the reservation.
+        AdvisoryAiTariff tariff = new(1, "synthetic-model", "default", new(300_000), new(75_000), new(8_000_000), new(2026, 11, 13, 12, 0, 0, TimeSpan.Zero));
+        MicroUsd reservation = AdvisoryAiCost.Reservation(8_192, 1_024, tariff);
+        Assert.AreEqual(new MicroUsd(10_650), reservation);
+        for (int cached = 0; cached <= 8_192; cached++)
+        {
+            MicroUsd actual = AdvisoryAiCost.Actual(new AdvisoryAiUsage(8_192, cached, 1_024, 0, 9_216), tariff);
+            Assert.IsLessThanOrEqualTo(reservation.Value, actual.Value, $"{cached} cached");
+        }
+        Assert.AreEqual(new MicroUsd(10_650), AdvisoryAiCost.Actual(new AdvisoryAiUsage(8_192, 1, 1_024, 0, 9_216), tariff));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-02")]
     [DataRow(0L, 1_000_000L, 0L)]
     [DataRow(1L, 1L, 1L)]
     [DataRow(1L, 999_999L, 1L)]

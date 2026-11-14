@@ -57,13 +57,15 @@ public interface IAdvisoryAiSettingsStore
     Task<AdvisoryAiTariff?> GetLatestTariffAsync(string modelId, string serviceTier, CancellationToken cancellationToken);
 }
 
-/// <summary>ADR-029 "Minimal records": what one reservation stores. No prompt, evidence, body hash, key or identity.</summary>
+/// <summary>
+/// ADR-029 "Minimal records": what one reservation stores (no prompt, evidence, body hash, key or identity), plus the approval's
+/// <see cref="Binding"/>, which the ledger checks against the stored settings and prices inside the reservation and claim transactions.
+/// </summary>
 public sealed record AdvisoryAiReservationRequest(
     Guid RequestId,
     string ModelId,
     int ModelProfileVersion,
-    long TariffVersion,
-    long SettingsVersion,
+    AdvisoryAiApprovalBinding Binding,
     int InputTokenUpperBound,
     int MaximumOutputTokens,
     MicroUsd Reservation,
@@ -71,6 +73,10 @@ public sealed record AdvisoryAiReservationRequest(
     DateTimeOffset ReservedAtUtc)
 {
     public AdvisoryAiPeriod Period => AdvisoryAiPeriod.Of(ReservedAtUtc);
+
+    public long TariffVersion => Binding.TariffVersion;
+
+    public long SettingsVersion => Binding.SettingsVersion;
 }
 
 public sealed record AdvisoryAiReserveResult(AdvisoryAiReservationProblem Problem, AdvisoryAiLedgerSnapshot? Snapshot, bool StorageFailed = false)
@@ -89,6 +95,9 @@ public enum AdvisoryAiLedgerWrite
     /// <summary>The row is not in the state this change starts from (for example a claim after a release). Nothing was written.</summary>
     WrongState,
     NotFound,
+
+    /// <summary>The approval no longer matches the stored settings or prices, or AI was disconnected. Nothing was written.</summary>
+    Outdated,
 
     /// <summary>A settlement conflicted with one already recorded, or reused a provider response ID: paid requests now need review.</summary>
     Conflict,
@@ -135,11 +144,20 @@ public interface IAdvisoryAiLedger
     /// <summary>Soft ceiling on detailed rows (ADR-029): reaching it blocks new requests instead of deleting any commitment.</summary>
     public const int MaximumDetailedRows = 10_000;
 
+    /// <summary>
+    /// Reserves inside one write transaction, after checking there that AI is connected and the stored settings, consent, key generation,
+    /// limits (<paramref name="limits"/>) and newest prices still match the request's binding
+    /// (<see cref="AdvisoryAiReservationProblem.ApprovalOutdated"/> otherwise), then the ledger rule against the stored limits.
+    /// </summary>
     Task<AdvisoryAiReserveResult> ReserveAsync(AdvisoryAiReservationRequest request, AdvisoryAiLimits limits, AdvisoryAiPaidRequestMode mode,
         AdvisoryAiTariff tariff, AdvisoryAiModelProfile model, CancellationToken cancellationToken);
 
-    /// <summary>Reserved → DispatchClaimed: the one durable claim to make the one network attempt.</summary>
-    Task<AdvisoryAiLedgerWrite> ClaimDispatchAsync(Guid requestId, DateTimeOffset nowUtc, CancellationToken cancellationToken);
+    /// <summary>
+    /// Reserved → DispatchClaimed: the one durable claim to make the one network attempt. Made only while AI is connected and the stored
+    /// settings, consent, key generation and newest prices still match <paramref name="binding"/>; otherwise
+    /// <see cref="AdvisoryAiLedgerWrite.Outdated"/> and nothing is written.
+    /// </summary>
+    Task<AdvisoryAiLedgerWrite> ClaimDispatchAsync(Guid requestId, AdvisoryAiApprovalBinding binding, DateTimeOffset nowUtc, CancellationToken cancellationToken);
 
     /// <summary>Reserved → NotSent, releasing the reservation. Fails once a claim exists: a claimed request is never released.</summary>
     Task<AdvisoryAiLedgerWrite> ReleaseUnclaimedAsync(Guid requestId, DateTimeOffset nowUtc, CancellationToken cancellationToken);
