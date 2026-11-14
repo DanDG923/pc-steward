@@ -407,6 +407,13 @@ public sealed class HomeActivityDecisionsPresentationTests
         Assert.AreEqual(HomePresenter.AttentionProblemsLinkName, home.Notices.Single().ActionAccessibleName);
         Assert.IsFalse(activity.Any(entry => entry.OutcomeLabel == "Verified"), "resolution never relabels an attempt as Verified");
         Assert.AreEqual(4, activity.Count(entry => entry.IsProblem), "Activity keeps every recorded outcome");
+        // Task 67 stage 4c: each update entry carries its own job and the name it shows, for "Explain with AI…".
+        foreach (ActivityEntry entry in activity)
+        {
+            Assert.IsNotNull(entry.Job);
+            Assert.AreEqual($"update:{entry.Job.JobId:N}", entry.Id);
+            Assert.AreEqual($"{entry.ProductName} update", entry.Title);
+        }
 
         // Task 51: a restart-required update with its target already registered stays on Home until Windows has restarted.
         InventoryRow[] waiting = [Row("waiting", "Current", "2.0")];

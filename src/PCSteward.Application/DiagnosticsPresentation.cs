@@ -32,6 +32,15 @@ public sealed record DiagnosticsEntry(
     IReadOnlyList<DiagnosticsNearbyLine> Nearby)
 {
     public string AccessibleName => $"{Heading}. {SourceLabel}. {TimeText}";
+
+    /// <summary>The record's identity in its timeline, so an action on the row (such as "Explain with AI…") names exactly this record.</summary>
+    public DiagnosticRecordKey Key { get; init; }
+
+    /// <summary>
+    /// Task 67 stage 4c (FR-AI-02): true for a Windows record with a known time, the only kind an AI draft can be made for (nearby
+    /// records need a time). PC Steward's own update records are explained from Activity instead.
+    /// </summary>
+    public bool CanExplain { get; init; }
 }
 
 /// <summary>One day of the timeline, newest day first.</summary>
@@ -254,7 +263,11 @@ public static class DiagnosticsPresenter
             DiagnosticEventKind.WindowsUpdate => ("", record.Outcome == DiagnosticOutcomeKind.Failed ? StatusTone.Attention : StatusTone.Neutral),
             _ => ("", StatusTone.Neutral)
         };
-        return new(heading, summary, time, SourceLabel(record.Source), glyph, tone, facts, notes, nearby);
+        return new(heading, summary, time, SourceLabel(record.Source), glyph, tone, facts, notes, nearby)
+        {
+            Key = record.Key,
+            CanExplain = record.Source != DiagnosticSourceKind.PcStewardHistory && record.Occurrence.CanLabelProximity
+        };
     }
 
     private static string NearbyText(DiagnosticNearbyChange change)

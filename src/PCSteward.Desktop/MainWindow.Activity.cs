@@ -23,7 +23,8 @@ public sealed partial class MainWindow
     /// FR-HIS-01–03 (Task 73 Phase 3, ADR-030): a filterable history (All, Updates, Scans, Problems) grouped by day. Each update shows
     /// its Phase 2 outcome, start and end time, provider, package ID and target version; Details shows the exit code, the failure
     /// class and the sanitized recorded output. The Task 50 reviewed-outcomes section (route, verification, running installers,
-    /// helper report) follows unchanged. Read-only: nothing here deletes, exports or starts anything.
+    /// helper report) follows unchanged. Read-only: nothing here deletes, exports or starts anything. (When this build has a reviewed
+    /// AI model, a failed update's details also offer "Explain with AI…", which opens its own dialogs and sends nothing unapproved.)
     /// UI polish phase 4 (approved target T-Activity): filter tabs with counts, a heading per day, and one expandable row per record
     /// (tinted outcome icon, heading with the outcome in words, one sentence and the time); the facts and details are inside.
     /// </summary>
@@ -69,7 +70,7 @@ public sealed partial class MainWindow
                 StackPanel daySection = new() { Spacing = StewardSpacing.Small };
                 daySection.Children.Add(SectionHeading(day.Heading));
                 StackPanel dayEntries = new() { Spacing = StewardSpacing.XSmall };
-                foreach (ActivityEntry entry in day.Entries) dayEntries.Children.Add(ActivityEntryRow(entry));
+                foreach (ActivityEntry entry in day.Entries) dayEntries.Children.Add(ActivityEntryRow(entry, ExplainUpdateButton(entry)));
                 daySection.Children.Add(dayEntries);
                 panel.Children.Add(daySection);
             }
@@ -88,14 +89,14 @@ public sealed partial class MainWindow
     /// One Activity record: a tinted outcome icon, the heading with the outcome in words, one sentence and the time. Its facts and
     /// details (selectable, so evidence can be copied) are behind the row's expander; a record with neither is a plain row.
     /// </summary>
-    private static FrameworkElement ActivityEntryRow(ActivityEntry entry)
+    private static FrameworkElement ActivityEntryRow(ActivityEntry entry, Button? explain = null)
     {
         TextBlock time = new() { Text = entry.RowTimeText, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.NoWrap };
         Grid header = StewardVisuals.ListRow(StewardVisuals.IconWell(entry.Glyph, StewardStatus.ToneName(entry.Tone)), entry.Heading, entry.Summary, time);
         TextBlock title = header.Children.OfType<StackPanel>().First().Children.OfType<TextBlock>().First();
         // Independent review L6 (ADR-021 best effort): the entry's name goes on elements that have an automation peer.
         AutomationProperties.SetName(title, entry.AccessibleName);
-        if (entry.Facts.Count == 0 && entry.Details.Count == 0)
+        if (entry.Facts.Count == 0 && entry.Details.Count == 0 && explain is null)
             return new Border { Style = AppStyle("StewardRowCardStyle"), Child = header };
         header.Padding = new Thickness(0, StewardSpacing.Small, 0, StewardSpacing.Small);
         StackPanel details = new() { Spacing = 0 };
@@ -105,6 +106,14 @@ public sealed partial class MainWindow
             // Evidence can be selected and copied (for example the recorded output).
             foreach (TextBlock text in line.Children.OfType<TextBlock>()) text.IsTextSelectionEnabled = true;
             details.Children.Add(line);
+        }
+        // Task 67 stage 4c: a failed update can be explained with AI when this build has a reviewed model.
+        if (explain is not null)
+        {
+            StewardWrapPanel actions = StewardVisuals.ActionRow();
+            actions.Margin = new Thickness(0, StewardSpacing.Small, 0, 0);
+            actions.Children.Add(explain);
+            details.Children.Add(actions);
         }
         Expander expander = new() { Header = header, Content = details, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         AutomationProperties.SetName(expander, entry.AccessibleName);

@@ -192,6 +192,12 @@ public sealed record ActivityEntry(
     /// <summary>The entry's accessible name: title, outcome and time.</summary>
     public string AccessibleName => $"{Title}: {OutcomeLabel}. {TimeText}";
 
+    /// <summary>For an update entry, the recorded job it shows, so an action on the row (such as "Explain with AI…") uses that job only.</summary>
+    public UpdateJobRecord? Job { get; init; }
+
+    /// <summary>For an update entry, the app's name as the row shows it.</summary>
+    public string? ProductName { get; init; }
+
     /// <summary>
     /// UI review 2026-11-13 (fault 4): the time shown on the row. The row sits under its day's heading, so it shows the time of
     /// day only ("14:50", not "13 Nov 2026 · 14:50–14:50"); <see cref="TimeText"/> keeps the date for the accessible name.
@@ -281,7 +287,7 @@ public static class ActivityPresenter
                     new("Recorded output", string.IsNullOrWhiteSpace(job.Final.Diagnostic) ? "None recorded" : SanitizedDiagnosticBundle.Sanitize(job.Final.Diagnostic)),
                 ],
                 outcome.Kind)
-            { TimeOfDay = DisplayFormat.TimeOfDay(job.StartedAt, job.EndedAt, culture, zone) });
+            { TimeOfDay = DisplayFormat.TimeOfDay(job.StartedAt, job.EndedAt, culture, zone), Job = job, ProductName = name });
         }
         foreach (ScanRun scan in scans)
         {

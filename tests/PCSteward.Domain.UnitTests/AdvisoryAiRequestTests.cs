@@ -84,6 +84,7 @@ public sealed class AdvisoryAiRequestTests
         Assert.AreEqual(Incident.AddMinutes(15), draft.IntervalToUtc);
         Assert.AreEqual(AdvisoryAiSourceKind.DiagnosticTimeline, draft.Source);
         Assert.AreEqual("11111111-2222-3333-4444-555555555555/ApplicationEventLog/app-1", draft.OriginId);
+        Assert.AreEqual(draft.OriginId, AdvisoryAiDiagnosticDraftBuilder.OriginId(SampleTimeline().Snapshot, IncidentKey), "saved answers can be found without a draft");
     }
 
     [TestMethod]
@@ -173,6 +174,7 @@ public sealed class AdvisoryAiRequestTests
         Assert.AreEqual(AdvisoryAiDraftProblem.None, AdvisoryAiFailedUpdateDraftBuilder.TryBuild(job, facts, Allowance(), new(["alex"]), out AdvisoryAiEvidenceDraft? draft));
         Assert.AreEqual(AdvisoryAiSourceKind.FailedUpdate, draft!.Source);
         Assert.AreEqual("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", draft.OriginId);
+        Assert.AreEqual(draft.OriginId, AdvisoryAiFailedUpdateDraftBuilder.OriginId(job), "saved answers can be found without a draft");
         CollectionAssert.AreEqual(new[] { AdvisoryAiEvidenceRole.FailedUpdateSummary, AdvisoryAiEvidenceRole.FailedUpdateEvent, AdvisoryAiEvidenceRole.FailedUpdateEvent },
             draft.Items.Select(item => item.Role).ToArray());
         StringAssert.Contains(draft.Items[0].Text, "Update of Contoso Editor from version 1.2.0 to 1.3.0 through WinGet: InstallerFailed, exit code 1603 (0x00000643)");

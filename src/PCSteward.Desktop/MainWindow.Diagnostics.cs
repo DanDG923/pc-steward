@@ -137,7 +137,7 @@ public sealed partial class MainWindow
             StackPanel daySection = new() { Spacing = StewardSpacing.Small };
             daySection.Children.Add(SectionHeading(day.Heading));
             StackPanel entries = new() { Spacing = StewardSpacing.XSmall };
-            foreach (DiagnosticsEntry entry in day.Entries) entries.Children.Add(DiagnosticEntryRow(entry));
+            foreach (DiagnosticsEntry entry in day.Entries) entries.Children.Add(DiagnosticEntryRow(entry, ExplainIncidentButton(snapshot, entry)));
             daySection.Children.Add(entries);
             panel.Children.Add(daySection);
         }
@@ -147,7 +147,7 @@ public sealed partial class MainWindow
             untimed.Children.Add(SectionHeading(DiagnosticsPresenter.UntimedHeading));
             untimed.Children.Add(new TextBlock { Text = DiagnosticsPresenter.UntimedNote, Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
             StackPanel entries = new() { Spacing = StewardSpacing.XSmall };
-            foreach (DiagnosticsEntry entry in timeline.Untimed) entries.Children.Add(DiagnosticEntryRow(entry));
+            foreach (DiagnosticsEntry entry in timeline.Untimed) entries.Children.Add(DiagnosticEntryRow(entry, ExplainIncidentButton(snapshot, entry)));
             untimed.Children.Add(entries);
             panel.Children.Add(untimed);
         }
@@ -156,8 +156,11 @@ public sealed partial class MainWindow
         if (timeline.DuplicatesNote is not null) panel.Children.Add(StewardVisuals.FootNote("", timeline.DuplicatesNote));
     }
 
-    /// <summary>One timeline record: icon, heading, sentence and time; its facts, fixed notes and nearby PC Steward changes are inside.</summary>
-    private static Expander DiagnosticEntryRow(DiagnosticsEntry entry)
+    /// <summary>
+    /// One timeline record: icon, heading, sentence and time; its facts, fixed notes and nearby PC Steward changes are inside, with
+    /// "Explain with AI…" last when this build can explain it.
+    /// </summary>
+    private static Expander DiagnosticEntryRow(DiagnosticsEntry entry, Button? explain = null)
     {
         TextBlock time = new() { Text = entry.TimeText, Style = AppStyle("StewardCaptionStyle"), TextWrapping = TextWrapping.NoWrap };
         Grid header = StewardVisuals.ListRow(StewardVisuals.IconWell(entry.Glyph, StewardStatus.ToneName(entry.Tone)), entry.Heading, entry.Summary, time);
@@ -175,6 +178,12 @@ public sealed partial class MainWindow
             foreach (DiagnosticsNearbyLine nearby in entry.Nearby) details.Children.Add(StewardVisuals.IconLine("", nearby.Text));
         }
         foreach (string note in entry.Notes) details.Children.Add(StewardVisuals.FootNote("", note));
+        if (explain is not null)
+        {
+            StewardWrapPanel actions = StewardVisuals.ActionRow();
+            actions.Children.Add(explain);
+            details.Children.Add(actions);
+        }
         Expander expander = new() { Header = header, Content = details, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         AutomationProperties.SetName(expander, entry.AccessibleName);
         AutomationProperties.SetHelpText(expander, entry.Summary);
