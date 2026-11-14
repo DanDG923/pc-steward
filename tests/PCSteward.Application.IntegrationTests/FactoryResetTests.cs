@@ -408,6 +408,44 @@ public sealed class FactoryResetTests
     }
 
     [TestMethod]
+    public async Task FirstRunSetupAfterAFinishedResetRechecksTheAiKeyAtStartAndAtContinue()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-ai-onboarding-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            FactoryReset.ArmForTesting(root);
+            Assert.IsTrue((await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, _ => Task.FromResult(true), CancellationToken.None)).Succeeded);
+            SqliteDatabase database = new(Path.Combine(root, "pcsteward.db"));
+            await database.MigrateAsync(CancellationToken.None);
+            int checks = 0;
+
+            // A later start: the reset finished before, but a key that can't be verified gone blocks first-run setup.
+            FactoryResetResult blocked = FactoryReset.VerifyOnboardingBootstrapForTesting(root, _ => { checks++; return Task.FromResult(false); });
+            Assert.IsFalse(blocked.Succeeded);
+            Assert.IsTrue(blocked.Residuals.Any(item => item.Category == "AI key" && item.Reason == "CredentialRemovalIncomplete"));
+            FactoryResetResult thrown = FactoryReset.VerifyOnboardingBootstrapForTesting(root, _ => Task.FromException<bool>(new InvalidOperationException("vault unavailable")));
+            Assert.IsTrue(thrown.Residuals.Any(item => item.Category == "AI key" && item.Reason == "CredentialRemovalFailed"));
+            Assert.IsTrue(FactoryReset.VerifyOnboardingBootstrapForTesting(root, _ => { checks++; return Task.FromResult(true); }).Succeeded);
+
+            // Continue: the marker stays until the key is verified gone, and goes once it is.
+            FactoryResetResult refused = FactoryReset.AcknowledgeOnboardingForTesting(root, () => database.IsFreshResetStoreAsync(CancellationToken.None).GetAwaiter().GetResult(), _ => { checks++; return Task.FromResult(false); });
+            Assert.IsFalse(refused.Succeeded);
+            Assert.IsTrue(refused.Residuals.Any(item => item.Category == "AI key"));
+            Assert.IsTrue(FactoryReset.IsPending(root));
+            FactoryResetResult acknowledged = FactoryReset.AcknowledgeOnboardingForTesting(root, () => database.IsFreshResetStoreAsync(CancellationToken.None).GetAwaiter().GetResult(), _ => { checks++; return Task.FromResult(true); });
+            Assert.IsTrue(acknowledged.Succeeded, string.Join("; ", acknowledged.Residuals.Select(item => item.Reason)));
+            Assert.IsFalse(FactoryReset.IsPending(root));
+            Assert.AreEqual(4, checks);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task AMarkerFromBeforeTheAiKeyCategoryStillCompletesAndRecordsTheKeyCheck()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-ai-upgrade-" + Guid.NewGuid().ToString("N"));

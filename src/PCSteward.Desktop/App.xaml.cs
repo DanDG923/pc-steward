@@ -78,7 +78,8 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         }
         if (showPostResetOnboarding)
         {
-            FactoryResetResult onboardingAuthority = FactoryReset.VerifyOnboardingBootstrap(stateDirectory);
+            // ADR-028: a reset that finished on an earlier start (or before the AI key step existed) still rechecks the AI key.
+            FactoryResetResult onboardingAuthority = FactoryReset.VerifyOnboardingBootstrap(RemoveAdvisoryAiKeysAsync, stateDirectory);
             if (!onboardingAuthority.Succeeded)
             {
                 ActivateWindow(new ResetRecoveryWindow(onboardingAuthority));
@@ -194,7 +195,8 @@ public partial class App : global::Microsoft.UI.Xaml.Application
     /// ADR-028 "Factory reset" and ADR-029 (Task 67 stage 4b): the reset's one AI step. For every registered provider it runs the
     /// same compiled removal of that provider's one exact Credential Manager entry, with absence verified by a fresh read, and
     /// returns true only when every entry is verifiably gone. It reads nothing else, needs no database and makes no network call.
-    /// It runs only while a reset is pending, never at ordinary start-up.
+    /// It runs only while a reset is pending or its first-run setup is open (start-up verification and Continue), never at ordinary
+    /// start-up.
     /// </summary>
     private static async Task<bool> RemoveAdvisoryAiKeysAsync(CancellationToken cancellationToken)
     {
@@ -216,7 +218,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
     private static FactoryResetResult AcknowledgeOnboarding(string stateDirectory, SqliteDatabase database)
     {
         // Codex security scan finding 3: Continue re-checks that the store at the path is still the fresh one.
-        try { return DataOperationLease.RunResetControlSynchronous(() => FactoryReset.AcknowledgeOnboarding(stateDirectory, () => database.IsFreshResetStoreAsync(CancellationToken.None).GetAwaiter().GetResult())); }
+        try { return DataOperationLease.RunResetControlSynchronous(() => FactoryReset.AcknowledgeOnboarding(stateDirectory, () => database.IsFreshResetStoreAsync(CancellationToken.None).GetAwaiter().GetResult(), RemoveAdvisoryAiKeysAsync)); }
         catch (InvalidOperationException)
         {
             return new(false, [new FactoryResetResidual("Data operation", "ActiveOperation", "Another PC Steward operation still owns the data-operation gate.")]);
