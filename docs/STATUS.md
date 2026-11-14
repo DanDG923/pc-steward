@@ -1,3 +1,11 @@
+**Advisory AI, third Task 70 review (70C): FAIL (2026-11-14; exact disabled commit `b11da9bc8056c4baacd89b9e5daa88b53879ea5d`; no key or provider call).** Requirements: `FR-AI-01–06`, `FR-BUD-01–04`, `TM-03/04/07/13`; `FRA-14–16` remain open ([independent report](review/TASK_70C_AI_SECURITY_PRIVACY_COST_REVIEW.md)).
+
+- **Earlier findings.** All nine checked independently: six fixed for this gate, three partly fixed. The original compacted-spend corruption and five refused-body cache-write cases now fail safely. Populated migration 14 → 15, migration rollback/retry, compaction rollback, tariff pruning and logical-ceiling arithmetic were checked with synthetic data.
+- **Remaining finding.** T70C-01 (Medium): duplicate billing containers can conceal an earlier nonzero cache-write report. The full reservation remains Uncertain, but the automatic review pause is missing and another reservation is admitted. The current Task 71 packet therefore fails the gate.
+- **Owner choices and resources.** B1(a) and B2 wide margins remain accepted policy for the bounded one-request experiment, not measurements. Missing CPU, working-set, UI and full physical-storage evidence remains an ordinary-use gate; its absence alone is not this FAIL's reason. Any enabled test artifact still requires its own exact review.
+- **Fresh checks.** Focused Release: 401 passed, no failures/skips. Canonical Release build: zero warnings/errors. Canonical full suite: 4,272 passed, four skipped, zero failures; independent isolated reproductions confirm the finding and the corrected earlier cases. No product code or committed tests changed.
+- **Next.** A separately instructed Task 90 remediation, then a fresh immutable Task 70 review. Keep `Reviewed` empty and paid requests disabled. No Task 71, key operation, paid request, deployment or release is authorized.
+
 **Advisory AI, fresh Task 70 (70B) failed; two more fixes (2026-11-14; code and tests; no paid call, no key).** Requirements: `FR-AI-04`, `FR-BUD-02/03` ([Task 90 record §4](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **70B.** The owner ran a fresh review of `669c8c7`. It returned **FAIL**. Four earlier findings were fixed and three partly fixed, with two new findings: T70B-01 (High) and T70B-02 (Medium). The owner kept the report on their PC.
