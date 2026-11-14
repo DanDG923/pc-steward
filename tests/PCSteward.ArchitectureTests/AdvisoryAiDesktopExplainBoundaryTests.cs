@@ -65,6 +65,18 @@ public sealed class AdvisoryAiDesktopExplainBoundaryTests
     }
 
     [TestMethod]
+    public void TheDraftAndTheExactRequestBothWarnThatSecretsCanRemain()
+    {
+        // Task 70 T70-06: redaction is best effort; the warning sits in the draft (rebuilt after every edit) and in the final review.
+        string explain = DesktopFile("MainWindow.AdvisoryAiExplain.cs");
+        string draft = Between(explain, "private async Task<(DraftChoice Choice, AdvisoryAiEvidenceDraft? Edited)> ShowExplainDraftAsync(", "private async Task<ReviewChoice> ShowExplainReviewAsync(");
+        string review = Between(explain, "private async Task<ReviewChoice> ShowExplainReviewAsync(", "private async Task<AdvisoryAiSendOutcome?> SendExplanationAsync(");
+        foreach (string dialog in new[] { draft, review })
+            StringAssert.Contains(dialog, "StewardVisuals.InformationBanner(\"Check for secrets\", AdvisoryAiExplainText.ResidualSecrets, \"attention\")");
+        StringAssert.Contains(explain, "await ShowExplainDraftAsync(explain, subject, draft, texts, saved.Count);", "the draft dialog is shown again, with the warning, after each return");
+    }
+
+    [TestMethod]
     public void SavedAnswersStayReachableWhenNoNewDraftIsPossible()
     {
         // ADR-028: disconnect and lower limits keep saved answers; reading or deleting them needs no key and no draft.

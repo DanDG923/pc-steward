@@ -22,9 +22,10 @@ public sealed class AdvisoryAiDesktopSetupBoundaryTests
         StringAssert.Contains(setup, "if (!availability.CanSetUp || availability.Provider is not PCSteward.Domain.AdvisoryAiProvider provider) return (null, null);");
         Assert.IsTrue(setup.IndexOf("return (null, null);", StringComparison.Ordinal) < setup.IndexOf("new WindowsCredentialManagerStore(", StringComparison.Ordinal),
             "nothing is composed before the reviewed-model check");
-        // Stage 4c: the one request workflow uses the compiled model list and paid-request policy, and the same adapters as set-up.
+        // Stage 4c: the one request workflow uses the compiled model list and paid-request policy, and the same adapters as set-up;
+        // T70-04: production watches the wall clock against the system tick count on that admission path.
         StringAssert.Contains(setup, "AdvisoryAiRequestWorkflow workflow = new(database, database, adapters, database, PCSteward.Domain.AdvisoryAiModelProfiles.Reviewed,");
-        StringAssert.Contains(setup, "PCSteward.Domain.AdvisoryAiBuildPolicy.PaidRequests, () => DateTimeOffset.UtcNow);");
+        StringAssert.Contains(setup, "PCSteward.Domain.AdvisoryAiBuildPolicy.PaidRequests, () => DateTimeOffset.UtcNow, AdvisoryAiClockWatch.ForSystem());");
         StringAssert.Contains(setup, "IdentityRedaction());");
         Assert.AreEqual(1, Regex.Count(app, @"new AdvisoryAiRequestWorkflow\(|AdvisoryAiRequestWorkflow workflow = new\("), "one request workflow");
         Assert.AreEqual(1, Regex.Count(app, @"CreateAdvisoryAi\(database\)"), "composed once at start-up");
@@ -68,6 +69,9 @@ public sealed class AdvisoryAiDesktopSetupBoundaryTests
         Assert.AreEqual(5, confirmations, "connect, disconnect, replace, limits and prices");
         Assert.AreEqual(confirmations, Regex.Count(ai, @"DefaultButton = ContentDialogButton\.Close"), "Cancel is the default everywhere");
         Assert.IsFalse(ai.Contains("DefaultButton = ContentDialogButton.Primary", StringComparison.Ordinal));
+        // Task 70 T70-03: the prices are confirmed only with the owner's ticked statement that they are what the key's project pays.
+        StringAssert.Contains(ai, "CheckBox effective = new() { Content = AdvisoryAiSetupText.EffectivePricesStatement, IsChecked = false };");
+        StringAssert.Contains(ai, "AdvisoryAiPricesDraft typed = new(input.Text, cached.Text, output.Text, effective.IsChecked == true);");
         foreach (string forbidden in new[] { "AdvisoryAiRequestWorkflow", "IAdvisoryAiTransport", "OpenAiResponsesTransport", "WindowsCredentialManagerStore", "SendAsync", "HttpClient" })
             Assert.IsFalse(ai.Contains(forbidden, StringComparison.Ordinal), $"Settings reaches {forbidden}");
         // Every change runs inside the data-operation lease, and the read uses the read lease.

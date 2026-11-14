@@ -275,7 +275,7 @@ public static class AdvisoryAiReservationRule
         AdvisoryAiReservationProblem.PaidRequestsDisabledInThisBuild => "Paid AI requests are turned off in this version of PC Steward.",
         AdvisoryAiReservationProblem.PaidRequestsDisabledBySettings => "A spending limit is set to 0, which turns paid requests off.",
         AdvisoryAiReservationProblem.AnotherRequestInFlight => "Another AI request is still running. Only one runs at a time.",
-        AdvisoryAiReservationProblem.LedgerNeedsReview => "PC Steward recorded a charge it can't reconcile, so paid requests are paused until it is reviewed.",
+        AdvisoryAiReservationProblem.LedgerNeedsReview => "PC Steward recorded a charge it can't reconcile, or the clock jumped forward, so paid requests are paused until it is reviewed.",
         AdvisoryAiReservationProblem.LedgerFull => "The AI spending record is full. Paid requests are paused; nothing owed is deleted to make room.",
         AdvisoryAiReservationProblem.ContinuityNotEstablished => "Before the first paid request, PC Steward needs to ask whether it has made AI requests on this PC before.",
         AdvisoryAiReservationProblem.PriorUseUnknown => "Earlier AI spending on this PC may be unknown, so paid requests wait until a new month is confirmed.",

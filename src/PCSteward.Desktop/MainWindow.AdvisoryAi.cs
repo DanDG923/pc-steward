@@ -360,6 +360,9 @@ public sealed partial class MainWindow
         TextBox cached = new() { Header = "Cached input, per million tokens" };
         TextBox output = new() { Header = "Output, per million tokens" };
         foreach (TextBox box in new[] { input, cached, output }) body.Children.Add(box);
+        body.Children.Add(Wrapped(AdvisoryAiSetupText.EffectivePricesNote));
+        CheckBox effective = new() { Content = AdvisoryAiSetupText.EffectivePricesStatement, IsChecked = false };
+        body.Children.Add(effective);
         TextBlock problem = ProblemText();
         body.Children.Add(problem);
         ContentDialog dialog = new()
@@ -370,7 +373,7 @@ public sealed partial class MainWindow
         AdvisoryAiPricesDraft? draft = null;
         dialog.PrimaryButtonClick += (_, args) =>
         {
-            AdvisoryAiPricesDraft typed = new(input.Text, cached.Text, output.Text);
+            AdvisoryAiPricesDraft typed = new(input.Text, cached.Text, output.Text, effective.IsChecked == true);
             AdvisoryAiPricesCheck check = typed.Check(model, DateTimeOffset.UtcNow);
             if (check.Tariff is null)
             {

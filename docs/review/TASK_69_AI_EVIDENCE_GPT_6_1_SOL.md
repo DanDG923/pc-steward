@@ -1,6 +1,6 @@
 # Task 69: evidence for GPT-6.1 Sol (readiness report)
 
-**Status (2026-11-14): evidence gathered, product fixes made, two blockers open.** No paid call, no account query and no key were used. `AdvisoryAiModelProfiles.Reviewed` stays empty and `AdvisoryAiBuildPolicy.PaidRequests` stays `Disabled`. This report is the input to the independent Task 70 review. Neither this report nor Task 70 approves the Task 71 live call: that needs the owner's separate go-ahead.
+**Status (2026-11-14): evidence gathered, product fixes made; B1 and B2 settled by owner decisions; Task 70 failed at `db4bc76` and its findings are fixed by [Task 90](TASK_90_TASK_70_AI_REMEDIATION.md), awaiting a fresh Task 70.** No paid call, no account query and no key were used. `AdvisoryAiModelProfiles.Reviewed` stays empty and `AdvisoryAiBuildPolicy.PaidRequests` stays `Disabled`. This report is the input to the independent Task 70 review. Neither this report nor Task 70 approves the Task 71 live call: that needs the owner's separate go-ahead.
 
 Requirements: `FR-AI-01–06`, `FR-BUD-01–04` ([Phase G](../requirements/V2_PHASE_G.md), [Task 69 prompt](../../prompts/69_AI_EVIDENCE_READINESS.md), [plan](TASK_67_ADVISORY_AI_PLAN.md)). Owner choice (2026-11-14): `gpt-6.1-sol` only, with no model picker.
 
@@ -82,11 +82,13 @@ The usage fields the reader trusts match the response example in S5: `input_toke
 | `StandardPriceInputTokens` | 272,000 | S1 |
 | `RequestNoPromptCache` | true | S3 |
 | `TokenizerIsByteLevel` | true, on the owner's decision for B1 (a), checked live in Task 71 | S1 and S7 are silent; owner decision 2026-11-14 |
-| `FramingAllowanceTokens` | **unproven: blocker B2** (proposed 512, to be measured) | — |
-| `MaximumTokenUtf8Bytes` | Not published. Proposed 128, which covers the longest `o200k_base` vocabulary entries with margin | Residual R2 |
-| `ResponseEnvelopeBytes` | Not published. Proposed 262,144 | Residual R3 |
+| `FramingAllowanceTokens` | 8,192, the owner's wide margin for B2 (16x the earlier 512 estimate). It is a policy decision, not a measurement. | Owner decision 2026-11-14 |
+| `MaximumTokenUtf8Bytes` | Not published. 192, the wide margin (earlier 128, which already covered the longest `o200k_base` entries) | Residual R2, owner decision |
+| `ResponseEnvelopeBytes` | Not published. 1,048,576, the wide margin (earlier 262,144) | Residual R3, owner decision |
 
-## 7. Blockers (the model stays unavailable until both are settled; B1 is settled)
+`AdvisoryAiTask71CandidateTests` checks a copy of this profile. The copy is coherent. The §10 limits pass every request, response and saved-item byte ceiling, and leave room for evidence. The profile itself is still not added to `Reviewed`.
+
+## 7. Blockers (both settled by owner decisions)
 
 **B1, tokenizer.** The local input bound relies on "tokens ≤ UTF-8 bytes". That holds for any tokenizer in which every token covers at least one input byte, which includes OpenAI's byte-level BPE family (`o200k_base` for `gpt-5*`, S7). OpenAI publishes no tokenizer for `gpt-6.1-sol`. Options for the owner:
 - **(a)** Accept the general argument plus the measured check in Task 71. That check compares `usage.input_tokens` against the app's own bound, and a request over the bound already pauses paid requests (above approved bounds).
@@ -96,14 +98,16 @@ The usage fields the reader trusts match the response example in S5: `input_toke
 
 **Decision (owner, 2026-11-14): (a).** The candidate profile sets `TokenizerIsByteLevel = true`. Task 71 checks it live, and a breach stops paid use. B1 is settled. The model still stays unavailable until B2 is measured, Task 70 passes and the owner approves Task 71.
 
-**B2, framing allowance.** This covers hidden system and formatting tokens around the instructions and input. It isn't published. The proposal is 512 tokens. Task 71's single request measures it: the reported `input_tokens` must be at most the preview's `InputTokenUpperBound`. A breach stops paid use, and the value is corrected before ordinary use.
+**B2, framing allowance.** This covers hidden system and formatting tokens around the instructions and input. It isn't published. Task 70 (T70-02) found that one live request can't prove it. A single count below the bound can't separate hidden framing from the slack in the byte estimate. And the first request's liability has to be bounded before that request is sent.
+
+**Decision (owner, 2026-11-14): "Use wide safety margins".** This is a scoped policy choice for the Task 71 test, not evidence. Framing is set to 8,192 tokens (16x the earlier 512 estimate). Bytes per output token and the response envelope get generous values (§6). The test limits are sized so the worst case stays under $0.05 per request. The residual risk is accepted: the route might add more than 8,192 hidden tokens, which would make the first request cost more than its reservation. In that case the full reported charge is recorded, the breach flag pauses paid requests, and the value is corrected before any further use. Ordinary use needs its own decision.
 
 ## 8. Residuals for Task 70 to weigh
 
 - **R1, the key as a managed string.** `PasswordBox.Password` and the SDK's `ApiKeyCredential` hold the key as an immutable .NET string until garbage collection. This is accepted under ADR-028, because the key also has to sit in Credential Manager. Exploiting it needs code already running as the user.
 - **R2/R3, response size values.** These only feed the "fits in 4 MiB" checks for the limits. The reader still enforces the 4 MiB cap strictly, and a larger body is malformed, so the whole reservation is kept and no answer is shown. In stateless mode, reasoning items can carry `encrypted_content` (S6). That counts towards the 4 MiB cap and is never saved or shown.
 - **R4, prices change.** The owner re-confirms prices every 24 hours, typed fresh from S2. A charge above the reservation is recorded in full and pauses paid requests.
-- **R5, the account's project settings.** `service_tier` is sent explicitly, so a project default of Fast doesn't apply. PC Steward calls only `api.openai.com`. The pages don't say whether a key for a data-residency project is refused there or billed with the 10% uplift, so the owner should use a key from a project without data residency (to be added to the Connect disclosure before ordinary use).
+- **R5, the account's project settings.** `service_tier` is sent explicitly, so a project default of Fast doesn't apply. PC Steward calls only `api.openai.com`. The pages don't say whether a key for a data-residency project is refused there or billed with the 10% uplift. **Fixed for T70-03:** the owner must now tick that the confirmed prices are the ones their key's project pays, including any data-residency, regional or other uplift, before prices are saved. The Task 71 test also uses a key from a project without data residency.
 - **R6, explicit mode is newer API surface.** If the API refused `prompt_cache_options`, the provider's error carries no usage. The request is then recorded as uncertain and its whole reservation counted, so nothing is under-counted.
 
 ## 9. SDK and transport (stage 3, unchanged)
@@ -116,25 +120,21 @@ The usage fields the reader trusts match the response example in S5: `input_toke
 
 Evidence for all of this is in `AdvisoryAiAdapterBoundaryTests` and the transport tests.
 
-## 10. Task 71 plan: one tiny paid test (needs the owner's separate approval)
+## 10. Task 71 packet: one tiny paid test (needs the owner's separate approval)
 
-- **Build:** a test build with `Reviewed = [gpt-6.1-sol]` (the candidate in §6, with B1/B2 settled by the owner) and `PaidRequests = FirstLiveTest`, only after Task 70 passes.
-- **Evidence:** one synthetic Diagnostics record (for example, a made-up "Contoso Editor stopped working" record with a fake code and nearby synthetic PC Steward change). Nothing from the owner's PC is sent.
-- **Limits:** input 2,048 tokens, output 2,048 tokens, $0.05 per request, $1.00 per month.
-- **Worst case at the listed Standard prices:** input 2,048 × $2.00/M = $0.004096, plus output 2,048 × $10.00/M = $0.020480, gives a **reservation of $0.024576**. The cumulative first-test envelope is $1.00, with $0.00 spent so far.
-- **Stop policy:** one request, no retry.
-  - Stop and report if anything below happens; any of these (except a malformed body) also pauses paid requests:
-    - usage above the preview's bounds (B1/B2 breach);
-    - any reported cache write;
-    - a malformed body;
-    - an uncertain outcome (the whole reservation is counted);
-    - a charge above the reservation.
-  - Record the reported `input_tokens`, `cached_tokens`, `cache_write_tokens`, `output_tokens` and `reasoning_tokens` against the preview's `InputTokenUpperBound`. Afterwards, the owner checks the usage page of their OpenAI account and reports the figure.
-- **Preview:** the owner sees and approves the exact body and headers in the app before sending. Nothing is pre-filled here, because the preview is built at that moment.
+Task 70 did not accept the earlier plan (§7 of its report). This version answers the seven items it listed. It is still a plan: nothing here is approved, built or enabled.
+
+1. **Profile and B1/B2.** The §6 candidate, with B1 option (a) and the B2 wide margins as recorded in §7. Prices are entered for the key's own project and the project-prices statement is ticked (T70-03). The key comes from a project without data residency.
+2. **Pinned test build.** A separate test build with `Reviewed = [gpt-6.1-sol]` (exactly the §6 values) and `PaidRequests = FirstLiveTest`. Its source SHA, artifact SHA-256 and manifest, and SDK closure (OpenAI 2.15.0 per `scripts/release-toolchain-pins.json`) are recorded before approval is sought. That build gets its own independent review. A pass for the disabled commit doesn't cover it.
+3. **Synthetic evidence only.** In the test build, open Explain on one Diagnostics record. Tick "Leave this out" on every item but one. Replace that item's text with exactly: `Contoso Editor 4.2 stopped responding after an update from 4.1. Error code 0x00000ABC appeared at start-up.` The exact request screen then shows everything that would be sent. Besides the synthetic text, that includes the chosen record's time window and the count of left-out items, which are real metadata. The owner checks the screen and cancels if anything else from the PC appears.
+4. **Key, then one send, each separately authorized.** The owner types the key into the masked box only after approving that step. The key never appears in chat or in a log. Before the send, the owner confirms the current prices and the limits page's first-live-test figures. Settled and uncertain test commitments must both be $0.00 on the current ledger, which also counts months that were compacted.
+5. **Evidence capture.** After the send, the owner reads the outcome screen and notes what it says: sent once or not, the stop reason if any, the charge or "kept as uncertain", and the reported counts: input (cached), output (reasoning), total, and the cache-write figure or "no cache-write figure" (T70-07). Nothing else is kept: no body, body hash, header, key, provider error text or answer text. The owner may compare the usage page of their OpenAI account later; that comparison is outside corroboration, not proof of the invoice.
+6. **One request, then stop.** Limits: input 12,288 tokens, output 2,048 tokens, $0.05 per request, $1.00 per month. Worst case at the listed Standard prices: 12,288 × $2.00/M = $0.024576 plus 2,048 × $10.00/M = $0.020480, a **reservation of $0.045056** ($0.049562 with a 10% uplift). The software pauses paid requests by itself for usage above the bounds, any cache write, or a charge above the reservation. **An ordinary timeout or other uncertain outcome keeps the whole reservation but does not pause paid requests** (T70-07), so stopping is the owner's procedure. After the one send, whatever the outcome, the owner sets the limit per request to $0 (which turns paid requests off). Then the owner reports. Any retry is a new task with a new approval.
+7. **No promotion.** No success, month change, reconnect or limit change ends first-live-test mode. Ordinary use is a separate owner decision. It also needs the measurements still open in [Task 90](TASK_90_TASK_70_AI_REMEDIATION.md) §2.
 
 ## 11. What this report does not claim
 
 - It makes no host or provider check: nothing was sent to OpenAI.
 - Every figure comes from the official pages on the date above.
-- The owner chose B1 option (a) on 2026-11-14. The Task 71 limits and the go-ahead for the paid call are still the owner's decisions.
-- Task 70 (the independent security, privacy and cost review) has not run.
+- The owner chose B1 option (a) and the B2 wide margins on 2026-11-14. The go-ahead for the paid call is still the owner's decision.
+- Task 70 failed at `db4bc76`. Task 90 fixed its findings, and a fresh Task 70 hasn't run yet.

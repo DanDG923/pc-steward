@@ -144,6 +144,14 @@ public sealed class AdvisoryAiResponseTests
         AdvisoryAiResponse clean = Read(Body(usage: none));
         Assert.IsTrue(clean.UsageReliable, "a reported zero is fine");
         Assert.IsFalse(clean.UsageAboveApprovedBounds);
+        // T70-07: the exact figure is kept for the owner to see, apart from settlement.
+        Assert.AreEqual(0L, clean.CacheWriteTokens);
+        Assert.IsFalse(clean.CacheWriteUnreadable);
+        Assert.IsNull(Read(Body()).CacheWriteTokens, "not reported");
+        Assert.AreEqual(512L, Read(Body(usage: Usage.Replace("{\"cached_tokens\":0}", "{\"cached_tokens\":0,\"cache_write_tokens\":512}", StringComparison.Ordinal))).CacheWriteTokens);
+        AdvisoryAiResponse text = Read(Body(usage: Usage.Replace("{\"cached_tokens\":0}", "{\"cached_tokens\":0,\"cache_write_tokens\":\"x\"}", StringComparison.Ordinal)));
+        Assert.IsNull(text.CacheWriteTokens);
+        Assert.IsTrue(text.CacheWriteUnreadable);
         foreach (string written in new[] { "{\"cached_tokens\":0,\"cache_write_tokens\":512}", "{\"cached_tokens\":0,\"cache_write_tokens\":\"x\"}" })
         {
             AdvisoryAiResponse response = Read(Body(usage: Usage.Replace("{\"cached_tokens\":0}", written, StringComparison.Ordinal)));

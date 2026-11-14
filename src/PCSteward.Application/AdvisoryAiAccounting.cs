@@ -105,7 +105,11 @@ public enum AdvisoryAiLedgerWrite
 }
 
 /// <summary>What a restart did to requests a previous process left unfinished.</summary>
-public sealed record AdvisoryAiRecovery(int ReleasedUnclaimed, int MarkedUncertain);
+public sealed record AdvisoryAiRecovery(int ReleasedUnclaimed, int MarkedUncertain)
+{
+    /// <summary>T70-05: old settled or released requests moved into monthly totals in the same transaction.</summary>
+    public int Compacted { get; init; }
+}
 
 /// <summary>ADR-029 Q7 and "Reset, restore and missing accounting continuity": the ledger-wide accounting state.</summary>
 public sealed record AdvisoryAiAccountingState(
@@ -143,6 +147,19 @@ public interface IAdvisoryAiLedger
 {
     /// <summary>Soft ceiling on detailed rows (ADR-029): reaching it blocks new requests instead of deleting any commitment.</summary>
     public const int MaximumDetailedRows = 10_000;
+
+    /// <summary>ADR-029 Q8 (owner choice): settled detail is kept for the current UTC month and this many before it, then compacted.</summary>
+    public const int DetailedPreviousMonths = 12;
+
+    /// <summary>ADR-029: the 16 MiB logical soft ceiling across the whole accounting record. Reaching it blocks new requests too.</summary>
+    public const long MaximumLogicalBytes = 16L * 1024 * 1024;
+
+    /// <summary>Upper bounds on one stored row's values (text at its longest plus 8 bytes per integer), rounded up: request, prices, compacted ID, month.</summary>
+    public const int RequestRowBytes = 1_024, TariffRowBytes = 512, CompactedRowBytes = 512, MonthlyTotalBytes = 64;
+
+    /// <summary>T70-05: the logical size of the accounting record, every row counted at its upper bound.</summary>
+    public static long LogicalBytes(long requests, long tariffs, long compacted, long months) =>
+        checked(requests * RequestRowBytes + tariffs * TariffRowBytes + compacted * CompactedRowBytes + months * MonthlyTotalBytes);
 
     /// <summary>
     /// Reserves inside one write transaction, after checking there that AI is connected and the stored settings, consent, key generation,
@@ -197,6 +214,12 @@ public interface IAdvisoryAiLedger
 
     /// <summary>The owner reviewed a recorded breach. The recorded amounts stay exactly as they are.</summary>
     Task<AdvisoryAiAccountingWrite> AcknowledgeReviewAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Task 70 T70-04: the clock jumped forward while PC Steward was running. Stores the review block, so paid requests stay paused, even
+    /// after a restart, until the owner reviews it. Nothing recorded changes.
+    /// </summary>
+    Task<AdvisoryAiAccountingWrite> FlagClockJumpAsync(CancellationToken cancellationToken);
 
     Task<AdvisoryAiSpendingSummary> GetSummaryAsync(AdvisoryAiPeriod period, CancellationToken cancellationToken);
 }

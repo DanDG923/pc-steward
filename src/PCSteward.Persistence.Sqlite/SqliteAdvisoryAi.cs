@@ -7,7 +7,7 @@ using PCSteward.Domain;
 namespace PCSteward.Persistence.Sqlite;
 
 /// <summary>
-/// FR-AI-01/03/05, FR-BUD-01/02/03 (Task 68, migration 14; ADR-015/027/028/029): AI settings, owner-confirmed tariffs, the request
+/// FR-AI-01/03/05, FR-BUD-01/02/03 (Task 68, migrations 14 and 15; ADR-015/027/028/029): AI settings, owner-confirmed tariffs, the request
 /// ledger and saved explanations. Every ledger change is one immediate (write-locked) transaction, so a reservation's commitment
 /// check and insert cannot interleave with another process. Ledger rows store only the ADR-029 minimal record: no prompt, evidence,
 /// body hash, key or identity. Explanations have no foreign key to the ledger, so clearing or expiring one never touches spending.
@@ -15,7 +15,7 @@ namespace PCSteward.Persistence.Sqlite;
 /// </summary>
 public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisoryAiLedger, IAdvisoryAiExplanationStore
 {
-    internal static readonly string[] AdvisoryAiTables = ["ai_explanations", "ai_requests", "ai_tariffs", "ai_accounting_state", "ai_settings"];
+    internal static readonly string[] AdvisoryAiTables = ["ai_explanations", "ai_compacted_requests", "ai_monthly_totals", "ai_requests", "ai_tariffs", "ai_accounting_state", "ai_settings"];
 
     private static async Task CreateAdvisoryAiSchemaAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken cancellationToken)
     {
@@ -98,8 +98,32 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             ("$in", defaults.MaximumInputTokens), ("$out", defaults.MaximumOutputTokens), ("$cap", defaults.RequestCap.Value), ("$month", defaults.MonthlyBudget.Value)).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Migration 15 (Task 70 T70-05, ADR-029 Q8): settled detail older than the current and previous 12 UTC months is compacted into
+    /// one total per month. Each compacted settled request keeps its app request ID, its provider response ID (so the same response
+    /// can never settle again) and its tariff reference (for a dispute). Unresolved requests are never compacted.
+    /// </summary>
+    private static async Task CreateAdvisoryAiCompactionSchemaAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken cancellationToken) =>
+        await ExecuteAsync(connection, """
+            CREATE TABLE ai_monthly_totals (
+                period INTEGER NOT NULL PRIMARY KEY CHECK(period BETWEEN 200001 AND 999912),
+                settled INTEGER NOT NULL CHECK(settled >= 0),
+                test_settled INTEGER NOT NULL CHECK(test_settled >= 0 AND test_settled <= settled),
+                settled_requests INTEGER NOT NULL CHECK(settled_requests >= 0),
+                released_requests INTEGER NOT NULL CHECK(released_requests >= 0)
+            );
+            CREATE TABLE ai_compacted_requests (
+                request_id TEXT NOT NULL PRIMARY KEY CHECK(length(request_id)=36),
+                period INTEGER NOT NULL REFERENCES ai_monthly_totals(period),
+                tariff_version INTEGER NOT NULL REFERENCES ai_tariffs(version),
+                provider_response_id TEXT UNIQUE CHECK(provider_response_id IS NULL OR length(provider_response_id) BETWEEN 1 AND 256)
+            );
+            INSERT INTO schema_migrations(version) VALUES (15);
+            """, cancellationToken, transaction).ConfigureAwait(false);
+
     private static async Task ValidateAdvisoryAiSchemaAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken cancellationToken) =>
-        await ExecuteAsync(connection, "SELECT connected FROM ai_settings LIMIT 0; SELECT continuity FROM ai_accounting_state LIMIT 0; SELECT version FROM ai_tariffs LIMIT 0; SELECT state, committed FROM ai_requests LIMIT 0; SELECT answer FROM ai_explanations LIMIT 0;",
+        await ExecuteAsync(connection, "SELECT connected FROM ai_settings LIMIT 0; SELECT continuity FROM ai_accounting_state LIMIT 0; SELECT version FROM ai_tariffs LIMIT 0; SELECT state, committed FROM ai_requests LIMIT 0; SELECT answer FROM ai_explanations LIMIT 0; " +
+            "SELECT settled, test_settled FROM ai_monthly_totals LIMIT 0; SELECT provider_response_id FROM ai_compacted_requests LIMIT 0;",
             cancellationToken, transaction).ConfigureAwait(false);
 
     // ---- Settings and tariffs -------------------------------------------------------------------------------------------------
@@ -170,6 +194,13 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             await AiExecuteAsync(connection, transaction, "INSERT INTO ai_tariffs VALUES ($version,$model,$tier,$in,$cached,$out,$confirmed);", cancellationToken,
                 ("$version", version), ("$model", stored.ModelId), ("$tier", stored.ServiceTier), ("$in", stored.InputPerMillion.Value),
                 ("$cached", stored.CachedInputPerMillion.Value), ("$out", stored.OutputPerMillion.Value), ("$confirmed", Utc(stored.ConfirmedAtUtc))).ConfigureAwait(false);
+            // T70-05: a confirmation replaces the older prices for the same model and tier. Older prices that no request (detailed or
+            // compacted) refers to are removed, so confirming every day can't grow the ledger. Prices a request used are kept for disputes.
+            await AiExecuteAsync(connection, transaction, """
+                DELETE FROM ai_tariffs WHERE version < $version AND model_id=$model AND service_tier=$tier
+                    AND NOT EXISTS (SELECT 1 FROM ai_requests r WHERE r.tariff_version=ai_tariffs.version)
+                    AND NOT EXISTS (SELECT 1 FROM ai_compacted_requests c WHERE c.tariff_version=ai_tariffs.version);
+                """, cancellationToken, ("$version", version), ("$model", stored.ModelId), ("$tier", stored.ServiceTier)).ConfigureAwait(false);
             return stored;
         }, null, cancellationToken).ConfigureAwait(false);
     }
@@ -210,7 +241,11 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             await using SqliteConnection connection = await OpenAiAsync(cancellationToken).ConfigureAwait(false);
             await using SqliteTransaction transaction = connection.BeginTransaction(deferred: false);
             AdvisoryAiLedgerSnapshot? snapshot = await SnapshotAsync(connection, transaction, request.Period, request.ReservedAtUtc, cancellationToken).ConfigureAwait(false);
-            if (snapshot is null) return new(AdvisoryAiReservationProblem.LedgerNeedsReview, null);
+            if (snapshot is null)
+            {
+                await FlagUnreadableLedgerAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+                return new(AdvisoryAiReservationProblem.LedgerNeedsReview, null);
+            }
             // ADR-029 concurrent edit and reserve: the stored settings and prices are read in this same write transaction, so a limit,
             // consent, key or price change committed after the caller read them is seen here and the stale approval cannot reserve.
             AdvisoryAiSettings? stored = await BindingHoldsAsync(connection, transaction, request.Binding, request.ReservedAtUtc, cancellationToken).ConfigureAwait(false);
@@ -243,14 +278,22 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
         if (state is null) return null;
         long settled = 0, outstanding = 0, testSettled = 0, testOutstanding = 0, rows = 0;
         bool inFlight = false;
-        await using (SqliteCommand command = AiCommand(connection, transaction, "SELECT period,state,committed,first_live_test FROM ai_requests;"))
+        await using (SqliteCommand command = AiCommand(connection, transaction, """
+            SELECT r.period,r.state,r.committed,r.first_live_test,r.reservation,r.above_reservation,
+                (r.input_tokens IS NOT NULL)+(r.cached_input_tokens IS NOT NULL)+(r.output_tokens IS NOT NULL)+(r.reasoning_tokens IS NOT NULL)+(r.total_tokens IS NOT NULL),
+                r.input_tokens,r.cached_input_tokens,r.output_tokens,r.reasoning_tokens,r.total_tokens,t.input_rate,t.cached_input_rate,t.output_rate
+            FROM ai_requests r LEFT JOIN ai_tariffs t ON t.version=r.tariff_version;
+            """))
         await using (SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 rows++;
                 if (!TryLong(reader, 0, out long key) || !AdvisoryAiPeriod.TryParseKey(key, out AdvisoryAiPeriod rowPeriod) || !TryName(reader.GetValue(1), out AdvisoryAiRequestState rowState) ||
-                    !TryLong(reader, 2, out long committed) || committed < 0 || !TryLong(reader, 3, out long test) || test is not (0 or 1))
+                    !TryLong(reader, 2, out long committed) || committed < 0 || !TryLong(reader, 3, out long test) || test is not (0 or 1) ||
+                    !TryLong(reader, 4, out long reservation) || reservation < 0 || !TryLong(reader, 5, out long above) || above is not (0 or 1) || !TryLong(reader, 6, out long counts) ||
+                    !RowIsConsistent(rowState, committed, reservation, above == 1, counts) ||
+                    rowState == AdvisoryAiRequestState.Settled && !SettledChargeMatchesUsage(reader, committed))
                     return null;
                 try
                 {
@@ -270,8 +313,141 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
                 inFlight |= AdvisoryAiRequestStates.IsInFlight(rowState);
             }
         }
-        return new(new(settled), new(outstanding), new(testSettled), new(testOutstanding), inFlight, state.ReviewBlock, rows >= IAdvisoryAiLedger.MaximumDetailedRows,
+        // T70-05: compacted months still count. Their settled totals stay in the month they belong to and in the cumulative test figure.
+        long months = 0;
+        await using (SqliteCommand command = AiCommand(connection, transaction, "SELECT period,settled,test_settled,settled_requests,released_requests FROM ai_monthly_totals;"))
+        await using (SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                months++;
+                if (!TryLong(reader, 0, out long key) || !AdvisoryAiPeriod.TryParseKey(key, out AdvisoryAiPeriod totalPeriod) || !TryLong(reader, 1, out long total) || total < 0 ||
+                    !TryLong(reader, 2, out long testTotal) || testTotal < 0 || testTotal > total || !TryLong(reader, 3, out long settledCount) || settledCount < 0 ||
+                    !TryLong(reader, 4, out long releasedCount) || releasedCount < 0)
+                    return null;
+                try
+                {
+                    checked
+                    {
+                        if (totalPeriod == period) settled += total;
+                        testSettled += testTotal;
+                    }
+                }
+                catch (OverflowException)
+                {
+                    return null;
+                }
+            }
+        }
+        if (await CountAsync(connection, transaction, "SELECT COUNT(*) FROM ai_tariffs;", cancellationToken).ConfigureAwait(false) is not long tariffs ||
+            await CountAsync(connection, transaction, "SELECT COUNT(*) FROM ai_compacted_requests;", cancellationToken).ConfigureAwait(false) is not long compacted)
+            return null;
+        long logical = IAdvisoryAiLedger.LogicalBytes(rows, tariffs, compacted, months);
+        bool full = rows >= IAdvisoryAiLedger.MaximumDetailedRows || logical + IAdvisoryAiLedger.RequestRowBytes > IAdvisoryAiLedger.MaximumLogicalBytes;
+        return new(new(settled), new(outstanding), new(testSettled), new(testOutstanding), inFlight, state.ReviewBlock, full,
             state.Continuity, AdvisoryAiClock.Evaluate(state.LastAcceptedUtc, nowUtc));
+    }
+
+    private static async Task<long?> CountAsync(SqliteConnection connection, SqliteTransaction transaction, string sql, CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = AiCommand(connection, transaction, sql);
+        object? value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        return value is long count && count >= 0 ? count : null;
+    }
+
+    /// <summary>
+    /// T70-05 (ADR-029 Q8): moves settled and released detail older than the current and previous 12 UTC months into monthly totals,
+    /// inside the caller's write transaction. It runs only on a ledger that adds up, isn't paused for review and whose clock was
+    /// accepted this month, and it proves afterwards that every total (this month's, the test envelope's, and all settled money ever)
+    /// is unchanged; otherwise it changes nothing. Unresolved requests stay in full until they are reconciled.
+    /// </summary>
+    private static async Task<int> CompactSettledDetailAsync(SqliteConnection connection, SqliteTransaction transaction, DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
+        AdvisoryAiPeriod period = AdvisoryAiPeriod.Of(nowUtc);
+        AdvisoryAiLedgerSnapshot? before = await SnapshotAsync(connection, transaction, period, nowUtc, cancellationToken).ConfigureAwait(false);
+        if (before is null || before.ReviewBlock || before.Clock != AdvisoryAiClockVerdict.Accepted) return 0;
+        int cutoff = AdvisoryAiPeriod.Of(period.StartUtc.AddMonths(-IAdvisoryAiLedger.DetailedPreviousMonths)).Key;
+        if (await CountAsync(connection, transaction, string.Create(CultureInfo.InvariantCulture, $"SELECT COUNT(*) FROM ai_requests WHERE period < {cutoff} AND state IN ('Settled','NotSent');"),
+            cancellationToken).ConfigureAwait(false) is not long eligible || eligible == 0)
+            return 0;
+        long? allBefore = await AllSettledAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        if (allBefore is null) return 0;
+
+        await AiExecuteAsync(connection, transaction, """
+            INSERT INTO ai_monthly_totals(period,settled,test_settled,settled_requests,released_requests)
+            SELECT period,
+                   SUM(CASE WHEN state='Settled' THEN committed ELSE 0 END),
+                   SUM(CASE WHEN state='Settled' AND first_live_test=1 THEN committed ELSE 0 END),
+                   SUM(CASE WHEN state='Settled' THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN state='NotSent' THEN 1 ELSE 0 END)
+            FROM ai_requests WHERE period < $cutoff AND state IN ('Settled','NotSent') GROUP BY period
+            ON CONFLICT(period) DO UPDATE SET settled=settled+excluded.settled, test_settled=test_settled+excluded.test_settled,
+                settled_requests=settled_requests+excluded.settled_requests, released_requests=released_requests+excluded.released_requests;
+            INSERT INTO ai_compacted_requests(request_id,period,tariff_version,provider_response_id)
+            SELECT request_id,period,tariff_version,provider_response_id FROM ai_requests WHERE period < $cutoff AND state='Settled';
+            DELETE FROM ai_requests WHERE period < $cutoff AND state IN ('Settled','NotSent');
+            """, cancellationToken, ("$cutoff", cutoff)).ConfigureAwait(false);
+
+        AdvisoryAiLedgerSnapshot? after = await SnapshotAsync(connection, transaction, period, nowUtc, cancellationToken).ConfigureAwait(false);
+        long? allAfter = await AllSettledAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        if (after is null || allAfter != allBefore || after.SettledInPeriod != before.SettledInPeriod || after.OutstandingInPeriod != before.OutstandingInPeriod ||
+            after.TestSettled != before.TestSettled || after.TestOutstanding != before.TestOutstanding || after.RequestInFlight != before.RequestInFlight)
+            throw new InvalidOperationException("Compaction would have changed a spending total.");
+        return (int)Math.Min(int.MaxValue, eligible);
+    }
+
+    /// <summary>All settled money ever recorded: detailed settled rows plus compacted monthly totals.</summary>
+    private static async Task<long?> AllSettledAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken cancellationToken) =>
+        await CountAsync(connection, transaction,
+            "SELECT (SELECT COALESCE(SUM(committed),0) FROM ai_requests WHERE state='Settled') + (SELECT COALESCE(SUM(settled),0) FROM ai_monthly_totals);", cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Task 70 T70-01: what each state may hold. A request that holds a reservation holds exactly it; a released one holds nothing; an
+    /// uncertain one never holds less than its reservation; anything above the reservation carries the breach flag; a settled one has
+    /// all five usage counts. A row that breaks this is never trusted for a smaller figure: the whole ledger stops for review.
+    /// </summary>
+    private static bool RowIsConsistent(AdvisoryAiRequestState state, long committed, long reservation, bool above, long usageCounts) => state switch
+    {
+        AdvisoryAiRequestState.Reserved or AdvisoryAiRequestState.DispatchClaimed => committed == reservation && !above && usageCounts == 0,
+        AdvisoryAiRequestState.NotSent => committed == 0 && !above && usageCounts == 0,
+        AdvisoryAiRequestState.Uncertain => committed >= reservation && (committed == reservation || above) && usageCounts is 0 or 5,
+        AdvisoryAiRequestState.Settled => (committed <= reservation || above) && usageCounts == 5,
+        _ => false
+    };
+
+    /// <summary>
+    /// T70-01: a settled charge is exactly the cost of its recorded usage at the request's own frozen prices, so a settled row can't be
+    /// lowered on its own either. Columns 7–11 are the usage and 12–14 the tariff's rates.
+    /// </summary>
+    private static bool SettledChargeMatchesUsage(SqliteDataReader reader, long committed)
+    {
+        long[] values = new long[8];
+        for (int index = 0; index < values.Length; index++)
+            if (!TryLong(reader, 7 + index, out values[index]) || values[index] < 0) return false;
+        if (values[1] > values[0] || values[3] > values[2] || values[4] != values[0] + values[2]) return false;
+        try
+        {
+            AdvisoryAiTariff rates = new(1, "ledger-check", "ledger-check", new(values[5]), new(values[6]), new(values[7]), DateTimeOffset.UnixEpoch);
+            return AdvisoryAiCost.Actual(new(values[0], values[1], values[2], values[3], values[4]), rates).Value == committed;
+        }
+        catch (Exception exception) when (exception is OverflowException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>A ledger that can't be read or doesn't add up stops paid requests until the owner reviews it, even if the row is later changed back.</summary>
+    private static async Task FlagUnreadableLedgerAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await SetReviewBlockAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (SqliteException)
+        {
+            // The ledger stays unreadable, so every later reservation is refused here again.
+        }
     }
 
     public Task<AdvisoryAiLedgerWrite> ClaimDispatchAsync(Guid requestId, AdvisoryAiApprovalBinding binding, DateTimeOffset nowUtc, CancellationToken cancellationToken)
@@ -392,8 +568,27 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             "UPDATE ai_requests SET state='NotSent',committed=0,reason='NotSent',finished_at=$now WHERE state='Reserved';", cancellationToken, ("$now", Utc(nowUtc))).ConfigureAwait(false);
         int uncertain = await AiExecuteAsync(connection, transaction,
             "UPDATE ai_requests SET state='Uncertain',reason='Interrupted',finished_at=$now WHERE state='DispatchClaimed';", cancellationToken, ("$now", Utc(nowUtc))).ConfigureAwait(false);
+        // Recovery never repairs a row that doesn't add up: it stops paid requests for review instead.
+        int compacted = 0;
+        if (await SnapshotAsync(connection, transaction, AdvisoryAiPeriod.Of(nowUtc), nowUtc, cancellationToken).ConfigureAwait(false) is null)
+            await SetReviewBlockAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        else
+        {
+            // The compaction is all or nothing inside this transaction: if any total would change it is undone and the ledger stops for review.
+            await transaction.SaveAsync("compaction", cancellationToken).ConfigureAwait(false);
+            try
+            {
+                compacted = await CompactSettledDetailAsync(connection, transaction, nowUtc, cancellationToken).ConfigureAwait(false);
+                await transaction.ReleaseAsync("compaction", cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or SqliteException)
+            {
+                await transaction.RollbackAsync("compaction", cancellationToken).ConfigureAwait(false);
+                await SetReviewBlockAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+            }
+        }
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return new(released, uncertain);
+        return new(released, uncertain) { Compacted = compacted };
     }
 
     public async Task<AdvisoryAiAccountingState> GetAccountingStateAsync(CancellationToken cancellationToken)
@@ -465,6 +660,13 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             return AdvisoryAiAccountingWrite.Done;
         }, AdvisoryAiAccountingWrite.StorageFailed, cancellationToken);
 
+    public Task<AdvisoryAiAccountingWrite> FlagClockJumpAsync(CancellationToken cancellationToken) =>
+        AiWriteAsync(async (connection, transaction) =>
+        {
+            int changed = await AiExecuteAsync(connection, transaction, "UPDATE ai_accounting_state SET review_block=1 WHERE id=1;", cancellationToken).ConfigureAwait(false);
+            return changed == 1 ? AdvisoryAiAccountingWrite.Done : AdvisoryAiAccountingWrite.NotApplicable;
+        }, AdvisoryAiAccountingWrite.StorageFailed, cancellationToken);
+
     public Task<AdvisoryAiAccountingWrite> AcknowledgeReviewAsync(CancellationToken cancellationToken) =>
         AiWriteAsync(async (connection, transaction) =>
         {
@@ -533,7 +735,7 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
 
     private static async Task<bool> ResponseIdUsedAsync(SqliteConnection connection, SqliteTransaction transaction, string responseId, CancellationToken cancellationToken)
     {
-        await using SqliteCommand command = AiCommand(connection, transaction, "SELECT COUNT(*) FROM ai_requests WHERE provider_response_id=$response;", ("$response", responseId));
+        await using SqliteCommand command = AiCommand(connection, transaction, "SELECT (SELECT COUNT(*) FROM ai_requests WHERE provider_response_id=$response) + (SELECT COUNT(*) FROM ai_compacted_requests WHERE provider_response_id=$response);", ("$response", responseId));
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture) > 0;
     }
 

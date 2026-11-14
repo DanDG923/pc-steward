@@ -63,6 +63,13 @@ public static class AdvisoryAiSetupText
 
     public const string PricesConfirmed = "Prices confirmed. They last 24 hours.";
 
+    /// <summary>Task 70 T70-03: the prices dialog's statement, which the owner ticks.</summary>
+    public const string EffectivePricesStatement = "These are the prices my key's project pays, including any data-residency, regional or other uplift.";
+
+    public const string EffectivePricesNote = "Projects that use data residency or another region can pay more than the standard list. PC Steward can't see your project's pricing, so type the prices it actually pays. If you aren't sure, use a key from a project without data residency.";
+
+    public const string EffectivePricesNeeded = "Tick that these are the prices your key's project pays, including any uplift, before confirming them.";
+
     public const string PricesNotSaved = "PC Steward couldn't record the prices. Nothing changed.";
 
     /// <summary>ADR-029: the first-connection question. The answer is labelled as the owner's own declaration.</summary>
@@ -77,7 +84,7 @@ public static class AdvisoryAiSetupText
     /// <summary>ADR-029 "External file restores": the limitation disclosed in AI set-up.</summary>
     public const string ExternalRestoreLimitation = "PC Steward can't tell when its files are put back from a backup, OneDrive or a system restore. After one, its spending record may be out of date.";
 
-    public const string ReviewBlockNotice = "A recorded charge was more than PC Steward reserved for it, or didn't add up, so paid requests are paused. The recorded amounts stay as they are.";
+    public const string ReviewBlockNotice = "A recorded charge was more than PC Steward reserved for it or didn't add up, or the clock jumped forward while PC Steward was running, so paid requests are paused. Check the time; the recorded amounts stay as they are.";
 
     public const string ReviewBlockAction = "I've reviewed this";
 
@@ -100,7 +107,7 @@ public static class AdvisoryAiSetupText
         return
         [
             $"Nothing is sent until you approve it. Each request shows exactly what goes to {provider.Name} at {provider.Endpoint.Host}, and you can edit or remove any of it first.",
-            $"Each request is charged to your own {provider.Name} account. PC Steward reserves the most a request could cost against your limits before sending it.",
+            $"Each request is charged to your own {provider.Name} account. PC Steward reserves the most a request could cost against your limits before sending it, at the prices you confirm for your key's project.",
             $"PC Steward asks {provider.Name} not to store the answer. That isn't a promise that {provider.Name} keeps nothing: it may keep data for abuse monitoring. Read {provider.Name}'s data controls at {provider.DataControlsPage}.",
             $"Your key is saved in Windows Credential Manager for your Windows account on this PC, as {provider.CredentialTarget}. It is never shown, and saving it makes no request and costs nothing.",
             "Uninstalling PC Steward doesn't remove the key. Disconnect, or use Factory reset, before removing the app. Removing the key here doesn't cancel it at " + provider.Name + ".",

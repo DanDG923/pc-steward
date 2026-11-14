@@ -186,6 +186,9 @@ public static class AdvisoryAiExplainText
 
     public const string ApproveLabel = "Approve and send";
 
+    /// <summary>Task 70 T70-06 (ADR-028 consent): shown beside the draft and the exact request.</summary>
+    public const string ResidualSecrets = "Removing names is best effort. PC Steward can't recognise every password, key or personal detail, in its records or in what you type. Check every item before you send it.";
+
     public const string AdviceOnly = "An AI explanation is advice only. PC Steward never acts on it, and it can be wrong.";
 
     public static string Blocked(AdvisoryAiExplainBlock block, AdvisoryAiDraftProblem draftProblem = AdvisoryAiDraftProblem.None, AdvisoryAiPreviewProblem previewProblem = AdvisoryAiPreviewProblem.None) => block switch
@@ -240,6 +243,23 @@ public static class AdvisoryAiExplainText
     {
         ArgumentNullException.ThrowIfNull(preview);
         return $"Sent once to {preview.Provider.Endpoint}, for {preview.Model.ModelId}. Your key goes in the {preview.Provider.AuthorizationName} header, which is shown here as {preview.Provider.AuthorizationPreview}.";
+    }
+
+    /// <summary>
+    /// Task 70 T70-07: the reported counts in words, shown with the outcome so the owner can note them. Null when nothing was received.
+    /// </summary>
+    public static string? UsageCounts(AdvisoryAiUsageReport? report, CultureInfo? culture = null)
+    {
+        if (report is null) return null;
+        CultureInfo format = culture ?? CultureInfo.CurrentCulture;
+        string usage = report.Usage is AdvisoryAiUsage counts
+            ? string.Format(format, "{0:N0} input tokens ({1:N0} cached), {2:N0} output tokens ({3:N0} reasoning), {4:N0} in total",
+                counts.InputTokens, counts.CachedInputTokens, counts.OutputTokens, counts.ReasoningTokens, counts.TotalTokens)
+            : "no complete usage";
+        string cache = report.CacheWriteUnreadable ? "a cache-write figure that isn't a plain count"
+            : report.CacheWriteTokens is long written ? string.Format(format, "{0:N0} cache-write tokens", written)
+            : "no cache-write figure";
+        return $"The provider reported {usage}, and {cache}." + (report.UsageReliable ? string.Empty : " PC Steward didn't trust this usage to settle the charge.");
     }
 
     /// <summary>FR-AI-05, FR-BUD-02/03: what happened, what it cost as far as PC Steward knows, and whether the answer was saved.</summary>

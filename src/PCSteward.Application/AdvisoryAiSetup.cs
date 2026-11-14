@@ -204,7 +204,12 @@ public sealed record AdvisoryAiPricesCheck(AdvisoryAiTariff? Tariff, string? Fie
 /// tokens. The form always starts empty: confirming prices means typing what the page says today, never re-accepting old values.
 /// A confirmation is valid for 24 hours and is a new immutable version.
 /// </summary>
-public sealed record AdvisoryAiPricesDraft(string InputPerMillion, string CachedInputPerMillion, string OutputPerMillion)
+/// <remarks>
+/// Task 70 T70-03: <see cref="EffectiveForThisKey"/> is the owner's statement that these are the prices the key's own project pays,
+/// including any data-residency, regional or other uplift. PC Steward can't see the project's pricing, so it never assumes the list
+/// price applies.
+/// </remarks>
+public sealed record AdvisoryAiPricesDraft(string InputPerMillion, string CachedInputPerMillion, string OutputPerMillion, bool EffectiveForThisKey = false)
 {
     public static AdvisoryAiPricesDraft Empty { get; } = new(string.Empty, string.Empty, string.Empty);
 
@@ -217,6 +222,7 @@ public sealed record AdvisoryAiPricesDraft(string InputPerMillion, string Cached
             return new(null, nameof(CachedInputPerMillion), "Enter the cached input price per million tokens in US dollars, for example 0.10. It can't be 0.");
         if (!AdvisoryAiLimitsDraft.TryDollars(OutputPerMillion, out MicroUsd output) || output.IsZero)
             return new(null, nameof(OutputPerMillion), "Enter the output price per million tokens in US dollars, for example 10.00. It can't be 0.");
+        if (!EffectiveForThisKey) return new(null, nameof(EffectiveForThisKey), AdvisoryAiSetupText.EffectivePricesNeeded);
         // The store assigns the real version; 1 stands in so the rule that needs a positive version can check the rest.
         AdvisoryAiTariff tariff = new(1, model.ModelId, model.ServiceTier, input, cached, output, nowUtc);
         return tariff.Validate(model) == AdvisoryAiTariffProblem.None

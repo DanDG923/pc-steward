@@ -121,6 +121,7 @@ public sealed partial class MainWindow
     {
         StackPanel body = new() { Spacing = StewardSpacing.Small };
         body.Children.Add(Wrapped(AdvisoryAiExplainText.DraftIntro));
+        body.Children.Add(StewardVisuals.InformationBanner("Check for secrets", AdvisoryAiExplainText.ResidualSecrets, "attention"));
         List<(TextBox Box, CheckBox LeaveOut)> fields = [];
         for (int index = 0; index < draft.Items.Count; index++)
         {
@@ -199,6 +200,7 @@ public sealed partial class MainWindow
         body.Children.Add(Wrapped(AdvisoryAiExplainText.Route(preview)));
         body.Children.Add(Wrapped(AdvisoryAiExplainText.Cost(review, preview.Provider)));
         body.Children.Add(StewardVisuals.InformationBanner("Advice only", AdvisoryAiExplainText.AdviceOnly, "neutral"));
+        body.Children.Add(StewardVisuals.InformationBanner("Check for secrets", AdvisoryAiExplainText.ResidualSecrets, "attention"));
         body.Children.Add(SectionHeading("Headers", AutomationHeadingLevel.Level3));
         foreach (KeyValuePair<string, string> header in preview.Headers) body.Children.Add(StewardVisuals.EvidenceRow(header.Key, header.Value));
         body.Children.Add(SectionHeading("Exactly what will be sent", AutomationHeadingLevel.Level3));
@@ -265,6 +267,7 @@ public sealed partial class MainWindow
     {
         StackPanel body = new() { Spacing = StewardSpacing.Small };
         body.Children.Add(Wrapped(AdvisoryAiExplainText.Outcome(outcome)));
+        if (AdvisoryAiExplainText.UsageCounts(outcome.UsageReport) is string counts) body.Children.Add(Wrapped(counts));
         if (outcome.AnswerText is string answer)
         {
             body.Children.Add(StewardVisuals.InformationBanner("Advice only", AdvisoryAiExplainText.AdviceOnly, "neutral"));
