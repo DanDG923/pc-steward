@@ -68,7 +68,8 @@ public sealed class AdvisoryAiFirstLiveTestBuildBoundaryTests
 
         // The PR check builds it and runs its AI suites, and uploads nothing.
         string ci = File.ReadAllText(Path.Combine(workflows, "ci.yml"));
-        string check = ci[ci.IndexOf("  ai-first-live-test-build-check:", StringComparison.Ordinal)..];
+        int checkStart = ci.IndexOf("  ai-first-live-test-build-check:", StringComparison.Ordinal);
+        string check = ci[checkStart..ci.IndexOf("  package-licence-map:", checkStart, StringComparison.Ordinal)];
         StringAssert.Contains(check, "run: pwsh -NoProfile -File ./scripts/New-AdvisoryAiFirstLiveTestBuild.ps1");
         Assert.IsFalse(check.Contains("upload-artifact", StringComparison.Ordinal), "the PR check uploads no test build");
 

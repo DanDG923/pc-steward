@@ -34,6 +34,25 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  ai-first-live-test-build-check:
+    # Task 71 (ADR-029): the one-request AI test build still compiles and its AI suites pass with the build property on, and the
+    # result carries the test-build mark and no elevated helper. Nothing is uploaded: the only test build anyone uses comes from
+    # the on-demand "AI first live test build" workflow on phase/4-beta. No key, provider request, signing or install.
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - run: pwsh -NoProfile -File ./scripts/New-AdvisoryAiFirstLiveTestBuild.ps1
+
   package-licence-map:
     # Task 53A (NFR-MNT-01/05): publish the desktop payload and check that the licence/NOTICE map in
     # New-PrivateBetaPackage.ps1 reconciles exactly to the packages in its dependency manifest, using each restored package's
@@ -297,22 +316,3 @@ jobs:
           path: artifacts/signing-diagnostic/*.json
           if-no-files-found: ignore
           retention-days: 14
-
-  ai-first-live-test-build-check:
-    # Task 71 (ADR-029): the one-request AI test build still compiles and its AI suites pass with the build property on, and the
-    # result carries the test-build mark and no elevated helper. Nothing is uploaded: the only test build anyone uses comes from
-    # the on-demand "AI first live test build" workflow on phase/4-beta. No key, provider request, signing or install.
-    runs-on: windows-latest
-    timeout-minutes: 45
-    permissions:
-      contents: read
-    env:
-      NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
-        with:
-          global-json-file: global.json
-      - run: pwsh -NoProfile -File ./scripts/New-AdvisoryAiFirstLiveTestBuild.ps1
