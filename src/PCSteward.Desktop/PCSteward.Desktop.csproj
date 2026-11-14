@@ -36,6 +36,8 @@
     <ProjectReference Include="../PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../PCSteward.Diagnostics/PCSteward.Diagnostics.csproj" />
     <ProjectReference Include="../PCSteward.Diagnostics.Windows/PCSteward.Diagnostics.Windows.csproj" />
+    <!-- ADR-028 (Task 67 stage 4b): the advisory AI adapters. Only the desktop app composes them (AdvisoryAiAdapterBoundaryTests). -->
+    <ProjectReference Include="../PCSteward.AdvisoryAi.Windows/PCSteward.AdvisoryAi.Windows.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\..\design\assets\ico\pc-steward.ico" Link="Assets\pc-steward.ico" CopyToOutputDirectory="PreserveNewest" />

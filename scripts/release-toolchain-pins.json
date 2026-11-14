@@ -37,6 +37,54 @@
       "sha512": "obn/HAYT8K4e5aBYP25r2hlbFTdS58QMsUcwFEnxDIwmRJSeFao0aFGdmVbtrU1QIzSshSBXmqB+4625w7c28A=="
     },
     {
+      "id": "Microsoft.Extensions.Configuration.Abstractions",
+      "version": "10.0.10",
+      "kind": "library",
+      "sha512": "e/TNbyXX4DDjZsyctZO3mokPNH31mAYsDSAwzbYtI/Rl9pzN/H6D0+cJ/L4S7cS9SvaCKcLYiSFqqE69Q6axYg=="
+    },
+    {
+      "id": "Microsoft.Extensions.DependencyInjection.Abstractions",
+      "version": "10.0.10",
+      "kind": "library",
+      "sha512": "xArycDUtAEn73bZAPrC1IG8LYxh2AUboCTqZcrKrll16UhOijkc3QnEuVPersojqt6RmWbQcdCbUVOzuSpMerA=="
+    },
+    {
+      "id": "Microsoft.Extensions.Diagnostics.Abstractions",
+      "version": "10.0.10",
+      "kind": "library",
+      "sha512": "sWPhHd1eEM601Akc++NaJKYcpwop1I2Yjpykj16aeZtA4cd1JwH39406WGsXh1B1gTV+SigTqPVhvpy4Cju0rw=="
+    },
+    {
+      "id": "Microsoft.Extensions.FileProviders.Abstractions",
+      "version": "10.0.10",
+      "kind": "library",
+      "sha512": "bzg2PR7uwwNMG8/5BYspXxnE8m6c7arsZxrz+iLSEuZx24yrBojdsBYJyFCgbQwsWxAxdvhi9/fcq6FkgdUcUQ=="
+    },
+    {
+      "id": "Microsoft.Extensions.Hosting.Abstractions",
+      "version": "10.0.10",
+      "kind": "library",
+      "sha512": "Aps7givpQKaZSzpzMwRuZMdeRxx/MiXGkMDLPOxsGdIFlKrate/ChgLC+jfuO810XtJmMrf3pFgM0ClNO5ZtyQ=="
+    },
+    {
+      "id": "Microsoft.Extensions.Logging.Abstractions",
+      "version": "10.0.10",
+      "kind": "library",
+      "sha512": "b8xabNM7zKc7R8B3G9GtnMBE6sU9OvQ8AXzGhJMvHxB5gcegMSkiwU5uKqm43x06cGVd0Kzc+bl9POl1/CHViA=="
+    },
+    {
+      "id": "Microsoft.Extensions.Options",
+      "version": "10.0.10",
+      "kind": "library",
+      "sha512": "U4Mion/ZuwBMTD/CH8WE7Ajt6IdAtU3JXLwkG1UzOWM1lNFnoO8NAuQtZILNpkKyGEFP9t7FvQakgHnMCUjZKQ=="
+    },
+    {
+      "id": "Microsoft.Extensions.Primitives",
+      "version": "10.0.10",
+      "kind": "library",
+      "sha512": "s/d40kr99HEb66EN5nP56zq67BCLhoYv3x3mT1VLVDpQP7O7sKvDjgr4uADvOdNmD8ZglDI1xzR4b66xHU+tZA=="
+    },
+    {
       "id": "Microsoft.NET.ILLink.Tasks",
       "version": "10.0.14",
       "kind": "library",
@@ -163,6 +211,12 @@
       "sha512": "X6vX5pyWZcF0UB+ruthgGYIbXs0ddv1Zd/Z12DECWJNkCcl30F0dNg0TL8ef5Ly2rmouOZBnq5T/Q59MwJnPSA=="
     },
     {
+      "id": "OpenAI",
+      "version": "2.15.0",
+      "kind": "library",
+      "sha512": "8nQ3Udpc4otlSdUBLq1THHaGkJ+/TuKp8VLcUSf7TPvAbMypytieAx/ndgYOSApZS1eaF6/Nw0DomnJNnoEK8A=="
+    },
+    {
       "id": "runtime.win-x64.Microsoft.DotNet.ILCompiler",
       "version": "10.0.14",
       "kind": "library",
@@ -191,6 +245,18 @@
       "version": "2.1.13",
       "kind": "library",
       "sha512": "w9dMB40gReMLzOxfCDuvjUhUTuSI9443Q2Hxrp8SW/vIGh6qP8TjkOTZ9p59mH50NpzQM7F3hhp8MAB2py9Now=="
+    },
+    {
+      "id": "System.ClientModel",
+      "version": "1.16.0",
+      "kind": "library",
+      "sha512": "vJQ7Qu9tcfZAVmVFuKZE7ZwrZ5xql8FuX37blNBY18N4jd2r9udrgN/IF929gT1ehZZZ4OmYMCY4CkkcJMJ1LQ=="
+    },
+    {
+      "id": "System.Memory.Data",
+      "version": "10.0.10",
+      "kind": "library",
+      "sha512": "5y3Zy/IbVV7L/kwudNrD5oMUCoXn2Zc3tZhrnjU8b251yunvbgU6JX4TFVjmoExwFTZDBLtkh/tV+a3SHq4uvA=="
     },
     {
       "id": "System.Numerics.Tensors",

@@ -91,6 +91,12 @@ public static class DataResetPresenter
     /// <summary>The exact, case-sensitive text the final factory-reset confirmation requires.</summary>
     public const string FactoryResetConfirmationPhrase = "RESET";
 
+    /// <summary>ADR-028 "Factory reset" (Task 67 stage 4b): reset also removes AI explanations, the AI spending record and the AI key.</summary>
+    public const string FactoryResetAiDeletes = "Also saved AI explanations, the AI spending record and PC Steward's AI key in Windows Credential Manager, which is checked to be gone.";
+
+    /// <summary>ADR-029 (owner choice after F3): disclosed before reset is confirmed.</summary>
+    public const string FactoryResetAiAfterwards = "Deleting the AI spending record doesn't cancel any charge at the AI provider, and afterwards PC Steward can't know what was spent before. The key itself stays valid at the provider until you revoke it there.";
+
     /// <summary>Shown where PC Steward records no size for a category, rather than inventing one.</summary>
     public const string NotMeasured = "Not measured separately";
 
@@ -165,9 +171,9 @@ public static class DataResetPresenter
             FactoryResetLabel,
             FactoryResetLabel,
             "Factory reset PC Steward: delete all local PC Steward data and settings",
-            "All PC Steward scan data, source metadata, logs, update history, downloaded files, settings, source consent, decisions and the current-user scheduled check.",
+            "All PC Steward scan data, source metadata, logs, update history, downloaded files, settings, source consent, decisions and the current-user scheduled check. " + FactoryResetAiDeletes,
             "PC Steward itself, installed apps, provider caches and your exports.",
-            $"You confirm twice, the second time by typing {FactoryResetConfirmationPhrase}. PC Steward then closes, finishes the cleanup the next time it starts and checks it before first-run setup.",
+            $"You confirm twice, the second time by typing {FactoryResetConfirmationPhrase}. PC Steward then closes, finishes the cleanup the next time it starts and checks it before first-run setup. " + FactoryResetAiAfterwards,
             FactoryResetConfirmationPhrase,
             !busy,
             busyReason);
