@@ -151,6 +151,19 @@ public sealed class AdvisoryAiResponseTests
             Assert.IsFalse(response.UsageReliable);
             Assert.IsTrue(response.UsageAboveApprovedBounds, "paid requests stop for review");
         }
+        // A write is found even when the other details are missing or repeated.
+        string write = Usage.Replace("{\"cached_tokens\":0}", "{\"cached_tokens\":0,\"cache_write_tokens\":512}", StringComparison.Ordinal);
+        foreach (string incomplete in new[]
+        {
+            write.Replace("{\"reasoning_tokens\":120}", "{}", StringComparison.Ordinal),
+            write.Replace("\"cached_tokens\":0,", string.Empty, StringComparison.Ordinal),
+            write.Replace("\"cache_write_tokens\":512", "\"cache_write_tokens\":0,\"cache_write_tokens\":512", StringComparison.Ordinal)
+        })
+        {
+            AdvisoryAiResponse response = Read(Body(usage: incomplete));
+            Assert.IsFalse(response.UsageReliable);
+            Assert.IsTrue(response.UsageAboveApprovedBounds, incomplete);
+        }
     }
 
     [TestMethod]

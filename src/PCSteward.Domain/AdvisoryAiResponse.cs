@@ -215,15 +215,17 @@ public static class AdvisoryAiResponseReader
         if (!root.TryGetProperty("usage", out JsonElement usage) || usage.ValueKind != JsonValueKind.Object || HasDuplicate(usage)) return (null, false, false);
         bool complete = TryCount(usage, "input_tokens", out long input) & TryCount(usage, "output_tokens", out long output) & TryCount(usage, "total_tokens", out long total);
         long cached = 0, reasoning = 0;
-        bool details = usage.TryGetProperty("input_tokens_details", out JsonElement inputDetails) && inputDetails.ValueKind == JsonValueKind.Object &&
-            !HasDuplicate(inputDetails) && TryCount(inputDetails, "cached_tokens", out cached);
+        bool inputObject = usage.TryGetProperty("input_tokens_details", out JsonElement inputDetails) && inputDetails.ValueKind == JsonValueKind.Object;
+        bool details = inputObject && !HasDuplicate(inputDetails) && TryCount(inputDetails, "cached_tokens", out cached);
         details &= usage.TryGetProperty("output_tokens_details", out JsonElement outputDetails) && outputDetails.ValueKind == JsonValueKind.Object &&
             !HasDuplicate(outputDetails) && TryCount(outputDetails, "reasoning_tokens", out reasoning);
-        // Task 69: cache_write_tokens is optional; when present it must be a count, and any write makes the usage untrusted.
+        // Task 69: cache_write_tokens is optional; when present it must be a count, and any write makes the usage untrusted. It is
+        // checked on its own, whatever else is missing, so a write is never hidden by incomplete details.
         bool written = false;
-        if (details && inputDetails.TryGetProperty("cache_write_tokens", out _))
+        if (inputObject && inputDetails.TryGetProperty("cache_write_tokens", out _))
         {
-            bool counted = TryCount(inputDetails, "cache_write_tokens", out long writeCount);
+            long writeCount = 0;
+            bool counted = !HasDuplicate(inputDetails) && TryCount(inputDetails, "cache_write_tokens", out writeCount);
             details &= counted;
             written = !counted || writeCount > 0;
         }
