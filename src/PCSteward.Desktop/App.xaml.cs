@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using PCSteward.AdvisoryAi.Windows;
 using PCSteward.Application;
 using PCSteward.Diagnostics;
 using PCSteward.Execution;
@@ -61,7 +62,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         FactoryResetMarkerState markerState = FactoryReset.GetMarkerState(stateDirectory);
         if (markerState is FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.Partial or FactoryResetMarkerState.TransitionPending)
         {
-            FactoryResetResult reset = FactoryReset.CompletePendingAsync(scheduleRegistrar.EnsureAbsentAsync, CancellationToken.None, stateDirectory).GetAwaiter().GetResult();
+            FactoryResetResult reset = FactoryReset.CompletePendingAsync(scheduleRegistrar.EnsureAbsentAsync, RemoveAdvisoryAiKeysAsync, CancellationToken.None, stateDirectory).GetAwaiter().GetResult();
             if (!reset.Succeeded)
             {
                 ActivateWindow(new ResetRecoveryWindow(reset));
@@ -77,7 +78,8 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         }
         if (showPostResetOnboarding)
         {
-            FactoryResetResult onboardingAuthority = FactoryReset.VerifyOnboardingBootstrap(stateDirectory);
+            // ADR-028: a reset that finished on an earlier start (or before the AI key step existed) still rechecks the AI key.
+            FactoryResetResult onboardingAuthority = FactoryReset.VerifyOnboardingBootstrap(RemoveAdvisoryAiKeysAsync, stateDirectory);
             if (!onboardingAuthority.Succeeded)
             {
                 ActivateWindow(new ResetRecoveryWindow(onboardingAuthority));
@@ -189,6 +191,23 @@ public partial class App : global::Microsoft.UI.Xaml.Application
             DataOperationLease.RunReadAsync(token => history.GetUpdateHistoryBetweenAsync(fromUtc, toUtc, maximumEntries, token), cancellationToken);
     }
 
+    /// <summary>
+    /// ADR-028 "Factory reset" and ADR-029 (Task 67 stage 4b): the reset's one AI step. For every registered provider it runs the
+    /// same compiled removal of that provider's one exact Credential Manager entry, with absence verified by a fresh read, and
+    /// returns true only when every entry is verifiably gone. It reads nothing else, needs no database and makes no network call.
+    /// It runs only while a reset is pending or its first-run setup is open (start-up verification and Continue), never at ordinary
+    /// start-up.
+    /// </summary>
+    private static async Task<bool> RemoveAdvisoryAiKeysAsync(CancellationToken cancellationToken)
+    {
+        foreach (PCSteward.Domain.AdvisoryAiProvider provider in PCSteward.Domain.AdvisoryAiProviders.All)
+        {
+            AdvisoryAiCredentialRemoval removal = await new WindowsCredentialManagerStore(provider).RemoveAndVerifyAsync(cancellationToken).ConfigureAwait(false);
+            if (removal is not (AdvisoryAiCredentialRemoval.Removed or AdvisoryAiCredentialRemoval.AlreadyAbsent)) return false;
+        }
+        return true;
+    }
+
     /// <summary>Stage C4: the current Windows account's SID, frozen into a per-user reviewed operation (data only).</summary>
     private static string? CurrentUserSid()
     {
@@ -199,7 +218,7 @@ public partial class App : global::Microsoft.UI.Xaml.Application
     private static FactoryResetResult AcknowledgeOnboarding(string stateDirectory, SqliteDatabase database)
     {
         // Codex security scan finding 3: Continue re-checks that the store at the path is still the fresh one.
-        try { return DataOperationLease.RunResetControlSynchronous(() => FactoryReset.AcknowledgeOnboarding(stateDirectory, () => database.IsFreshResetStoreAsync(CancellationToken.None).GetAwaiter().GetResult())); }
+        try { return DataOperationLease.RunResetControlSynchronous(() => FactoryReset.AcknowledgeOnboarding(stateDirectory, () => database.IsFreshResetStoreAsync(CancellationToken.None).GetAwaiter().GetResult(), RemoveAdvisoryAiKeysAsync)); }
         catch (InvalidOperationException)
         {
             return new(false, [new FactoryResetResidual("Data operation", "ActiveOperation", "Another PC Steward operation still owns the data-operation gate.")]);

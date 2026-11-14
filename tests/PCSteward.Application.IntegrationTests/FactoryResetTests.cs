@@ -360,6 +360,135 @@ public sealed class FactoryResetTests
     }
 
     [TestMethod]
+    public async Task AiKeyRemovalRunsBeforeTheDatabaseIsDeletedAndAnUnverifiedRemovalKeepsTheMarker()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-ai-key-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            await File.WriteAllTextAsync(Path.Combine(root, "pcsteward.db"), "database");
+            FactoryReset.ArmForTesting(root);
+            bool databaseExistedDuringRemoval = false;
+
+            FactoryResetResult partial = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, _ =>
+            {
+                databaseExistedDuringRemoval = File.Exists(Path.Combine(root, "pcsteward.db"));
+                return Task.FromResult(false);
+            }, CancellationToken.None);
+
+            Assert.IsTrue(databaseExistedDuringRemoval, "The AI key must be removed before the database goes, and without needing it.");
+            Assert.IsFalse(partial.Succeeded);
+            Assert.IsTrue(partial.Residuals.Any(item => item.Category == "AI key" && item.Reason == "CredentialRemovalIncomplete"));
+            Assert.IsTrue(FactoryReset.IsPending(root));
+            using (JsonDocument partialMarker = JsonDocument.Parse(await File.ReadAllTextAsync(FactoryReset.GetMarkerPath(root))))
+            {
+                Assert.AreEqual("Partial", partialMarker.RootElement.GetProperty("state").GetString());
+                Assert.AreEqual("Residual", partialMarker.RootElement.GetProperty("categories").GetProperty("AiCredential").GetString());
+            }
+
+            FactoryResetResult thrown = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask,
+                _ => Task.FromException<bool>(new InvalidOperationException("vault unavailable")), CancellationToken.None);
+            Assert.IsFalse(thrown.Succeeded);
+            Assert.IsTrue(thrown.Residuals.Any(item => item.Category == "AI key" && item.Reason == "CredentialRemovalFailed" && item.Detail == nameof(InvalidOperationException)));
+
+            FactoryResetResult retry = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, _ => Task.FromResult(true), CancellationToken.None);
+            Assert.IsTrue(retry.Succeeded, string.Join("; ", retry.Residuals.Select(item => item.Reason)));
+            using JsonDocument completedMarker = JsonDocument.Parse(await File.ReadAllTextAsync(FactoryReset.GetMarkerPath(root)));
+            Assert.AreEqual("OnboardingPending", completedMarker.RootElement.GetProperty("state").GetString());
+            Assert.AreEqual("VerifiedAbsent", completedMarker.RootElement.GetProperty("categories").GetProperty("AiCredential").GetString());
+
+            // A completed marker never skips the recheck: a key that reappeared before onboarding blocks it.
+            FactoryResetResult reappeared = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, _ => Task.FromResult(false), CancellationToken.None);
+            Assert.IsFalse(reappeared.Succeeded);
+            Assert.IsTrue(reappeared.Residuals.Any(item => item.Category == "AI key"));
+            Assert.AreEqual(FactoryResetMarkerState.OnboardingPending, FactoryReset.GetMarkerState(root));
+            Assert.IsTrue((await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, _ => Task.FromResult(true), CancellationToken.None)).Succeeded);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [TestMethod]
+    public async Task FirstRunSetupAfterAFinishedResetRechecksTheAiKeyAtStartAndAtContinue()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-ai-onboarding-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            FactoryReset.ArmForTesting(root);
+            Assert.IsTrue((await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, _ => Task.FromResult(true), CancellationToken.None)).Succeeded);
+            SqliteDatabase database = new(Path.Combine(root, "pcsteward.db"));
+            await database.MigrateAsync(CancellationToken.None);
+            int checks = 0;
+
+            // A later start: the reset finished before, but a key that can't be verified gone blocks first-run setup.
+            FactoryResetResult blocked = FactoryReset.VerifyOnboardingBootstrapForTesting(root, _ => { checks++; return Task.FromResult(false); });
+            Assert.IsFalse(blocked.Succeeded);
+            Assert.IsTrue(blocked.Residuals.Any(item => item.Category == "AI key" && item.Reason == "CredentialRemovalIncomplete"));
+            FactoryResetResult thrown = FactoryReset.VerifyOnboardingBootstrapForTesting(root, _ => Task.FromException<bool>(new InvalidOperationException("vault unavailable")));
+            Assert.IsTrue(thrown.Residuals.Any(item => item.Category == "AI key" && item.Reason == "CredentialRemovalFailed"));
+            Assert.IsTrue(FactoryReset.VerifyOnboardingBootstrapForTesting(root, _ => { checks++; return Task.FromResult(true); }).Succeeded);
+
+            // Continue: the marker stays until the key is verified gone, and goes once it is.
+            FactoryResetResult refused = FactoryReset.AcknowledgeOnboardingForTesting(root, () => database.IsFreshResetStoreAsync(CancellationToken.None).GetAwaiter().GetResult(), _ => { checks++; return Task.FromResult(false); });
+            Assert.IsFalse(refused.Succeeded);
+            Assert.IsTrue(refused.Residuals.Any(item => item.Category == "AI key"));
+            Assert.IsTrue(FactoryReset.IsPending(root));
+            FactoryResetResult acknowledged = FactoryReset.AcknowledgeOnboardingForTesting(root, () => database.IsFreshResetStoreAsync(CancellationToken.None).GetAwaiter().GetResult(), _ => { checks++; return Task.FromResult(true); });
+            Assert.IsTrue(acknowledged.Succeeded, string.Join("; ", acknowledged.Residuals.Select(item => item.Reason)));
+            Assert.IsFalse(FactoryReset.IsPending(root));
+            Assert.AreEqual(4, checks);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task AMarkerFromBeforeTheAiKeyCategoryStillCompletesAndRecordsTheKeyCheck()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-ai-upgrade-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "reset"));
+            await File.WriteAllTextAsync(Path.Combine(root, "reset", FactoryReset.MarkerFileName), CreateMarkerPayload("ResetPending"));
+            await File.WriteAllTextAsync(Path.Combine(root, "pcsteward.db"), "database");
+            int removals = 0;
+
+            FactoryResetResult result = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, _ => { removals++; return Task.FromResult(true); }, CancellationToken.None);
+
+            Assert.IsTrue(result.Succeeded, string.Join("; ", result.Residuals.Select(item => item.Reason + ":" + item.Detail)));
+            Assert.AreEqual(1, removals);
+            Assert.IsFalse(File.Exists(Path.Combine(root, "pcsteward.db")));
+            using JsonDocument marker = JsonDocument.Parse(await File.ReadAllTextAsync(FactoryReset.GetMarkerPath(root)));
+            Assert.AreEqual("VerifiedAbsent", marker.RootElement.GetProperty("categories").GetProperty("AiCredential").GetString());
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
+    }
+
+    [TestMethod]
+    public async Task AMarkerMissingAnyOtherCategoryStillFailsClosed()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-ai-missing-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "reset"));
+            string payload = CreateMarkerPayload("ResetPending").Replace(",\"OwnedRoot\":\"Pending\"", "", StringComparison.Ordinal);
+            Assert.IsFalse(payload.Contains("OwnedRoot", StringComparison.Ordinal));
+            await File.WriteAllTextAsync(Path.Combine(root, "reset", FactoryReset.MarkerFileName), payload);
+            await File.WriteAllTextAsync(Path.Combine(root, "pcsteward.db"), "preserved");
+
+            FactoryResetResult result = await FactoryReset.CompletePendingForTestingAsync(root, _ => Task.CompletedTask, _ => Task.FromResult(true), CancellationToken.None);
+
+            Assert.IsFalse(result.Succeeded);
+            Assert.IsTrue(result.Residuals.Any(item => item.Reason == "InvalidMarker"));
+            Assert.IsTrue(File.Exists(Path.Combine(root, "pcsteward.db")));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
+    }
+
+    [TestMethod]
     public async Task ProgressWriteFailureKeepsTheMarkerAndBlocksOnboardingUntilRetry()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcsteward-reset-progress-write-failure-" + Guid.NewGuid().ToString("N"));

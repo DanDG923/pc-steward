@@ -51,15 +51,27 @@ public static class FactoryReset
     }
 
     /// <summary>Runs only when a reset sentinel already exists. Residuals keep the sentinel in place.</summary>
-    public static async Task<FactoryResetResult> CompletePendingAsync(Func<CancellationToken, Task>? removeScheduledTask, CancellationToken cancellationToken, string? stateRoot = null)
+    public static Task<FactoryResetResult> CompletePendingAsync(Func<CancellationToken, Task>? removeScheduledTask, CancellationToken cancellationToken, string? stateRoot = null) =>
+        CompletePendingAsync(removeScheduledTask, null, cancellationToken, stateRoot);
+
+    /// <summary>
+    /// Runs only when a reset sentinel already exists. Residuals keep the sentinel in place. ADR-028/029 (Task 67 stage 4b):
+    /// <paramref name="removeAiCredentials"/> removes PC Steward's exact AI key entries and returns true only when a fresh read
+    /// verified they are gone; anything else (false or an exception) is a residual, so reset never completes with a key left behind.
+    /// It runs before the database is deleted and does not depend on it. Null (a caller that composes no AI key store) leaves the
+    /// category unchecked rather than claiming it.
+    /// </summary>
+    public static async Task<FactoryResetResult> CompletePendingAsync(Func<CancellationToken, Task>? removeScheduledTask, Func<CancellationToken, Task<bool>>? removeAiCredentials,
+        CancellationToken cancellationToken, string? stateRoot = null)
     {
         string root;
         try { root = ValidateRoot(stateRoot ?? GetStateRoot()); }
         catch (Exception exception) { return new(false, [new FactoryResetResidual("State root", "UnsafePath", exception.Message)]); }
-        return await CompletePendingCoreAsync(root, removeScheduledTask, cancellationToken).ConfigureAwait(false);
+        return await CompletePendingCoreAsync(root, removeScheduledTask, removeAiCredentials, cancellationToken).ConfigureAwait(false);
     }
 
-    private static Task<FactoryResetResult> CompletePendingCoreAsync(string root, Func<CancellationToken, Task>? removeScheduledTask, CancellationToken cancellationToken)
+    private static Task<FactoryResetResult> CompletePendingCoreAsync(string root, Func<CancellationToken, Task>? removeScheduledTask, Func<CancellationToken, Task<bool>>? removeAiCredentials,
+        CancellationToken cancellationToken)
     {
         if (!IsPending(root)) return Task.FromResult(new FactoryResetResult(true, []));
 
@@ -75,6 +87,8 @@ public static class FactoryReset
                 // exactly the reset control directory.  This keeps a recoverable transition or
                 // hostile same-user marker write from bypassing the manifest verification.
                 NativeResetControl.VerifyOnlyExpectedRootChild(root, residuals);
+                // ADR-028: every recovery path rechecks the AI key's absence; a completed marker never skips it.
+                RemoveAiCredentials(removeAiCredentials, residuals, cancellationToken);
                 return Task.FromResult(new FactoryResetResult(residuals.Count == 0, residuals));
             }
             if (markerState is not (FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.Partial or FactoryResetMarkerState.TransitionPending)) return Task.FromResult(new FactoryResetResult(false, residuals));
@@ -84,6 +98,7 @@ public static class FactoryReset
                 if (transitionCompleted)
                 {
                     NativeResetControl.VerifyOnlyExpectedRootChild(root, residuals);
+                    RemoveAiCredentials(removeAiCredentials, residuals, cancellationToken);
                     return Task.FromResult(new FactoryResetResult(residuals.Count == 0, residuals));
                 }
             }
@@ -117,6 +132,12 @@ public static class FactoryReset
             }
             marker = RecordCategory(root, marker, FactoryResetCategory.ScheduledCheck, categoryStart, residuals);
             categoryStart = residuals.Count;
+            if (removeAiCredentials is not null)
+            {
+                RemoveAiCredentials(removeAiCredentials, residuals, cancellationToken);
+                marker = RecordCategory(root, marker, FactoryResetCategory.AiCredential, categoryStart, residuals);
+            }
+            categoryStart = residuals.Count;
             DeleteTree(root, "downloads", residuals);
             VerifyAbsent(root, "downloads", residuals);
             marker = RecordCategory(root, marker, FactoryResetCategory.Downloads, categoryStart, residuals);
@@ -141,15 +162,34 @@ public static class FactoryReset
         finally { mutex.ReleaseMutex(); }
     }
 
+    // Removes and verifies PC Steward's exact AI key entries. Same thread-affine rule as the schedule removal: the bootstrap
+    // thread keeps the mutex while this runs. Only a verified absence (true) adds no residual.
+    private static void RemoveAiCredentials(Func<CancellationToken, Task<bool>>? removeAiCredentials, List<FactoryResetResidual> residuals, CancellationToken cancellationToken)
+    {
+        if (removeAiCredentials is null) return;
+        try
+        {
+            if (!removeAiCredentials(cancellationToken).GetAwaiter().GetResult())
+                residuals.Add(new("AI key", "CredentialRemovalIncomplete", "PC Steward couldn't confirm its AI key entry is gone from Credential Manager."));
+        }
+        catch (Exception exception) { residuals.Add(new("AI key", "CredentialRemovalFailed", exception.GetType().Name)); }
+    }
+
     public static Task<FactoryResetResult> CompletePendingAsync(CancellationToken cancellationToken, string? stateRoot = null) => CompletePendingAsync(null, cancellationToken, stateRoot);
 
     /// <summary>Validates the exact durable onboarding authority before a fresh store is created.</summary>
-    public static FactoryResetResult VerifyOnboardingBootstrap(string? stateRoot = null)
+    public static FactoryResetResult VerifyOnboardingBootstrap(string? stateRoot = null) => VerifyOnboardingBootstrap(null, stateRoot);
+
+    /// <summary>
+    /// As <see cref="VerifyOnboardingBootstrap(string?)"/>, and ADR-028 (Task 67 stage 4b): a reset that finished before this start
+    /// still rechecks the AI key, so first-run setup never opens while <paramref name="removeAiCredentials"/> can't verify it is gone.
+    /// </summary>
+    public static FactoryResetResult VerifyOnboardingBootstrap(Func<CancellationToken, Task<bool>>? removeAiCredentials, string? stateRoot)
     {
         string root;
         try { root = ValidateRoot(stateRoot ?? GetStateRoot()); }
         catch (Exception exception) { return new(false, [new FactoryResetResidual("State root", "UnsafePath", exception.Message)]); }
-        return VerifyOnboardingBootstrapCore(root);
+        return VerifyOnboardingBootstrapCore(root, removeAiCredentials);
     }
 
     /// <summary>
@@ -158,15 +198,16 @@ public static class FactoryReset
     /// before the marker goes (Codex security scan finding 3: the startup check alone left the database replaceable until
     /// Continue). It must not throw; an exception is treated as a failed check.
     /// </summary>
-    public static FactoryResetResult AcknowledgeOnboarding(string? stateRoot = null, Func<bool>? verifyFreshStore = null)
+    /// <remarks>ADR-028 (Task 67 stage 4b): <paramref name="removeAiCredentials"/> rechecks the AI key last, before the marker goes.</remarks>
+    public static FactoryResetResult AcknowledgeOnboarding(string? stateRoot = null, Func<bool>? verifyFreshStore = null, Func<CancellationToken, Task<bool>>? removeAiCredentials = null)
     {
         string root;
         try { root = ValidateRoot(stateRoot ?? GetStateRoot()); }
         catch (Exception exception) { return new(false, [new FactoryResetResidual("State root", "UnsafePath", exception.Message)]); }
-        return AcknowledgeOnboardingCore(root, verifyFreshStore);
+        return AcknowledgeOnboardingCore(root, verifyFreshStore, removeAiCredentials);
     }
 
-    private static FactoryResetResult AcknowledgeOnboardingCore(string root, Func<bool>? verifyFreshStore = null)
+    private static FactoryResetResult AcknowledgeOnboardingCore(string root, Func<bool>? verifyFreshStore = null, Func<CancellationToken, Task<bool>>? removeAiCredentials = null)
     {
         using Mutex mutex = new(false, DataOperationMutexName);
         if (!TryAcquire(mutex)) return new(false, [new FactoryResetResidual("Data operation", "ActiveOperation", "Another PC Steward process still owns the data-operation lease.")]);
@@ -178,6 +219,7 @@ public static class FactoryReset
                 return new(false, [new FactoryResetResidual("Fresh store", "VerificationFailed", "Post-reset defaults or prior state could not be verified.")]);
             // The root shape is checked after the semantic check, so a leaf the check created or a swap during it is seen.
             NativeResetControl.VerifyOnlyOnboardingRoot(root, residuals);
+            RemoveAiCredentials(removeAiCredentials, residuals, CancellationToken.None);
             if (residuals.Count != 0) return new(false, residuals);
             PathSafety.DeleteResult result = NativeResetControl.AcknowledgeAndDelete(root);
             if (!result.Deleted) residuals.Add(new("Reset marker", result.Reason, MarkerFileName));
@@ -186,11 +228,12 @@ public static class FactoryReset
         finally { mutex.ReleaseMutex(); }
     }
 
-    private static FactoryResetResult VerifyOnboardingBootstrapCore(string root)
+    private static FactoryResetResult VerifyOnboardingBootstrapCore(string root, Func<CancellationToken, Task<bool>>? removeAiCredentials = null)
     {
         List<FactoryResetResidual> residuals = [];
         if (ReadMarkerState(root, residuals) is not FactoryResetMarkerState.OnboardingPending) return new(false, residuals);
         NativeResetControl.VerifyOnlyOnboardingRoot(root, residuals);
+        RemoveAiCredentials(removeAiCredentials, residuals, CancellationToken.None);
         return new(residuals.Count == 0, residuals);
     }
 
@@ -215,15 +258,20 @@ public static class FactoryReset
         try { ArmCore(ValidateRoot(stateRoot, allowTestRoot: true)); }
         finally { mutex.ReleaseMutex(); }
     }
-    internal static Task<FactoryResetResult> CompletePendingForTestingAsync(string stateRoot, Func<CancellationToken, Task>? removeScheduledTask, CancellationToken cancellationToken) => CompletePendingCoreAsync(ValidateRoot(stateRoot, allowTestRoot: true), removeScheduledTask, cancellationToken);
-    internal static FactoryResetResult AcknowledgeOnboardingForTesting(string stateRoot, Func<bool>? verifyFreshStore = null) => AcknowledgeOnboardingCore(ValidateRoot(stateRoot, allowTestRoot: true), verifyFreshStore);
+    internal static Task<FactoryResetResult> CompletePendingForTestingAsync(string stateRoot, Func<CancellationToken, Task>? removeScheduledTask, CancellationToken cancellationToken) => CompletePendingCoreAsync(ValidateRoot(stateRoot, allowTestRoot: true), removeScheduledTask, null, cancellationToken);
+
+    internal static Task<FactoryResetResult> CompletePendingForTestingAsync(string stateRoot, Func<CancellationToken, Task>? removeScheduledTask, Func<CancellationToken, Task<bool>>? removeAiCredentials, CancellationToken cancellationToken) =>
+        CompletePendingCoreAsync(ValidateRoot(stateRoot, allowTestRoot: true), removeScheduledTask, removeAiCredentials, cancellationToken);
+    internal static FactoryResetResult AcknowledgeOnboardingForTesting(string stateRoot, Func<bool>? verifyFreshStore = null, Func<CancellationToken, Task<bool>>? removeAiCredentials = null) =>
+        AcknowledgeOnboardingCore(ValidateRoot(stateRoot, allowTestRoot: true), verifyFreshStore, removeAiCredentials);
 
     private static bool IsFreshStore(Func<bool> verifyFreshStore)
     {
         try { return verifyFreshStore(); }
         catch (Exception exception) when (exception is not OutOfMemoryException) { return false; }
     }
-    internal static FactoryResetResult VerifyOnboardingBootstrapForTesting(string stateRoot) => VerifyOnboardingBootstrapCore(ValidateRoot(stateRoot, allowTestRoot: true));
+    internal static FactoryResetResult VerifyOnboardingBootstrapForTesting(string stateRoot, Func<CancellationToken, Task<bool>>? removeAiCredentials = null) =>
+        VerifyOnboardingBootstrapCore(ValidateRoot(stateRoot, allowTestRoot: true), removeAiCredentials);
 
     private static string ValidateRoot(string root, bool allowTestRoot = false)
     {
@@ -364,7 +412,11 @@ public enum FactoryResetMarkerState { None, ResetPending, Partial, OnboardingPen
 
 // The marker is deliberately a fixed, bounded recovery record.  It supplies neither a path nor
 // any other deletion authority; every category remains compiled into the reset manifest.
-internal enum FactoryResetCategory { ScheduledCheck, Downloads, Logs, Database, OwnedRoot }
+/// <summary>
+/// The reset's verified categories, by name in the marker. <see cref="AiCredential"/> (Task 67 stage 4b) was added later: a marker
+/// written by an earlier version has no entry for it and reads as <see cref="FactoryResetCategoryResult.Pending"/>.
+/// </summary>
+internal enum FactoryResetCategory { ScheduledCheck, Downloads, Logs, Database, OwnedRoot, AiCredential }
 internal enum FactoryResetCategoryResult { Pending, VerifiedAbsent, Residual }
 
 internal sealed record FactoryResetMarker(
@@ -427,7 +479,7 @@ internal sealed record FactoryResetMarker(
                 !root.TryGetProperty("requestedUtc", out JsonElement requested) || requested.ValueKind != JsonValueKind.String || !DateTimeOffset.TryParseExact(requested.GetString(), "O", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTimeOffset requestedUtc) || requestedUtc.Offset != TimeSpan.Zero ||
                 !root.TryGetProperty("attempt", out JsonElement attempt) || attempt.ValueKind != JsonValueKind.Number || !attempt.TryGetInt32(out int attemptCount) || attemptCount < 0 || attemptCount > MaximumAttempts ||
                 !root.TryGetProperty("state", out JsonElement state) || state.ValueKind != JsonValueKind.String || !Enum.TryParse(state.GetString(), false, out FactoryResetMarkerState markerState) || markerState is not (FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.Partial or FactoryResetMarkerState.OnboardingPending) ||
-                !root.TryGetProperty("categories", out JsonElement categoriesElement) || categoriesElement.ValueKind != JsonValueKind.Object || categoriesElement.EnumerateObject().Count() != Enum.GetValues<FactoryResetCategory>().Length ||
+                !root.TryGetProperty("categories", out JsonElement categoriesElement) || categoriesElement.ValueKind != JsonValueKind.Object ||
                 root.EnumerateObject().Any(property => property.Name is not ("schemaVersion" or "resetId" or "requestedUtc" or "attempt" or "state" or "categories"))) return false;
 
             Dictionary<FactoryResetCategory, FactoryResetCategoryResult> categories = [];
@@ -436,6 +488,9 @@ internal sealed record FactoryResetMarker(
                 if (property.Value.ValueKind != JsonValueKind.String || !Enum.TryParse(property.Name, false, out FactoryResetCategory category) || !Enum.IsDefined(category) ||
                     !Enum.TryParse(property.Value.GetString(), false, out FactoryResetCategoryResult result) || !Enum.IsDefined(result) || !categories.TryAdd(category, result)) return false;
             }
+            // Every category must be present, except that a marker from before the AI key category may lack exactly that one.
+            if (!categories.ContainsKey(FactoryResetCategory.AiCredential) && categories.Count == Enum.GetValues<FactoryResetCategory>().Length - 1)
+                categories[FactoryResetCategory.AiCredential] = FactoryResetCategoryResult.Pending;
             if (categories.Count != Enum.GetValues<FactoryResetCategory>().Length || Enum.GetValues<FactoryResetCategory>().Any(category => !categories.ContainsKey(category))) return false;
             marker = new FactoryResetMarker(resetId, requestedUtc, attemptCount, markerState, categories);
             return true;
