@@ -1,9 +1,22 @@
+**Advisory AI, Task 70 failed; Task 90 fixes (2026-11-14; code, tests and the Task 71 packet; no paid call, no key).** Requirements: `FR-AI-01–06`, `FR-BUD-01–04` ([Task 90 record](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Task 70.** The independent review of `db4bc76` (run by the owner) returned **FAIL** with 3 High and 4 Medium findings, T70-01 to T70-07. The owner kept the report on their PC.
+- **Fixed.**
+  - A ledger row that doesn't add up pauses paid requests for review (T70-01).
+  - The owner ticks that confirmed prices are their key project's own, including any uplift (T70-03).
+  - A forward clock jump while running pauses paid requests (T70-04).
+  - Settled detail older than the current and previous 12 months is compacted with totals and response IDs kept, and a 16 MiB logical ceiling covers the whole accounting record (T70-05). A full ledger is 10.5 MB on disk.
+  - A "Check for secrets" warning appears on both consent screens (T70-06).
+  - The outcome screen shows the reported token counts, including the exact cache-write figure (T70-07).
+- **Owner decision.** B2: "Use wide safety margins" (8,192 framing tokens, 192 bytes per token, 1 MiB envelope). The Task 71 limits become 12,288 in and 2,048 out, with a worst case of $0.045056 per request. Task 69 §10 is rewritten as a seven-part packet, and it now says an ordinary timeout doesn't pause paid requests.
+- **Not claimed.** CPU, working-set and UI measurements for large answers are still open before ordinary use. `Reviewed` stays empty and paid requests stay disabled. A fresh Task 70 is next.
+
 **Advisory AI, Task 69: GPT-6.1 Sol evidence and two cost fixes (2026-11-14; official sources, code and tests; no paid call, no account query).** Requirements: `FR-AI-01–06`, `FR-BUD-01–04` ([report](review/TASK_69_AI_EVIDENCE_GPT_6_1_SOL.md)).
 
 - **Evidence.** The model's limits, reasoning efforts, Standard prices (including the cache-write and above-272K rules) and the request fields were checked against OpenAI's official pages on 2026-11-14 and recorded with their sources. A candidate profile is written down; it is not added to `AdvisoryAiModelProfiles.Reviewed`.
 - **Fix 1, cache writes.** Prompt caching is automatic and writes cost 1.25x the input rate, so the reservation was not a true worst case. The profile can now ask for no prompt cache: the body selects explicit caching with no breakpoint, which OpenAI documents as using no cache and writing none. A response that still reports a cache write is never trusted for settlement and pauses paid requests.
 - **Fix 2, long-context price.** Above 272K input tokens the whole request costs more. The profile can now state the input size billed at its standard prices, and the input limit can't exceed it.
-- **Not claimed.** OpenAI doesn't publish this model's tokenizer or its hidden framing tokens: these are the report's blockers B1 and B2. The owner settled B1 on 2026-11-14 with option (a): accept the byte bound and check it live in Task 71. B2 is measured in Task 71. Task 70 (independent review) and Task 71 (one approved paid call, within $1) haven't run. Tests: `AdvisoryAiRequestTests`, `AdvisoryAiPolicyTests`, `AdvisoryAiResponseTests` and `AdvisoryAiBoundaryTests`.
+- **Not claimed.** OpenAI doesn't publish this model's tokenizer or its hidden framing tokens: these are the report's blockers B1 and B2. The owner settled B1 on 2026-11-14 with option (a): accept the byte bound and check it live in Task 71. B2 was later settled by the owner's wide-margin decision (see the Task 90 entry above). Task 71 (one approved paid call, within $1) hasn't run. Tests: `AdvisoryAiRequestTests`, `AdvisoryAiPolicyTests`, `AdvisoryAiResponseTests` and `AdvisoryAiBoundaryTests`.
 
 **Advisory AI, Task 67 stage 4c: "Explain with AI…" (2026-11-14; code and tests; no real key or call).** Requirements: `FR-AI-02`, `FR-AI-04`, `FR-AI-05`, `FR-AI-06`, `FR-BUD-02`, `FR-BUD-03` ([plan and interfaces](review/TASK_67_ADVISORY_AI_PLAN.md)).
 
