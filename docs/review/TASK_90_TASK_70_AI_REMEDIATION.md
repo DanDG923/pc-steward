@@ -1,5 +1,7 @@
 # Task 90: fixes for the Task 70 AI review
 
+**Update (2026-11-14): a third Task 70 (70C) of `b11da9b` returned FAIL with one Medium finding, T70C-01, fixed in §5.** It found six earlier findings fixed. T70-05 and T70-07 are partly fixed, for the open ordinary-use measurements and for T70C-01. T70B-02 is partly fixed, for T70C-01. The owner kept that report on their PC too.
+
 **Update (2026-11-14): a fresh Task 70 (70B) of `669c8c7` returned FAIL with two new findings, both fixed in §4.** It found T70-02, T70-03, T70-04 and T70-06 fixed, and T70-01, T70-05 and T70-07 partly fixed: the gaps it named are T70B-01 and T70B-02. The owner kept that report on their PC too.
 
 **Status (2026-11-14): all seven findings addressed in code, tests or the Task 71 packet; a fresh Task 70 is needed.** Task 70 reviewed commit `db4bc76` and returned **FAIL** (3 High, 4 Medium: T70-01 to T70-07). The owner kept the report itself on their PC, so this record names the findings without copying the report. No paid call, no account query and no key were used. `AdvisoryAiModelProfiles.Reviewed` stays empty and `AdvisoryAiBuildPolicy.PaidRequests` stays `Disabled`.
@@ -39,3 +41,9 @@ Tests at this commit (cloud): Domain 442 pass (3 known runner-only failures), Ar
 | **T70B-02 (Medium).** A body refused early (another model, a bad ID, stored, tools, unknown status) kept its cache-write report but didn't pause paid requests. | A reported cache write, or one that isn't a plain count, now always raises the "above approved bounds" flag. Settlement then keeps the whole reservation and pauses paid requests. A refused body without a write still only keeps the reservation. | `AdvisoryAiResponseTests.ACacheWriteInARefusedBodyStillStopsPaidRequestsForReview` (5 refusal reasons × write, unreadable write, zero) |
 
 Limits that stay as accepted: a coordinated rewrite of a request's charge and usage together, or of a whole file, can't be detected locally. Detailed and compacted rows share this limit, which is disclosed as the external-restore limitation. The 70B review agreed that the open CPU, working-set and UI measurements block ordinary use but not one supervised test.
+
+## 5. Third Task 70 (70C) finding and fix
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **T70C-01 (Medium).** The cache-write report read only the last `usage` or `input_tokens_details` container. A repeated container could hide an earlier write behind a later zero, null or counter-free one, so paid requests weren't paused. | The report now looks at every `usage`, `input_tokens_details` and `cache_write_tokens` occurrence. A count counts as exact only when it is the single plain count on a single path. If any container on the way is repeated, or a value isn't a count, the figure is unreadable. An unreadable figure raises the "above approved bounds" flag, so paid requests pause and the whole reservation is kept. A repeated container with no cache-write field anywhere still only makes the body malformed: the reservation is kept, with no pause. | `AdvisoryAiResponseTests.ARepeatedBillingContainerCanNotHideACacheWrite` (10 cases: repeated `usage` and repeated details; write, zero, none, null or unreadable; both orders) and `ARepeatedContainerWithoutAnyCacheWriteFieldKeepsTheReservationWithoutAPause` |

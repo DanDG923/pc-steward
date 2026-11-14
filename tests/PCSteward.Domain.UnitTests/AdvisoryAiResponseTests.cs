@@ -221,4 +221,50 @@ public sealed class AdvisoryAiResponseTests
             Assert.AreEqual(review, settlement.NeedsReview, written);
         }
     }
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("usage", "12", "0", DisplayName = "two usage objects, write then zero")]
+    [DataRow("usage", "0", "12", DisplayName = "two usage objects, zero then write")]
+    [DataRow("usage", "12", "missing", DisplayName = "two usage objects, write then none")]
+    [DataRow("usage", "missing", "12", DisplayName = "two usage objects, none then write")]
+    [DataRow("usage", "12", "null", DisplayName = "usage with a write, then usage null")]
+    [DataRow("usage", "\"x\"", "0", DisplayName = "two usage objects, unreadable then zero")]
+    [DataRow("details", "12", "0", DisplayName = "two input details, write then zero")]
+    [DataRow("details", "0", "12", DisplayName = "two input details, zero then write")]
+    [DataRow("details", "12", "missing", DisplayName = "two input details, write then none")]
+    [DataRow("details", "missing", "12", DisplayName = "two input details, none then write")]
+    public void ARepeatedBillingContainerCanNotHideACacheWrite(string container, string first, string last)
+    {
+        // Task 70C T70C-01: a repeated container is ambiguous billing evidence. The write it might hide stops paid requests for review,
+        // usage is never trusted, and the whole reservation is kept, whichever occurrence comes last.
+        static string Details(string write) => write == "missing" ? "{\"cached_tokens\":0}" : "{\"cached_tokens\":0,\"cache_write_tokens\":" + write + "}";
+        static string UsageWith(string details) => "{\"input_tokens\":900,\"input_tokens_details\":" + details + ",\"output_tokens\":300,\"output_tokens_details\":{\"reasoning_tokens\":120},\"total_tokens\":1200}";
+        string usage = container == "usage"
+            ? "\"usage\":" + UsageWith(Details(first)) + ",\"usage\":" + (last == "null" ? "null" : UsageWith(Details(last)))
+            : "\"usage\":{\"input_tokens\":900,\"input_tokens_details\":" + Details(first) + ",\"input_tokens_details\":" + Details(last) +
+              ",\"output_tokens\":300,\"output_tokens_details\":{\"reasoning_tokens\":120},\"total_tokens\":1200}";
+        AdvisoryAiResponse response = Read(Body(usage: usage));
+
+        Assert.IsFalse(response.UsageReliable);
+        Assert.IsTrue(response.CacheWriteUnreadable, "an ambiguous figure is never shown as exact");
+        Assert.IsNull(response.CacheWriteTokens);
+        Assert.IsTrue(response.UsageAboveApprovedBounds, "paid requests stop for review");
+        AdvisoryAiTariff tariff = new(1, Model, "default", new(2_000_000), new(100_000), new(10_000_000), DateTimeOffset.UnixEpoch);
+        AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(12_000), tariff);
+        Assert.AreEqual(AdvisoryAiRequestState.Uncertain, settlement.State);
+        Assert.AreEqual(12_000, settlement.Committed.Value);
+        Assert.IsTrue(settlement.NeedsReview);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void ARepeatedContainerWithoutAnyCacheWriteFieldKeepsTheReservationWithoutAPause()
+    {
+        // No cache-write field anywhere: the duplicate makes the body malformed (reservation kept) but carries no billing signal.
+        string usage = Usage + "," + Usage;
+        AdvisoryAiResponse response = Read(Body(usage: usage));
+        Assert.AreEqual(AdvisoryAiMalformedReason.DuplicateProperty, response.MalformedReason);
+        Assert.IsFalse(response.CacheWriteUnreadable);
+        Assert.IsFalse(response.UsageAboveApprovedBounds);
+    }
 }

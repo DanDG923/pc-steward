@@ -1,3 +1,9 @@
+**Advisory AI, third Task 70 (70C) failed on one Medium finding; fixed (2026-11-14; code and tests; no paid call, no key).** Requirements: `FR-AI-04`, `FR-BUD-02/03` ([Task 90 record §5](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **70C.** The owner ran a third review of `b11da9b`. It found six earlier findings fixed and three partly fixed, with one new Medium finding, T70C-01: a repeated `usage` or `input_tokens_details` container could hide a cache write from the pause rule. The owner kept the report on their PC.
+- **Fixed.** Every occurrence of each container is now read. Any repetition next to a cache-write field, or a value that isn't a count, is unreadable and pauses paid requests.
+- **Next.** Another fresh Task 70. `Reviewed` stays empty and paid requests stay disabled.
+
 **Advisory AI, fresh Task 70 (70B) failed; two more fixes (2026-11-14; code and tests; no paid call, no key).** Requirements: `FR-AI-04`, `FR-BUD-02/03` ([Task 90 record §4](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **70B.** The owner ran a fresh review of `669c8c7`. It returned **FAIL**. Four earlier findings were fixed and three partly fixed, with two new findings: T70B-01 (High) and T70B-02 (Medium). The owner kept the report on their PC.
