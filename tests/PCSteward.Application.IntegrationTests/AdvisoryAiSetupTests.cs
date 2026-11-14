@@ -22,6 +22,14 @@ public sealed class AdvisoryAiSetupTests
     private static readonly string[] SaveOnly = ["save"];
     private static readonly string[] DefaultLimitFacts = ["Input limit: 8,192 tokens", "Output limit: 1,024 tokens", "Limit per request: $0.25", "Monthly budget: $200.00"];
     private static readonly string[] EmptySpendingFacts = ["Spent in November 2026 (UTC): $0.00", "Reserved, not settled yet: $0.00"];
+    private static readonly string[] LimitsRaisedLines =
+    [
+        "Input limit: 8,192 tokens (unchanged)",
+        "Output limit: 1,024 tokens now, 2,048 tokens after saving (raised)",
+        "Limit per request: $0.25 (unchanged)",
+        "Monthly budget: $200.00 now, $300.00 after saving (raised)",
+        "Already counted this UTC month: $1.50 spent and $0.25 reserved, not settled yet. Changing a limit changes none of it."
+    ];
     private static readonly AdvisoryAiNoticeAction[] ReviewDeclarationNewMonth = [AdvisoryAiNoticeAction.AcknowledgeReview, AdvisoryAiNoticeAction.None, AdvisoryAiNoticeAction.ConfirmNewMonth];
 
     // ---- What this build offers --------------------------------------------------------------------------------------------------
@@ -525,6 +533,42 @@ public sealed class AdvisoryAiSetupTests
         StringAssert.Contains(AdvisoryAiSetupText.NoticeActionResult(AdvisoryAiNoticeAction.AcknowledgeReview, AdvisoryAiAccountingWrite.Done), "recorded amounts are unchanged");
         StringAssert.Contains(AdvisoryAiSetupText.NoticeActionResult(AdvisoryAiNoticeAction.AcceptClock, AdvisoryAiAccountingWrite.NotApplicable), "Nothing needed changing");
         StringAssert.Contains(AdvisoryAiSetupText.NoticeActionResult(AdvisoryAiNoticeAction.AcceptClock, AdvisoryAiAccountingWrite.StorageFailed), "Nothing changed");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-01")]
+    public void TheLimitsChangeShowsEachLimitNowAndAfterAndWhatIsAlreadyCounted()
+    {
+        AdvisoryAiLimits now = AdvisoryAiLimits.Defaults;
+        AdvisoryAiLimits raised = now with { MaximumOutputTokens = 2048, MonthlyBudget = new(300_000_000) };
+        AdvisoryAiSpendingSummary spending = new(AdvisoryAiPeriod.Of(Now), new(1_500_000), new(250_000), MicroUsd.Zero, MicroUsd.Zero, MicroUsd.Zero, 2, false);
+        string[] lines = [.. AdvisoryAiSettingsPresenter.LimitsChange(now, raised, spending, Invariant)];
+        CollectionAssert.AreEqual(LimitsRaisedLines, lines);
+
+        AdvisoryAiLimits used = now with { MonthlyBudget = new(1_000_000) };
+        string[] lowered = [.. AdvisoryAiSettingsPresenter.LimitsChange(now, used, spending, Invariant)];
+        Assert.AreEqual("Monthly budget: $200.00 now, $1.00 after saving (lowered)", lowered[3]);
+        StringAssert.Contains(lowered[5], "no more than the $1.75 already counted, so no paid request can be made until next month");
+
+        string[] off = [.. AdvisoryAiSettingsPresenter.LimitsChange(now, now with { RequestCap = MicroUsd.Zero }, null, Invariant)];
+        StringAssert.Contains(off[4], "couldn't read this month's spending");
+        Assert.AreEqual(AdvisoryAiSetupText.PaidRequestsOffBySettings, off[5]);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-01")]
+    public async Task ASnapshotFromAnEarlierMonthOrBeforeItsPricesExpiredIsReadAgain()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        AdvisoryAiAccountingState accounting = await fixture.Store.GetAccountingStateAsync(CancellationToken.None);
+        AdvisoryAiSetupSnapshot read = Snapshot(accounting, Now);
+        Assert.IsFalse(AdvisoryAiSettingsPresenter.NeedsRereading(read, Now.AddHours(1)));
+        Assert.IsTrue(AdvisoryAiSettingsPresenter.NeedsRereading(read, new DateTimeOffset(2026, 12, 1, 0, 0, 0, TimeSpan.Zero)), "a new UTC month");
+        Assert.IsTrue(AdvisoryAiSettingsPresenter.NeedsRereading(read, Now.AddMinutes(-1)), "the clock moved back");
+        AdvisoryAiTariff tariff = new(1, Model.ModelId, Model.ServiceTier, new(2_000_000), new(100_000), new(10_000_000), Now.AddHours(-1));
+        AdvisoryAiSetupSnapshot priced = read with { LatestTariff = tariff };
+        Assert.IsFalse(AdvisoryAiSettingsPresenter.NeedsRereading(priced, Now.AddHours(1)));
+        Assert.IsTrue(AdvisoryAiSettingsPresenter.NeedsRereading(priced, tariff.ExpiresAtUtc), "prices expired since the read");
     }
 
     // ---- Helpers -------------------------------------------------------------------------------------------------------------------

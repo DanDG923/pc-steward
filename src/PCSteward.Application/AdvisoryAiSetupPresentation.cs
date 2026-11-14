@@ -222,6 +222,18 @@ public static class AdvisoryAiSettingsPresenter
         return new(title, text, false, false, string.Empty, string.Empty, string.Empty, string.Empty, [], [], false, string.Empty, [], string.Empty, []);
     }
 
+    /// <summary>
+    /// Codex review on #115: a snapshot read in an earlier UTC month, before its prices expired, or later than the clock now says no
+    /// longer describes the present (the new-month notice, the month's spending, whether prices are current), so it is read again.
+    /// </summary>
+    public static bool NeedsRereading(AdvisoryAiSetupSnapshot snapshot, DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        DateTime read = snapshot.ReadAtUtc.UtcDateTime, now = nowUtc.UtcDateTime;
+        return now < read || now.Year != read.Year || now.Month != read.Month ||
+            snapshot.LatestTariff is { } tariff && tariff.IsCurrent(snapshot.ReadAtUtc) && !tariff.IsCurrent(nowUtc);
+    }
+
     /// <param name="snapshot">What the service read.</param>
     /// <param name="keyRemovalIncomplete">True after a disconnect or retry in this session that could not verify the key is gone.</param>
     /// <param name="culture">The culture for numbers and dates; the user's own when null.</param>
@@ -350,6 +362,42 @@ public static class AdvisoryAiSettingsPresenter
     }
 
     private static string Tokens(int tokens, CultureInfo format) => tokens.ToString("N0", format) + (tokens == 1 ? " token" : " tokens");
+
+    /// <summary>
+    /// FR-BUD-01 (Codex review on #115): the change the owner is about to save, each limit's current value beside the new one, with
+    /// what is already counted against the monthly budget this UTC month, so a raised authorization or a budget already used up is
+    /// seen before it is saved.
+    /// </summary>
+    public static IReadOnlyList<string> LimitsChange(AdvisoryAiLimits current, AdvisoryAiLimits proposed, AdvisoryAiSpendingSummary? spending, CultureInfo? culture = null)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(proposed);
+        CultureInfo format = culture ?? CultureInfo.CurrentCulture;
+        List<string> lines =
+        [
+            Change("Input limit", Tokens(current.MaximumInputTokens, format), Tokens(proposed.MaximumInputTokens, format), proposed.MaximumInputTokens.CompareTo(current.MaximumInputTokens)),
+            Change("Output limit", Tokens(current.MaximumOutputTokens, format), Tokens(proposed.MaximumOutputTokens, format), proposed.MaximumOutputTokens.CompareTo(current.MaximumOutputTokens)),
+            Change("Limit per request", current.RequestCap.ToDollarString(), proposed.RequestCap.ToDollarString(), proposed.RequestCap.CompareTo(current.RequestCap)),
+            Change("Monthly budget", current.MonthlyBudget.ToDollarString(), proposed.MonthlyBudget.ToDollarString(), proposed.MonthlyBudget.CompareTo(current.MonthlyBudget))
+        ];
+        if (spending is null) lines.Add("PC Steward couldn't read this month's spending just now, so it can't show what is already counted.");
+        else
+        {
+            MicroUsd counted = Sum(spending.Settled, spending.Outstanding);
+            lines.Add($"Already counted this UTC month: {spending.Settled.ToDollarString()} spent and {spending.Outstanding.ToDollarString()} reserved, not settled yet. Changing a limit changes none of it.");
+            if (!proposed.MonthlyBudget.IsZero && proposed.MonthlyBudget <= counted)
+                lines.Add($"The new monthly budget is no more than the {counted.ToDollarString()} already counted, so no paid request can be made until next month.");
+        }
+        if (proposed.PaidRequestsDisabled) lines.Add(AdvisoryAiSetupText.PaidRequestsOffBySettings);
+        return lines;
+    }
+
+    private static string Change(string label, string from, string to, int direction) => direction switch
+    {
+        0 => $"{label}: {from} (unchanged)",
+        > 0 => $"{label}: {from} now, {to} after saving (raised)",
+        _ => $"{label}: {from} now, {to} after saving (lowered)"
+    };
 
     private static MicroUsd Sum(MicroUsd left, MicroUsd right)
     {

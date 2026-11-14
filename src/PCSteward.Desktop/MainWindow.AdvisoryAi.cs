@@ -39,6 +39,11 @@ public sealed partial class MainWindow
             section.Children.Add(StewardVisuals.RowCard("", offered.AvailabilityTitle, offered.AvailabilityText, new TextBlock { Text = "Off", Style = AppStyle("StewardBodyStyle") }));
             return section;
         }
+        // Codex review on #115: the section is read again each time Settings is opened, and whenever what was read no longer describes
+        // the present (a new UTC month, or prices that have expired since), so its notices and spending are never stale.
+        if (advisoryAiSnapshot is AdvisoryAiSetupSnapshot read && !advisoryAiLoading && !isChangingAdvisoryAi &&
+            (renderedPage != ShellPage.Settings || AdvisoryAiSettingsPresenter.NeedsRereading(read, DateTimeOffset.UtcNow)))
+            advisoryAiSnapshot = null;
         if (advisoryAiSnapshot is not AdvisoryAiSetupSnapshot snapshot)
         {
             if (advisoryAiLoadFailed)
@@ -295,17 +300,23 @@ public sealed partial class MainWindow
         TextBox perRequest = new() { Header = "Limit per request (US dollars)", Text = shown.RequestCap };
         TextBox monthly = new() { Header = "Monthly budget (US dollars, UTC month)", Text = shown.MonthlyBudget };
         TextBlock problem = ProblemText();
+        // FR-BUD-01 (Codex review on #115): Save first shows each limit now beside the new value and what is already counted this
+        // month; only a second Save, with those same values, saves them.
+        StackPanel change = new() { Spacing = StewardSpacing.XSmall, Visibility = Visibility.Collapsed };
+        AutomationProperties.SetLiveSetting(change, AutomationLiveSetting.Polite);
         StackPanel body = new() { Spacing = StewardSpacing.Small };
         foreach (TextBox box in new[] { input, output, perRequest, monthly }) body.Children.Add(box);
         body.Children.Add(new TextBlock { Text = AdvisoryAiSetupText.OutputDeadlineNote, Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
         body.Children.Add(new TextBlock { Text = "A spending limit of 0 turns paid requests off. Changing a limit changes no recorded spending.", Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
         body.Children.Add(problem);
+        body.Children.Add(change);
         ContentDialog dialog = new()
         {
             XamlRoot = Content.XamlRoot, Title = "AI limits", Content = new ScrollViewer { Content = body, MaxHeight = 520 },
             PrimaryButtonText = "Save limits", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close
         };
         AdvisoryAiLimitsDraft? draft = null;
+        AdvisoryAiLimitsDraft? compared = null;
         dialog.PrimaryButtonClick += (_, args) =>
         {
             AdvisoryAiLimitsDraft typed = new(input.Text, output.Text, perRequest.Text, monthly.Text);
@@ -316,6 +327,18 @@ public sealed partial class MainWindow
                 problem.Text = check.Message;
                 problem.Visibility = Visibility.Visible;
                 (check.Field switch { AdvisoryAiLimitField.OutputTokens => output, AdvisoryAiLimitField.RequestCap => perRequest, AdvisoryAiLimitField.MonthlyBudget => monthly, _ => input }).Focus(FocusState.Programmatic);
+                return;
+            }
+            problem.Visibility = Visibility.Collapsed;
+            if (compared != typed)
+            {
+                // First Save, or the values changed since the comparison was shown: show it and wait for Save again.
+                args.Cancel = true;
+                compared = typed;
+                change.Children.Clear();
+                change.Children.Add(new TextBlock { Text = "Check the change, then choose Save limits again:", TextWrapping = TextWrapping.Wrap, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                foreach (string line in AdvisoryAiSettingsPresenter.LimitsChange(snapshot.Settings.Limits, check.Limits, snapshot.Spending)) change.Children.Add(Wrapped(line));
+                change.Visibility = Visibility.Visible;
                 return;
             }
             draft = typed;
