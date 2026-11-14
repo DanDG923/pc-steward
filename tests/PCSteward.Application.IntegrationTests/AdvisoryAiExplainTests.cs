@@ -126,6 +126,30 @@ public sealed class AdvisoryAiExplainTests
     }
 
     [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public async Task AnUnknownTierNameNeverReachesTheOutcomeScreen()
+    {
+        // Task 70E T70E-01: a provider-chosen tier string (here shaped like the PC's account name) is shown only as fixed words.
+        await using Fixture fixture = await Fixture.CreateAsync(connected: true, prices: true);
+        string body = Body("Synthetic explanation.");
+        fixture.Transport.Next = new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes(body[..^1] + ",\"service_tier\":\"reviewaccount\"}")]);
+        AdvisoryAiExplainService service = fixture.Service();
+        AdvisoryAiEvidenceDraft draft = (await service.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Draft!;
+        AdvisoryAiSendOutcome outcome = await service.SendAsync(await service.ReviewAsync(draft, CancellationToken.None), CancellationToken.None);
+
+        Assert.IsTrue(outcome.Settlement!.NeedsReview);
+        string details = AdvisoryAiExplainText.ReplyDetails(outcome.UsageReport)!;
+        StringAssert.Contains(details, "a service tier PC Steward doesn't recognise");
+        Assert.IsFalse(details.Contains("reviewaccount", StringComparison.Ordinal), details);
+        Assert.IsFalse((AdvisoryAiExplainText.UsageCounts(outcome.UsageReport) ?? string.Empty).Contains("reviewaccount", StringComparison.Ordinal));
+        Assert.IsFalse(AdvisoryAiExplainText.Outcome(outcome).Contains("reviewaccount", StringComparison.Ordinal));
+
+        // Even a report that claims an unknown name as named shows only fixed words.
+        AdvisoryAiUsageReport forged = outcome.UsageReport! with { ServiceTierReport = AdvisoryAiServiceTierReport.Named, ServiceTier = "reviewaccount" };
+        Assert.IsFalse(AdvisoryAiExplainText.ReplyDetails(forged)!.Contains("reviewaccount", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     [TestCategory("FR-BUD-03")]
     public async Task AReplyFromAnotherServiceTierIsShownAndPausesPaidRequests()
     {
@@ -145,6 +169,7 @@ public sealed class AdvisoryAiExplainTests
         StringAssert.Contains(details, "HTTP status 200");
         StringAssert.Contains(details, "service tier \"priority\"");
         StringAssert.Contains(details, "paused");
+        StringAssert.Contains(details, "usage page", "independent re-review N4");
         StringAssert.Contains(AdvisoryAiExplainText.Retention(AdvisoryAiProviders.OpenAI), AdvisoryAiProviders.OpenAI.DataControlsPage.ToString());
     }
 

@@ -196,7 +196,11 @@ public sealed class AdvisoryAiRedactionTests
     [DataRow("link-local fe80::1c2b:3a4d:5e6f:7a8b%12 down", "1c2b:3a4d", "[address]")]
     [DataRow("addr 2001:0db8:85a3:0000:0000:8a2e:0370:7334 seen", "85a3", "[address]")]
     [DataRow("IP address: 192.168.1.23 unreachable", "192.168.1.23", "IP address: [address]")]
-    [DataRow("gateway 10.0.0.1 timed out", "10.0.0.1", "gateway [address]")]
+    [DataRow("gateway: 10.0.0.1 timed out", "10.0.0.1", "gateway: [address]")]
+    [DataRow("IP 10.1.2.3 refused", "10.1.2.3", "IP [address]")]
+    [DataRow("IP address: ::ffff:c0a8:117", "c0a8", "IP address: [address]", DisplayName = "leading-compression IPv6")]
+    [DataRow("mapped ::ffff:192.168.1.23 seen", "192.168", "mapped [address]", DisplayName = "IPv4-mapped IPv6")]
+    [DataRow("peer ::abcd:ef12 reset", "abcd:ef12", "peer [address]")]
     [DataRow("dns server=8.8.4.4:53", "8.8.4.4", "dns server=[address]")]
     public void IndependentReviewRedactionGapsAreClosed(string text, string mustNotRemain, string placeholder)
     {
@@ -213,6 +217,12 @@ public sealed class AdvisoryAiRedactionTests
     [DataRow("Follow the basic steps in the guide")]
     [DataRow("The pinned version stays; spin up the service")]
     [DataRow("At 12:30:45 the std::vector call failed")]
+    [DataRow("SQL Server 8.0.33.0 stopped responding")]
+    [DataRow("SQL Server 8.0.300.0 stopped responding")]
+    [DataRow("host 4.2.1.0 failed")]
+    [DataRow("Product: TeamViewer Host 15.71.5.0 -- Installation failed.")]
+    [DataRow("Zoom Client 6.2.11.5 needs a restart")]
+    [DataRow("address: 8.0.300.0 is not an address")]
     public void VersionsTimesAndOrdinaryWordsAreNotTakenForAddressesOrSecrets(string text) =>
         Assert.AreEqual(text, AdvisoryAiRedaction.SanitizeEvidence(text, 2048, Identity).Value);
 }

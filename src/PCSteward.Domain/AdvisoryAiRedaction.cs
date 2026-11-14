@@ -31,11 +31,18 @@ public static class AdvisoryAiRedaction
     // Independent review F4: HTTP Basic credentials, after an Authorization label or as padded Base64. A bare "basic" followed by an
     // ordinary word ("basic steps") is left alone.
     private static readonly Regex Basic = new(@"(?i)\b(authorization\s*[:=]\s*basic\s+)[A-Za-z0-9+/=]{4,}|\b(basic\s+)[A-Za-z0-9+/]{6,}={1,2}", Options, MatchTimeout);
-    // Independent review F4: an IPv6 address written with "::" or in full; an IPv4 address only after a label naming it as an address,
-    // because four-part version numbers (10.0.19045.1) look the same and matter to a diagnosis.
+    // Independent review F4: an IPv6 address written in full or with "::", including one that starts with "::" (Task 70E T70E-03),
+    // such as an IPv4-mapped address. A leading "::" counts only after a space or punctuation, so "std::vector" is left alone.
     private static readonly Regex Ipv6 = new(@"(?i)\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b|\b[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6}::(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6}\b)?", Options, MatchTimeout);
+    private static readonly Regex LeadingIpv6 = new(
+        @"(?i)(^|[^0-9a-z_:.])::(ffff:" + Octet + @"(?:\." + Octet + @"){3}\b|[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6}\b)", Options, MatchTimeout);
+    // An IPv4 address only in a valid dotted form and after a label naming it as an address, because four-part version numbers
+    // (10.0.19045.1) look the same and matter to a diagnosis. "IP" may be followed directly by the address. The other labels are
+    // also product words ("SQL Server 8.0.33.0", "TeamViewer Host 15.71.5.0"), so they need a ":" or "=" (Task 70E T70E-04).
+    private const string Octet = @"(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])";
     private static readonly Regex LabelledIpv4 = new(
-        @"(?i)\b(ip|ipv4|ip address|address|addr|gateway|dns|dns server|server|host|client|remote|peer)(\s*[:=]?\s*)\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?\b",
+        @"(?i)\b(ip|ipv4|ip address)(\s*[:=]?\s*)" + Octet + @"(?:\." + Octet + @"){3}(?::[0-9]{1,5})?\b" +
+        @"|\b(address|addr|gateway|dns|dns server|server|host|client|remote|peer)(\s*[:=]\s*)" + Octet + @"(?:\." + Octet + @"){3}(?::[0-9]{1,5})?\b",
         Options, MatchTimeout);
     // The name may be quoted (JSON or INI style); a quoted value is consumed whole, spaces and backslash-escaped quotes included, up
     // to its closing quote or the end of the text; an unquoted value runs to the next space, comma, semicolon, quote or brace.
@@ -165,7 +172,10 @@ public static class AdvisoryAiRedaction
         value = ProductKey.Replace(value, SecretPlaceholder);
         value = HardwareAddress.Replace(value, IdPlaceholder);
         value = Ipv6.Replace(value, AddressPlaceholder);
-        value = LabelledIpv4.Replace(value, match => match.Groups[1].Value + match.Groups[2].Value + AddressPlaceholder);
+        value = LeadingIpv6.Replace(value, match => match.Groups[1].Value + AddressPlaceholder);
+        value = LabelledIpv4.Replace(value, match => match.Groups[1].Success
+            ? match.Groups[1].Value + match.Groups[2].Value + AddressPlaceholder
+            : match.Groups[3].Value + match.Groups[4].Value + AddressPlaceholder);
         value = LongHex.Replace(value, SecretPlaceholder);
         value = LongBase64.Replace(value, SecretPlaceholder);
         return value;

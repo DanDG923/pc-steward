@@ -28,8 +28,11 @@ public sealed record AdvisoryAiUsageReport(AdvisoryAiUsage? Usage, bool UsageRel
     /// <summary>Independent review F3: the closed reason the body wasn't trusted as an answer, never provider text.</summary>
     public AdvisoryAiMalformedReason MalformedReason { get; init; }
 
-    /// <summary>Independent review F1: the service tier the body named, if it named one plainly.</summary>
+    /// <summary>Independent review F1: the known service tier the body named, as PC Steward's own constant (Task 70E T70E-01).</summary>
     public string? ServiceTier { get; init; }
+
+    /// <summary>Task 70E T70E-01: what the body said about its tier, in closed terms.</summary>
+    public AdvisoryAiServiceTierReport ServiceTierReport { get; init; }
 
     /// <summary>Independent review F1/F2: what in the body departed from the approved, priced request.</summary>
     public AdvisoryAiResponseDeparture Departures { get; init; }
@@ -213,6 +216,7 @@ public sealed class AdvisoryAiRequestWorkflow
                 HttpStatus = sent.HttpStatus,
                 MalformedReason = response.MalformedReason,
                 ServiceTier = response.ServiceTier,
+                ServiceTierReport = response.ServiceTierReport,
                 Departures = response.Departures
             };
         if (response is null || response.Status == AdvisoryAiAnswerStatus.Malformed)
