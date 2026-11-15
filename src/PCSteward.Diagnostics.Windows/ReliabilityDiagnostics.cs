@@ -88,17 +88,20 @@ public interface IReliabilityRecordSource
 
 /// <summary>
 /// FR-DIA-01 (ADR-027 Q1, Codex review on #105): the Reliability source keeps the newest matching records, and the cap applies to
-/// every matching record materialized, not just the ones kept. WQL cannot order or limit, so the reader walks back from the end
-/// of the window in stretches that double in length, starting with <see cref="FirstStretch"/>. Each query may materialize at most
-/// the allowance left, counting the one extra record that proves more matched; a stretch whose records all fit is kept whole.
-/// The first stretch that holds more than fits ends the read, and the source is reported as truncated. What is kept is therefore
+/// every matching record materialized, not just the ones kept. WQL cannot order or limit, so the reader reads the newest
+/// <see cref="FirstStretch"/> of the window first and then the rest of the window in one more query. Each query may materialize
+/// at most the allowance left, counting the one extra record that proves more matched; a stretch whose records all fit is kept
+/// whole. A stretch that holds more than fits ends the read, and the source is reported as truncated. What is kept is therefore
 /// always every record in the newest part of the window, never an older record in place of a newer one, and the records
-/// materialized never exceed the source's slots. <see cref="MaximumQueries"/> is a further guard.
+/// materialized never exceed the source's slots.
+/// Host check on the owner's PC with 0.1.17: every Win32_ReliabilityRecords query costs about 3.7 seconds however few records it
+/// matches, the same as reading its whole store. The earlier walk in stretches doubling from one hour took eight
+/// queries (about 30 seconds) and ran past the 15-second reader share, so at most <see cref="MaximumQueries"/> are made.
 /// </summary>
 public sealed class ReliabilityDiagnosticReader(IReliabilityRecordSource source) : IDiagnosticSourceReader
 {
-    public const int MaximumQueries = 32;
-    public static readonly TimeSpan FirstStretch = TimeSpan.FromHours(1);
+    public const int MaximumQueries = 2;
+    public static readonly TimeSpan FirstStretch = TimeSpan.FromDays(1);
     private static readonly TimeSpan Resolution = TimeSpan.FromTicks(10);
 
     public DiagnosticSourceKind Source => DiagnosticSourceKind.Reliability;
@@ -127,7 +130,8 @@ public sealed class ReliabilityDiagnosticReader(IReliabilityRecordSource source)
             kept.AddRange(answer.Records);
             if (from <= request.FromUtc) break;
             newest = from - Resolution;
-            stretch += stretch;
+            // The second query covers everything older in one go: each query costs the same whatever its length.
+            stretch = newest - request.FromUtc;
         }
 
         DiagnosticRecordCandidate[] records = [.. kept

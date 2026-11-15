@@ -1,3 +1,9 @@
+**Diagnostics: Reliability Monitor ran out of time; now two queries instead of eight (2026-11-15; code and tests; rides the next release).** Requirement: `FR-DIA-01` ([plan](review/TASK_64_DIAGNOSTIC_TIMELINE_PLAN.md)).
+
+- **Found on the owner's PC with 0.1.17.** Diagnostics showed Reliability Monitor as "Not read: it took too long". A read-only timing check showed each `Win32_ReliabilityRecords` query takes about 3.7 seconds however few records it matches: 371 records for seven days in 4.0 seconds, and the whole store (596 records) in 3.7 seconds. The reader's walk back in stretches doubling from one hour made eight queries (29.9 seconds), well past its 15-second share.
+- **Fixed.** The reader reads the newest day, then the rest of the window in one query: about 7.5 seconds on that PC. The rules are unchanged: the cap counts every record materialized, a stretch is kept only when all its records fit, and an older record is never kept in place of a newer one. If the rest of the window holds more than fits, only the newest day is kept and the source is marked truncated.
+- **Next.** Check on the owner's PC after the next release that Reliability is read and shows the Windows Installer records from #108.
+
 **Advisory AI, Task 71 test build (2026-11-14; build switch, guards, workflow and tests; no paid call, no key).** Requirements: `FR-AI-01–06`, `FR-BUD-01–04` ([Task 69 §12](review/TASK_69_AI_EVIDENCE_GPT_6_1_SOL.md)).
 
 - **Built for the owner's go-ahead** to build the one-request test build and have it reviewed. The build property `PCStewardAiFirstLiveTest=true` lists the Task 69 candidate as the one reviewed model and turns on first-live-test mode. Only `scripts/New-AdvisoryAiFirstLiveTestBuild.ps1` sets it, and it runs only on a hosted runner.
