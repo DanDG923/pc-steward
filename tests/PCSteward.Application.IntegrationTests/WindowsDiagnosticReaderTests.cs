@@ -120,14 +120,14 @@ public sealed class WindowsDiagnosticReaderTests
             Records =
             [
                 new("Application", 10, "Application Error", 1000, "20261110080000.000000+000", "Contoso Widget"),
-                new("Application", 11, "MsiInstaller", 11707, "20261112080000.000000+000", "Contoso Suite"),
-                new("Bad Log", 12, "MsiInstaller", 11724, "20261111080000.000000+000", "Fabrikam Tool"),
-                new("Application", 13, "Unknown Source", 1, "20261112090000.000000+000", "Anything")
+                new("Application", 11, "MsiInstaller", 11707, "20261113080000.000000+000", "Contoso Suite"),
+                new("Bad Log", 12, "MsiInstaller", 11724, "20261112130000.000000+000", "Fabrikam Tool"),
+                new("Application", 13, "Unknown Source", 1, "20261113090000.000000+000", "Anything")
             ]
         };
         DiagnosticReaderResult result = await new ReliabilityDiagnosticReader(wmi).ReadAsync(new(DiagnosticSourceKind.Reliability, From, Now, 4), CancellationToken.None);
 
-        Assert.AreEqual(ReliabilityDiagnosticCatalog.BuildQuery(Now - ReliabilityDiagnosticReader.FirstStretch, Now), wmi.Queries[0], "the first query is the newest hour");
+        Assert.AreEqual(ReliabilityDiagnosticCatalog.BuildQuery(Now - ReliabilityDiagnosticReader.FirstStretch, Now), wmi.Queries[0], "the first query is the newest day");
         Assert.IsTrue(result.MoreMatchingRecordsExist, "the oldest record would have been the fifth materialized for four slots");
         Assert.IsTrue(wmi.Materialized <= 4);
         Assert.HasCount(3, result.Records);
@@ -173,14 +173,14 @@ public sealed class WindowsDiagnosticReaderTests
     [DataRow(false, DisplayName = "WMI enumerates newest first")]
     public async Task ReliabilityKeepsTheNewestRecordsWhateverOrderWmiReturns(bool oldestFirst)
     {
-        DateTimeOffset start = Now.AddDays(-6);
+        // One record every seven hours, the newest a minute ago: the newest day holds exactly four, the window twenty-four.
         ReliabilityRawRecord[] records = [.. Enumerable.Range(0, 40).Select(index =>
-            new ReliabilityRawRecord("Application", index, "Application Error", 1000, ReliabilityDiagnosticCatalog.ToDmtf(start.AddMinutes(index * 137)), "Contoso"))];
+            new ReliabilityRawRecord("Application", index, "Application Error", 1000, ReliabilityDiagnosticCatalog.ToDmtf(Now.AddMinutes(-1).AddHours(-7 * (39 - index))), "Contoso"))];
         FakeReliability wmi = new() { Records = oldestFirst ? records : [.. records.Reverse()] };
 
         DiagnosticReaderResult result = await new ReliabilityDiagnosticReader(wmi).ReadAsync(new(DiagnosticSourceKind.Reliability, From, Now, 5), CancellationToken.None);
 
-        // The newest four fill one stretch; the next stretch holds more than the one record left, so the read ends there.
+        // The newest four fill the newest day; the rest of the window holds more than the one record left, so the read ends there.
         CollectionAssert.AreEqual(NewestFour, result.Records.Select(record => record.SourceRecordId).ToArray());
         Assert.IsTrue(result.MoreMatchingRecordsExist);
         Assert.IsTrue(wmi.Queries.Count <= ReliabilityDiagnosticReader.MaximumQueries);
@@ -192,7 +192,8 @@ public sealed class WindowsDiagnosticReaderTests
     [TestCategory("FR-DIA-01")]
     public async Task ReliabilityStopsAtItsQueryLimitWithoutKeepingAnOlderRecordInPlaceOfANewerOne()
     {
-        // Every record shares one instant, so no split can separate them: the reader keeps nothing it cannot prove is newest.
+        // Every record shares one instant in the newest day, so no split can separate them: the reader keeps nothing it cannot
+        // prove is newest.
         string at = ReliabilityDiagnosticCatalog.ToDmtf(Now.AddHours(-2));
         FakeReliability wmi = new() { Records = [.. Enumerable.Range(0, 10).Select(index => new ReliabilityRawRecord("Application", index, "Application Error", 1000, at, "Contoso"))] };
 
@@ -209,8 +210,12 @@ public sealed class WindowsDiagnosticReaderTests
     {
         FakeReliability wmi = new() { Records = [new("Application", 1, "Application Hang", 1002, ReliabilityDiagnosticCatalog.ToDmtf(Now.AddHours(-1)), "Contoso")] };
         DiagnosticReaderResult result = await new ReliabilityDiagnosticReader(wmi).ReadAsync(new(DiagnosticSourceKind.Reliability, From, Now, 5), CancellationToken.None);
-        Assert.IsTrue(wmi.Queries.Count <= 8, "doubling stretches from one hour cover seven days in eight queries");
-        StringAssert.Contains(wmi.Queries[^1], $"TimeGenerated >= '{ReliabilityDiagnosticCatalog.ToDmtf(From)}'", "the last stretch reaches the start of the window");
+        // Host check with 0.1.17: each query costs about 3.7 seconds whatever it matches, so seven days take two queries, not eight.
+        CollectionAssert.AreEqual(new[]
+        {
+            ReliabilityDiagnosticCatalog.BuildQuery(Now - ReliabilityDiagnosticReader.FirstStretch, Now),
+            ReliabilityDiagnosticCatalog.BuildQuery(From, Now - ReliabilityDiagnosticReader.FirstStretch - TimeSpan.FromTicks(10))
+        }, wmi.Queries, "the newest day, then the rest of the window in one query");
         Assert.HasCount(1, result.Records);
         Assert.IsFalse(result.MoreMatchingRecordsExist);
 
