@@ -4,6 +4,19 @@
 - **Fixed.** The reader reads the newest day, then the rest of the window in one query: about 7.5 seconds on that PC. The rules are unchanged: the cap counts every record materialized, a stretch is kept only when all its records fit, and an older record is never kept in place of a newer one. If the rest of the window holds more than fits, only the newest day is kept and the source is marked truncated.
 - **Next.** Check on the owner's PC after the next release that Reliability is read and shows the Windows Installer records from #108.
 
+**Advisory AI, Task 71 test build (2026-11-14; build switch, guards, workflow and tests; no paid call, no key).** Requirements: `FR-AI-01–06`, `FR-BUD-01–04` ([Task 69 §12](review/TASK_69_AI_EVIDENCE_GPT_6_1_SOL.md)).
+
+- **Built for the owner's go-ahead** to build the one-request test build and have it reviewed. The build property `PCStewardAiFirstLiveTest=true` lists the Task 69 candidate as the one reviewed model and turns on first-live-test mode. Only `scripts/New-AdvisoryAiFirstLiveTestBuild.ps1` sets it, and it runs only on a hosted runner.
+- **Off the release path.** The release candidate builder refuses a payload that carries the test-build mark. The release workflows never name the property. The test build comes only from the on-demand "AI first live test build" workflow on `phase/4-beta`.
+- **Limits of the test build.** It refuses app updates, the scheduled check, factory reset and self-update, composes no elevated runner, and its title says what it is.
+- **Not done.** The test build needs its own independent review. The key and the one send each still need the owner's separate approval. Every other build keeps `Reviewed` empty and paid requests disabled.
+
+**Advisory AI, Task 70 gate passed (2026-11-14; reviews and one documentation fix; no paid call, no key).** Requirements: `FR-AI-01–06`, `FR-BUD-01–04` ([Task 90 record §8](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Reviews of `bb3c049`.** The owner's Task 70F and the independent second re-review both returned PASS for `gpt-6.1-sol`, the default tier, the Responses route, this disabled commit and the Task 71 packet. Neither report is in the repository.
+- **Fixed.** T70F-01 (Low): the packet no longer says a model-name mismatch pauses paid requests automatically. It keeps the reservation, and the owner stops by hand.
+- **Not covered.** The enabled test build needs its own review, and the key and the one send each need the owner's separate approval. Ordinary-use resource measurements are still open. `Reviewed` stays empty and paid requests stay disabled.
+
 **Release 0.1.17 (2026-11-14; version number only).** VersionPrefix 0.1.17 for the release that carries Windows Installer install and remove records in Diagnostics (#108), the publisher check wording for admin installers (#109), and the advisory AI code with no reviewed model, so AI explanations show as not available and nothing is sent (#110 to #127; Task 70F and the independent re-review passed at `bb3c049`). The database moves from schema 13 to 15 on first start; the store tests upgrade older databases with data through migrations 14 and 15. No code change here.
 
 **Advisory AI, Task 70E failed on one Medium finding and the independent re-review passed; fixed (2026-11-14; code, tests and docs; no paid call, no key).** Requirements: `FR-AI-02/05`, `FR-BUD-03` ([Task 90 record §7](review/TASK_90_TASK_70_AI_REMEDIATION.md)).

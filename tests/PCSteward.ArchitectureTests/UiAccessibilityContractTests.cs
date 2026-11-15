@@ -395,7 +395,7 @@ public sealed partial class UiAccessibilityContractTests
         StringAssert.Contains(source, "Content = besideBadge ? StewardVisuals.CapCentred(label) : label,");
         Assert.AreEqual(2, Count(source, "badge.VerticalAlignment = VerticalAlignment.Center;") + Count(source, "jump.VerticalAlignment = VerticalAlignment.Center;"), "both badges centre themselves in the line");
         // The title bar's name is measured the same way, so it is level with the mark beside it and the window's own buttons.
-        StringAssert.Contains(source, "brand.Children.Add(StewardVisuals.CapHeightBox(new TextBlock { Text = AppIdentity.DisplayName, Style = AppStyle(\"StewardCaptionStyle\") }));");
+        StringAssert.Contains(source, "brand.Children.Add(StewardVisuals.CapHeightBox(new TextBlock { Text = AppIdentity.WindowName, Style = AppStyle(\"StewardCaptionStyle\") }));");
 
         // The Windows launch check measures a badge label's box on a real build.
         string smoke = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "scripts", "Test-DesktopLaunchSmokeCI.ps1"));

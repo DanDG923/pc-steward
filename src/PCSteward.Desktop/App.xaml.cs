@@ -124,8 +124,10 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         // Stage C4 (Task 54 R1, FR-UPD-15): per-user WinGet updates run only through the reviewed executor, from the reviewed
         // operation whose Silent mode was bound at review. Phase D stage D4b, stage 3: whole-PC WinGet updates run only from their
         // frozen WinGetMachineSilentV1 operation on the protocol-2 helper (protocol 1 is retired).
+        // Task 71: the AI test build composes no elevated runner, so even a machine-wide job that got past the window's refusal
+        // could not ask Windows for permission from the test build's folder.
         ApprovedUpdateExecutor executor = new(new NonElevatedUpdateRunner(new WingetReviewedUserUpdateExecutor()),
-            WingetMachineUpdateComposition.CreateElevatedRunner());
+            PCSteward.Domain.AdvisoryAiFirstLiveTestBuild.IsTestBuild ? null : WingetMachineUpdateComposition.CreateElevatedRunner());
         PackageDerivedRunningApplicationDetector runningApplications = new();
         SequentialUpdateBatchCoordinator coordinator = new(executor, workflow, database, runningApplications,
             events: new BoundedUpdateExecutionEventSink());

@@ -760,10 +760,10 @@ public sealed class AdvisoryAiLedgerTests
         FakeTransport transport = new(_ => Received(Body("x")));
         (AdvisoryAiApproval approval, AdvisoryAiRequestPreview preview) = await fixture.ApproveAsync();
 
-        AdvisoryAiSendOutcome disabled = await fixture.Workflow(transport, mode: AdvisoryAiBuildPolicy.PaidRequests).Workflow.SendAsync(approval, preview, null, CancellationToken.None);
+        AdvisoryAiSendOutcome disabled = await fixture.Workflow(transport, mode: AdvisoryAiPaidRequestMode.Disabled).Workflow.SendAsync(approval, preview, null, CancellationToken.None);
         Assert.AreEqual((AdvisoryAiSendRefusal.ReservationRefused, AdvisoryAiReservationProblem.PaidRequestsDisabledInThisBuild), (disabled.Refusal, disabled.ReservationProblem));
         Assert.AreEqual(AdvisoryAiSendRefusal.ModelNotReviewed,
-            (await fixture.Workflow(transport, reviewed: AdvisoryAiModelProfiles.Reviewed).Workflow.SendAsync(approval, preview, null, CancellationToken.None)).Refusal);
+            (await fixture.Workflow(transport, reviewed: []).Workflow.SendAsync(approval, preview, null, CancellationToken.None)).Refusal);
         await fixture.Store.SetConnectedAsync(false, Now, CancellationToken.None);
         Assert.AreEqual(AdvisoryAiSendRefusal.NotConnected, (await fixture.Workflow(transport).Workflow.SendAsync(approval, preview, null, CancellationToken.None)).Refusal);
         Assert.AreEqual(0, transport.Calls);

@@ -70,7 +70,7 @@ Prices and model facts change. The app never relies on this table for money: the
 
 The usage fields the reader trusts match the response example in S5: `input_tokens`, `input_tokens_details.cached_tokens` (and now `cache_write_tokens`), `output_tokens`, `output_tokens_details.reasoning_tokens` and `total_tokens`.
 
-## 6. Candidate profile (not added to `Reviewed`)
+## 6. Candidate profile (in `Reviewed` only in the Task 71 test build, §12)
 
 | Profile value | Candidate | Evidence |
 |---|---|---|
@@ -86,7 +86,7 @@ The usage fields the reader trusts match the response example in S5: `input_toke
 | `MaximumTokenUtf8Bytes` | Not published. 192, the wide margin (earlier 128, which already covered the longest `o200k_base` entries) | Residual R2, owner decision |
 | `ResponseEnvelopeBytes` | Not published. 1,048,576, the wide margin (earlier 262,144) | Residual R3, owner decision |
 
-`AdvisoryAiTask71CandidateTests` checks a copy of this profile. The copy is coherent. The §10 limits pass every request, response and saved-item byte ceiling, and leave room for evidence. The profile itself is still not added to `Reviewed`.
+`AdvisoryAiTask71CandidateTests` checks `AdvisoryAiFirstLiveTestBuild.Candidate` against these exact values. The profile is coherent. The §10 limits pass every request, response and saved-item byte ceiling, and leave room for evidence. Only the test build lists it in `Reviewed` (§12).
 
 ## 7. Blockers (both settled by owner decisions)
 
@@ -122,13 +122,13 @@ Evidence for all of this is in `AdvisoryAiAdapterBoundaryTests` and the transpor
 
 ## 10. Task 71 packet: one tiny paid test (needs the owner's separate approval)
 
-Task 70 did not accept the earlier plan (§7 of its report). This version answers the seven items it listed. It is still a plan: nothing here is approved, built or enabled.
+Task 70 did not accept the earlier plan (§7 of its report). This version answers the seven items it listed. Nothing here is approved or used. The test build in §12 is the only build that enables it.
 
 1. **Profile and B1/B2.** The §6 candidate, with B1 option (a) and the B2 wide margins as recorded in §7 and in ADR-028 addendum A2. Prices are entered for the key's own project and the project-prices statement is ticked (T70-03). The key comes from a project without data residency. It should be a throwaway key from a separate OpenAI project with a small prepaid balance, or the lowest budget limit OpenAI offers, and it is deleted at OpenAI after the test. This is a backstop that doesn't depend on PC Steward's own ledger.
-2. **Pinned test build.** A separate test build with `Reviewed = [gpt-6.1-sol]` (exactly the §6 values) and `PaidRequests = FirstLiveTest`. Its source SHA, artifact SHA-256 and manifest, and SDK closure (OpenAI 2.15.0 per `scripts/release-toolchain-pins.json`) are recorded before approval is sought. That build gets its own independent review. A pass for the disabled commit doesn't cover it. Because it has paid requests switched on, the test build is never published through the release or in-app updater channel.
+2. **Pinned test build.** A separate test build with `Reviewed = [gpt-6.1-sol]` (exactly the §6 values) and `PaidRequests = FirstLiveTest`. Its source SHA, artifact SHA-256 and manifest, and SDK closure (OpenAI 2.15.0 per `scripts/release-toolchain-pins.json`) are recorded before approval is sought. That build gets its own independent review. A pass for the disabled commit doesn't cover it. Because it has paid requests switched on, the test build is never published through the release or in-app updater channel. How it is built and run is in §12.
 3. **Synthetic evidence only.** In the test build, open Explain on one Diagnostics record. Tick "Leave this out" on every item but one. Replace that item's text with exactly: `Contoso Editor 4.2 stopped responding after an update from 4.1. Error code 0x00000ABC appeared at start-up.` The exact request screen then shows everything that would be sent. Besides the synthetic text, that includes the chosen record's time window and the count of left-out items, which are real metadata. The owner checks the screen and cancels if anything else from the PC appears.
 4. **Key, then one send, each separately authorized.** The owner types the key into the masked box only after approving that step. The key never appears in chat or in a log. Before the send, the owner confirms the current prices and the limits page's first-live-test figures. Settled and uncertain test commitments must both be $0.00 on the current ledger, which also counts months that were compacted and checks them against their requests (T70B-01). A reset, a restored backup or a no-prior-use declaration never grants new test allowance: the owner accounts separately for any earlier test use that the ledger might not know about.
-5. **Evidence capture.** After the send, the owner reads the outcome screen and notes what it says: sent once or not, the stop reason if any, the charge or "kept as uncertain", and the reported counts: input (cached), output (reasoning), total, and the cache-write figure or "no cache-write figure" (T70-07). The reply-details line gives the HTTP status number, the service tier, the fixed reason the reply wasn't trusted, if any, and anything that departed from the request. A tier is shown by name only when it is one PC Steward knows, as its own fixed word. Anything else shows as "a service tier PC Steward doesn't recognise", "more than one service tier" or "no service tier reported" (T70E-01). These are numbers and fixed words, never provider text. The reader is strict about the reply's shape. A small surprise ends the test as uncertain and paused, for example `"background": null` instead of false, an unknown usage counter, or a model name with a date suffix. That is the safe direction, and the reply-details line says why. Nothing else is kept: no body, body hash, header, key, provider error text or answer text. The owner may compare the usage page of their OpenAI account later; that comparison is outside corroboration, not proof of the invoice.
+5. **Evidence capture.** After the send, the owner reads the outcome screen and notes what it says: sent once or not, the stop reason if any, the charge or "kept as uncertain", and the reported counts: input (cached), output (reasoning), total, and the cache-write figure or "no cache-write figure" (T70-07). The reply-details line gives the HTTP status number, the service tier, the fixed reason the reply wasn't trusted, if any, and anything that departed from the request. A tier is shown by name only when it is one PC Steward knows, as its own fixed word. Anything else shows as "a service tier PC Steward doesn't recognise", "more than one service tier" or "no service tier reported" (T70E-01). These are numbers and fixed words, never provider text. The reader is strict about the reply's shape, and a small surprise ends the test as uncertain: the whole reservation is kept and the reply-details line says why. Only a departure from the priced request also pauses paid requests automatically, for example `"background": null` instead of false, an unknown usage counter or another service tier. Other surprises keep the reservation without an automatic pause, for example a model name with a date suffix or a reply that isn't a response object. Either way the owner stops as item 6 says (T70F-01). Nothing else is kept: no body, body hash, header, key, provider error text or answer text. The owner may compare the usage page of their OpenAI account later; that comparison is outside corroboration, not proof of the invoice.
 6. **One request, then stop.** Limits: input 12,288 tokens, output 2,048 tokens, $0.05 per request, $1.00 per month. Worst case at the listed Standard prices: 12,288 × $2.00/M = $0.024576 plus 2,048 × $10.00/M = $0.020480, a **reservation of $0.045056** ($0.049562 with a 10% uplift). The software pauses paid requests by itself for usage above the bounds, any reported cache write (also in a body refused for another reason, T70B-02), or a charge above the reservation. It also pauses for a reply naming another service tier, an unknown usage counter, cached input, or background or conversation state. **An ordinary timeout or other uncertain outcome keeps the whole reservation but does not pause paid requests** (T70-07), so stopping is the owner's procedure. After the one send, whatever the outcome, the owner sets the limit per request to $0 (which turns paid requests off). Then the owner reports. Any retry is a new task with a new approval.
 7. **No promotion.** No success, month change, reconnect or limit change ends first-live-test mode. Ordinary use is a separate owner decision. It also needs the measurements still open in [Task 90](TASK_90_TASK_70_AI_REMEDIATION.md) §2.
 
@@ -138,3 +138,51 @@ Task 70 did not accept the earlier plan (§7 of its report). This version answer
 - Every figure comes from the official pages on the date above.
 - The owner chose B1 option (a) and the B2 wide margins on 2026-11-14. The go-ahead for the paid call is still the owner's decision.
 - Task 70 failed at `db4bc76`, `669c8c7` and `b11da9b`, and passed at `14ef51b` (70D). An independent review at `14ef51b` failed on one Medium finding, fixed in [Task 90](TASK_90_TASK_70_AI_REMEDIATION.md) §6. Both reviews are re-run at the fixed commit.
+
+## 12. The Task 71 test build
+
+Built for the owner's go-ahead of 2026-11-14 to build the one-request test build and have it reviewed. That go-ahead covers no key and no paid request.
+
+**How it differs from a release.** The MSBuild property `PCStewardAiFirstLiveTest=true` defines `PCSTEWARD_AI_FIRST_LIVE_TEST`. Only `scripts/New-AdvisoryAiFirstLiveTestBuild.ps1` sets it. With the symbol, and only then:
+
+- `AdvisoryAiModelProfiles.Reviewed` is `[AdvisoryAiFirstLiveTestBuild.Candidate]`, the §6 profile.
+- `AdvisoryAiBuildPolicy.PaidRequests` is `FirstLiveTest`, so every request stays inside the cumulative $1 envelope.
+- `PCSteward.Domain.dll` carries the type `AdvisoryAiFirstLiveTestBuildMark`.
+
+Every other build compiles the candidate as inert data that nothing offers. `Reviewed` stays empty there, and paid requests stay disabled.
+
+**Kept off the release path.**
+
+- The release candidate builder (`New-OwnerOnlyCandidate.ps1`, which builds the release payload) refuses any payload whose `PCSteward.Domain.dll` carries the mark. That also catches the property arriving from an environment variable.
+- The release workflows never name the script or the property, which an architecture test checks.
+- The test build has no MSI, release check, signature or updater entry.
+
+**Built on demand.** The "AI first live test build" workflow runs only when started by hand, only from `phase/4-beta`, with a read-only token and no secrets. It:
+
+- runs the AI suites with the property on;
+- builds the desktop app the way the launch smoke does (framework-dependent .NET, with the Windows App SDK in the folder);
+- checks that the mark is present and that no elevated helper is in the folder;
+- writes `ai-first-live-test-manifest.json`, which records the source commit, the run, the OpenAI package version and every file's SHA-256;
+- uploads the artifact for 7 days.
+
+A CI job builds the same thing on every pull request and uploads nothing.
+
+**What the test build refuses.** It runs from a folder the user can write to, so it does only the AI test:
+
+- It never prepares, approves or starts an app update, WinGet or Chocolatey. It also composes no elevated runner.
+- It never saves or registers the scheduled check, so the Windows task keeps starting the installed copy.
+- It never arms a factory reset, which would delete the AI ledger the test is measured against.
+- It never checks for, downloads or installs a PC Steward update, and it never reads or clears the installed copy's update record.
+
+Its title and title bar say "PC Steward — AI test build, not a release".
+
+**What it shares with the installed copy.** It uses the same data folder, database and Credential Manager entry as the installed PC Steward. The test is therefore recorded in the same ledger, and any earlier use shows up there. Build it from a `phase/4-beta` commit whose database migrations match the installed release: 0.1.17 has migrations 1 to 15.
+
+**Owner's steps, once the test build's review has passed.** Each one is separate from the key step and from the send.
+
+1. Start the workflow on `phase/4-beta`. Note the run number, the source commit and the artifact's SHA-256 digest that GitHub shows for the run. These must match the ones the review covered.
+2. Download the artifact and check that its digest matches. Extract it to a new folder in your user profile.
+3. Close the installed PC Steward, then start `PCSteward.Desktop.exe` from that folder. Check that the title names the AI test build.
+4. Follow items 3 to 7 above. Close the test build afterwards, then delete the folder. Start the installed PC Steward again. It shows the same ledger and sends nothing.
+
+**Accepted residual.** Code already running as the owner could replace files in the extracted folder before it starts. That code could also read the key, so this needs a PC that is already compromised (the owner's rule of 2026-11-12). The workflow digest and the manifest let the owner check the folder before starting it. The test build cannot ask Windows for administrator rights.

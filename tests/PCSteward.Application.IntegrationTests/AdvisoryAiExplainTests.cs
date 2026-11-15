@@ -28,7 +28,7 @@ public sealed class AdvisoryAiExplainTests
     public async Task NothingIsDraftedOrReviewedWithoutAReviewedModelOrAConnection()
     {
         await using Fixture fixture = await Fixture.CreateAsync(connected: false, prices: true);
-        AdvisoryAiExplainService none = fixture.Service(AdvisoryAiAvailability.Current);
+        AdvisoryAiExplainService none = fixture.Service(AdvisoryAiAvailability.Evaluate([], AdvisoryAiPaidRequestMode.Disabled));
         Assert.AreEqual(AdvisoryAiExplainBlock.NotAvailable, (await none.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Block);
 
         AdvisoryAiDraftResult notConnected = await fixture.Service().DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None);
@@ -121,7 +121,8 @@ public sealed class AdvisoryAiExplainTests
         StringAssert.Contains(details, "wasn't a response object");
         StringAssert.Contains(details, "no service tier reported");
         Assert.IsFalse(details.Contains("Incorrect", StringComparison.Ordinal), "provider text never reaches the screen");
-        Assert.IsFalse(details.Contains("paused", StringComparison.Ordinal));
+        Assert.IsFalse(details.Contains("paused", StringComparison.Ordinal), "an error reply alone keeps the reservation but doesn't claim a pause (T70F-01)");
+        Assert.IsFalse(outcome.Settlement.NeedsReview);
         Assert.IsNull(AdvisoryAiExplainText.ReplyDetails(null));
     }
 
