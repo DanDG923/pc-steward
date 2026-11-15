@@ -78,6 +78,16 @@ public sealed partial class MainWindow
     {
         Button button = new() { Content = action.Label, IsEnabled = action.IsEnabled };
         AutomationProperties.SetName(button, action.AccessibleName);
+        // Task 71 (T71-02): the AI test build shares the installed copy's data, so it clears none of it.
+        if (PCSteward.Domain.AdvisoryAiFirstLiveTestBuild.IsTestBuild)
+        {
+            button.Click += async (_, _) =>
+            {
+                await new ContentDialog { XamlRoot = Content.XamlRoot, Title = action.Label + " unavailable", Content = AppIdentity.TestBuildActionOff, CloseButtonText = "Close" }.ShowAsync();
+                button.Focus(FocusState.Programmatic);
+            };
+            return button;
+        }
         switch (action.Action)
         {
             case DataAction.ClearScanData: button.Click += async (_, _) => await ConfirmAndClearScanDataAsync(); break;

@@ -32,6 +32,8 @@ $scheduledHost = Join-Path $repository 'src\PCSteward.ScheduledHost\PCSteward.Sc
 $desktop = Join-Path $repository 'src\PCSteward.Desktop\PCSteward.Desktop.csproj'
 $domainTests = Join-Path $repository 'tests\PCSteward.Domain.UnitTests\PCSteward.Domain.UnitTests.csproj'
 $applicationTests = Join-Path $repository 'tests\PCSteward.Application.IntegrationTests\PCSteward.Application.IntegrationTests.csproj'
+# The output ends in a separator: without one, the WinUI resource copy wrote App.xbf and Resources\*.xbf a second time beside the
+# folder, as appApp.xbf and appResources\ (Task 71 review F1). The count check below fails the build if anything lands outside it.
 $steps = @(
     # The AI suites compiled as the test build: they check that only the candidate is reviewed, only for the first live test.
     @('test', $domainTests, '--configuration', 'Release', $property, '--filter', 'FullyQualifiedName~AdvisoryAi'),
@@ -39,7 +41,7 @@ $steps = @(
     @('restore', $scheduledHost, '--runtime', 'win-x64', $property),
     @('restore', $desktop, '--runtime', 'win-x64', '-p:WindowsAppSDKSelfContained=true', $property),
     @('build', $scheduledHost, '--configuration', 'Release', '--runtime', 'win-x64', '--self-contained', 'false', '--no-restore', $property),
-    @('build', $desktop, '--configuration', 'Release', '--runtime', 'win-x64', '--self-contained', 'false', '--no-restore', '-p:WindowsAppSDKSelfContained=true', $property, '--output', $app)
+    @('build', $desktop, '--configuration', 'Release', '--runtime', 'win-x64', '--self-contained', 'false', '--no-restore', '-p:WindowsAppSDKSelfContained=true', $property, '--output', ($app + '\'))
 )
 foreach ($step in $steps) {
     & dotnet @step
@@ -60,7 +62,8 @@ foreach ($leaf in @('PCSteward.ElevatedHelper.exe', 'PCSteward.ElevatedHelper.dl
 
 # Ordinal path order, so the manifest is the same for the same files on any runner.
 $entries = [Collections.Generic.List[object]]::new()
-foreach ($file in Get-ChildItem -LiteralPath $app -Recurse -File) {
+# -Force: hidden and system files are listed too, so the manifest covers every file the upload carries (Task 71 review F1).
+foreach ($file in Get-ChildItem -LiteralPath $app -Recurse -File -Force) {
     $entries.Add([ordered]@{
         path = $file.FullName.Substring($app.Length + 1).Replace('\', '/')
         bytes = $file.Length
@@ -83,4 +86,7 @@ $manifest = [ordered]@{
 }
 $manifestPath = Join-Path $out 'ai-first-live-test-manifest.json'
 [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 6) + "`n", [Text.UTF8Encoding]::new($false))
+# The upload folder must hold exactly the listed app files and the manifest: nothing else, hidden or not.
+$uploaded = @(Get-ChildItem -LiteralPath $out -Recurse -File -Force)
+if ($uploaded.Count -ne $files.Count + 1) { throw "The upload folder holds $($uploaded.Count) files, but the manifest lists $($files.Count) plus itself." }
 Write-Host ("AI-TEST-BUILD commit=$commit files=$($files.Count) manifestSha256=" + (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash)

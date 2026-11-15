@@ -153,7 +153,7 @@ Every other build compiles the candidate as inert data that nothing offers. `Rev
 
 **Kept off the release path.**
 
-- The release candidate builder (`New-OwnerOnlyCandidate.ps1`, which builds the release payload) refuses any payload whose `PCSteward.Domain.dll` carries the mark. That also catches the property arriving from an environment variable.
+- The release candidate builder (`New-OwnerOnlyCandidate.ps1`, which builds the release payload) refuses any payload whose `PCSteward.Domain.dll` carries the mark. That also catches the property arriving from outside the script. MSBuild reads it from an environment variable or a `Directory.Build.rsp` as well, and the Task 71 review showed both turn an ordinary build into a marked test build. So "only the script sets it" is a rule for the checked-in files, and the mark check on the release path is what enforces it.
 - The release workflows never name the script or the property, which an architecture test checks.
 - The test build has no MSI, release check, signature or updater entry.
 
@@ -162,27 +162,56 @@ Every other build compiles the candidate as inert data that nothing offers. `Rev
 - runs the AI suites with the property on;
 - builds the desktop app the way the launch smoke does (framework-dependent .NET, with the Windows App SDK in the folder);
 - checks that the mark is present and that no elevated helper is in the folder;
-- writes `ai-first-live-test-manifest.json`, which records the source commit, the run, the OpenAI package version and every file's SHA-256;
-- uploads the artifact for 7 days.
+- writes `ai-first-live-test-manifest.json`, which records the source commit, the run, the OpenAI package version and every file's size and SHA-256, hidden and system files included;
+- checks that the upload folder holds exactly those files and the manifest;
+- uploads the artifact for 7 days, hidden files included.
 
 A CI job builds the same thing on every pull request and uploads nothing.
 
-**What the test build refuses.** It runs from a folder the user can write to, so it does only the AI test:
+**What the test build refuses.** It runs from a folder the user can write to, and it shares the installed copy's data, so:
 
 - It never prepares, approves or starts an app update, WinGet or Chocolatey. It also composes no elevated runner.
 - It never saves or registers the scheduled check, so the Windows task keeps starting the installed copy.
 - It never arms a factory reset, which would delete the AI ledger the test is measured against.
+- It never finishes or rechecks a reset that the installed copy started (Task 71 review T71-01). If any reset state is present (pending, partial, part-way through, waiting for first-run setup, or unreadable), it stops at start-up. It does that before any scheduled-task or Credential Manager step, before the database is opened or migrated and before a fresh store is made, and it shows "A factory reset is still pending". `AdvisoryAiFirstLiveTestStartupResetTests` proves this for every state, with a populated ledger and counted callbacks.
+- It clears none of the shared data: scan data, downloads, source metadata, logs, update history, or mappings and policies (T71-02).
 - It never checks for, downloads or installs a PC Steward update, and it never reads or clears the installed copy's update record.
 
 Its title and title bar say "PC Steward — AI test build, not a release".
 
-**What it shares with the installed copy.** It uses the same data folder, database and Credential Manager entry as the installed PC Steward. The test is therefore recorded in the same ledger, and any earlier use shows up there. Build it from a `phase/4-beta` commit whose database migrations match the installed release: 0.1.17 has migrations 1 to 15.
+**What still works, and must not be used during the test.** A normal start still creates or migrates the shared database, removes saved AI explanations older than 30 days and reconciles an interrupted update. Scanning and refreshing, connector consent, matching decisions (mappings, pins and ignores), diagnostic collection and its source settings, and the exports and copy actions all still work against the installed copy's data. None of them gains send authority or gets past the update refusal, but they do change shared state. The test uses only the AI set-up, the one Explain and the steps in §10.
+
+**The software's bound and the procedure's.** "One request" and the Task 71 limits are the owner's procedure. The software enforces the cumulative $1 envelope, the per-request and monthly caps, one request in flight, and no retry. It does not stop a second, separately approved request inside those limits. That is why §10 item 6 sets the per-request cap to $0 after the one attempt, whatever its result.
+
+**What it shares with the installed copy.** It uses the same data folder, database and Credential Manager entry as the installed PC Steward. The test is therefore recorded in the same ledger, and any earlier use shows up there. Build it from a `phase/4-beta` commit whose database migrations match the installed release: 0.1.17 has migrations 1 to 15. On an older installed copy (0.1.16 has 1 to 13), the test build would migrate the shared database to 15, and that copy would then refuse it until it was updated. So step 3 checks the installed version. Deleting the extracted folder removes neither the database nor the key entry.
 
 **Owner's steps, once the test build's review has passed.** Each one is separate from the key step and from the send.
 
-1. Start the workflow on `phase/4-beta`. Note the run number, the source commit and the artifact's SHA-256 digest that GitHub shows for the run. These must match the ones the review covered.
-2. Download the artifact and check that its digest matches. Extract it to a new folder in your user profile.
-3. Close the installed PC Steward, then start `PCSteward.Desktop.exe` from that folder. Check that the title names the AI test build.
-4. Follow items 3 to 7 above. Close the test build afterwards, then delete the folder. Start the installed PC Steward again. It shows the same ledger and sends nothing.
+1. Download the artifact from the run that the passing review names. Don't start the workflow again: a new run makes a new artifact and a new manifest, and no review covers them. If the artifact has expired (after 7 days), a new run from the same commit keeps the code review valid, but its artifact has to be checked again (Task 71 review F2).
+2. Check that the download's SHA-256 matches the digest the review recorded. Extract it to a new folder in your user profile. Then check the folder against the manifest with the check below, using the manifest SHA-256 from the review, not the copy in the folder. The check must print that the folder matches. Windows SmartScreen may warn about the unsigned program. Go on only after the check passes.
+3. In the installed PC Steward, check that About shows 0.1.17. Start it and close it normally once, so that no reset is pending. Then start `PCSteward.Desktop.exe` from the extracted folder, and check that the title names the AI test build. If it shows "A factory reset is still pending", close it and stop.
+4. Follow items 3 to 7 above. Before closing the test build, select Disconnect in its AI settings and check that it says the key is gone. That removes the key from Credential Manager and keeps the ledger. Then delete the key at the provider. Close the test build and delete the folder. Start the installed PC Steward again. It shows the same ledger and sends nothing.
 
-**Accepted residual.** Code already running as the owner could replace files in the extracted folder before it starts. That code could also read the key, so this needs a PC that is already compromised (the owner's rule of 2026-11-12). The workflow digest and the manifest let the owner check the folder before starting it. The test build cannot ask Windows for administrator rights.
+The folder check (PowerShell, no administrator rights, reads only):
+
+```powershell
+$folder = '<the extracted folder>'
+$reviewedManifest = '<manifest SHA-256 from the review>'
+$manifestPath = Join-Path $folder 'ai-first-live-test-manifest.json'
+if ((Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash -ne $reviewedManifest) { throw 'The manifest is not the reviewed one.' }
+$manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+$app = Join-Path $folder 'app'
+$listed = @{}; foreach ($entry in $manifest.files) { $listed[$entry.path] = $entry }
+$actual = @(Get-ChildItem -LiteralPath $app -Recurse -File -Force)
+foreach ($file in $actual) {
+    $path = $file.FullName.Substring($app.Length + 1).Replace('\', '/')
+    $entry = $listed[$path]
+    if ($null -eq $entry) { throw "Not in the manifest: $path" }
+    if ($entry.bytes -ne $file.Length -or $entry.sha256 -ne (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash) { throw "Changed: $path" }
+}
+if ($actual.Count -ne @($manifest.files).Count) { throw 'A file in the manifest is missing.' }
+if (@(Get-ChildItem -LiteralPath $folder -Force).Count -ne 2) { throw 'The folder holds more than app and the manifest.' }
+'The folder matches the reviewed manifest.'
+```
+
+**Accepted residuals.** `New-PrivateBetaPackage.ps1`, which is not on the release path, has no mark check (Task 71 review F8). Code already running as the owner could replace files in the extracted folder before it starts. That code could also read the key, so this needs a PC that is already compromised (the owner's rule of 2026-11-12). The workflow digest and the manifest let the owner check the folder before starting it. The test build cannot ask Windows for administrator rights.

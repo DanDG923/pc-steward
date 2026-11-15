@@ -161,10 +161,13 @@ public sealed class ReferenceBoundaryTests
     public void DesktopStartupCompletesEveryValidPendingResetStateBeforeComposition()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Desktop", "App.xaml.cs"));
+        // Task 71 (T71-01): the start-up reset step lives in Storage, so its behaviour has fixtures; the desktop only acts on its result.
+        string reset = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Storage", "FactoryReset.cs"));
 
-        StringAssert.Contains(source, "markerState is FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.Partial or FactoryResetMarkerState.TransitionPending");
-        StringAssert.Contains(source, "FactoryReset.CompletePendingAsync");
-        StringAssert.Contains(source, "showPostResetOnboarding = true;");
+        StringAssert.Contains(reset, "markerState is FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.Partial or FactoryResetMarkerState.TransitionPending");
+        StringAssert.Contains(reset, "() => CompletePendingAsync(removeScheduledTask, removeAiCredentials, CancellationToken.None, stateRoot)");
+        StringAssert.Contains(source, "FactoryReset.RecoverAtStartup(");
+        StringAssert.Contains(source, "bool showPostResetOnboarding = startup.Kind == FactoryResetStartupKind.Onboarding;");
         StringAssert.Contains(source, "IsFreshResetStoreAsync");
         StringAssert.Contains(source, "ActivateWindow(new DataOperationBusyWindow());");
         StringAssert.Contains(source, "private Window? activeWindow;");

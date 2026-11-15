@@ -177,6 +177,36 @@ public static class FactoryReset
 
     public static Task<FactoryResetResult> CompletePendingAsync(CancellationToken cancellationToken, string? stateRoot = null) => CompletePendingAsync(null, cancellationToken, stateRoot);
 
+    /// <summary>
+    /// The desktop start-up's reset step: completes a pending reset and rechecks a finished one's first-run authority, exactly as
+    /// before. Task 71 (T71-01): when <paramref name="refuseRecovery"/> is true (the AI test build), any reset state other than
+    /// <see cref="FactoryResetMarkerState.None"/> stops start-up here, before a schedule or key callback runs, before the database is
+    /// touched and before a fresh store is made. The test build shares the installed copy's data, ledger, task and key, so it must
+    /// never finish (or recheck) a reset that the installed copy started; the installed copy does that.
+    /// </summary>
+    public static FactoryResetStartup RecoverAtStartup(Func<CancellationToken, Task>? removeScheduledTask, Func<CancellationToken, Task<bool>>? removeAiCredentials,
+        bool refuseRecovery, string? stateRoot = null) =>
+        RecoverAtStartupCore(GetMarkerState(stateRoot), refuseRecovery,
+            () => CompletePendingAsync(removeScheduledTask, removeAiCredentials, CancellationToken.None, stateRoot).GetAwaiter().GetResult(),
+            () => VerifyOnboardingBootstrap(removeAiCredentials, stateRoot));
+
+    private static FactoryResetStartup RecoverAtStartupCore(FactoryResetMarkerState markerState, bool refuseRecovery, Func<FactoryResetResult> completePending, Func<FactoryResetResult> verifyOnboarding)
+    {
+        if (markerState == FactoryResetMarkerState.None) return new(FactoryResetStartupKind.Continue, new(true, []));
+        if (refuseRecovery)
+            return new(FactoryResetStartupKind.RefusedInTestBuild, new(false, [new FactoryResetResidual("Reset marker", "TestBuildLeavesResetAlone", markerState.ToString())]));
+        if (markerState == FactoryResetMarkerState.Invalid)
+            return new(FactoryResetStartupKind.NeedsAttention, new(false, [new FactoryResetResidual("Reset marker", "InvalidMarker", "The reset control state is invalid.")]));
+        if (markerState is FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.Partial or FactoryResetMarkerState.TransitionPending)
+        {
+            FactoryResetResult reset = completePending();
+            if (!reset.Succeeded) return new(FactoryResetStartupKind.NeedsAttention, reset);
+        }
+        // ADR-028: a reset that finished on an earlier start (or before the AI key step existed) still rechecks the AI key.
+        FactoryResetResult onboardingAuthority = verifyOnboarding();
+        return onboardingAuthority.Succeeded ? new(FactoryResetStartupKind.Onboarding, onboardingAuthority) : new(FactoryResetStartupKind.NeedsAttention, onboardingAuthority);
+    }
+
     /// <summary>Validates the exact durable onboarding authority before a fresh store is created.</summary>
     public static FactoryResetResult VerifyOnboardingBootstrap(string? stateRoot = null) => VerifyOnboardingBootstrap(null, stateRoot);
 
@@ -272,6 +302,13 @@ public static class FactoryReset
     }
     internal static FactoryResetResult VerifyOnboardingBootstrapForTesting(string stateRoot, Func<CancellationToken, Task<bool>>? removeAiCredentials = null) =>
         VerifyOnboardingBootstrapCore(ValidateRoot(stateRoot, allowTestRoot: true), removeAiCredentials);
+    internal static FactoryResetStartup RecoverAtStartupForTesting(string stateRoot, Func<CancellationToken, Task>? removeScheduledTask, Func<CancellationToken, Task<bool>>? removeAiCredentials, bool refuseRecovery)
+    {
+        string root = ValidateRoot(stateRoot, allowTestRoot: true);
+        return RecoverAtStartupCore(GetMarkerState(root), refuseRecovery,
+            () => CompletePendingCoreAsync(root, removeScheduledTask, removeAiCredentials, CancellationToken.None).GetAwaiter().GetResult(),
+            () => VerifyOnboardingBootstrapCore(root, removeAiCredentials));
+    }
 
     private static string ValidateRoot(string root, bool allowTestRoot = false)
     {
@@ -408,6 +445,10 @@ public static class FactoryReset
 
 public sealed record FactoryResetResidual(string Category, string Reason, string Detail);
 public sealed record FactoryResetResult(bool Succeeded, IReadOnlyCollection<FactoryResetResidual> Residuals);
+/// <summary>What start-up does after its reset step: carry on, open first-run setup, show what needs attention, or (the AI test
+/// build only) stop because a reset is pending that only the installed copy may finish.</summary>
+public enum FactoryResetStartupKind { Continue, Onboarding, NeedsAttention, RefusedInTestBuild }
+public sealed record FactoryResetStartup(FactoryResetStartupKind Kind, FactoryResetResult Result);
 public enum FactoryResetMarkerState { None, ResetPending, Partial, OnboardingPending, TransitionPending, Invalid }
 
 // The marker is deliberately a fixed, bounded recovery record.  It supplies neither a path nor
