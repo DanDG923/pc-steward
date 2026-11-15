@@ -109,3 +109,22 @@ The reviews covered the enabled test build at `97699d9` and its artifact from ru
 | **F7, F9 (Info).** "One request" is the procedure, and the unsigned program will be warned about. | §12 says what the software enforces and what the procedure does, and that SmartScreen may warn. | Task 69 §12 |
 
 The test build has to be built again from the fixed commit, and both reviews then run on the new artifact. The key and the one send each still need the owner's separate approval.
+
+## 10. Task 71B and the independent re-review of `12852c3`
+
+Both reviews returned **PASS**, with no new findings. They cover the enabled test build at `12852c3`, run 43660727591, artifact SHA-256 `99570e626fe3fc35ed588f1717924deebf9a0f99bd18db04b50304ea423a650d` (manifest SHA-256 `699F3543C97B13FB8BE0D6C0EEE570052C3B8D45F81AAE7CCDD14C23CB736334`), model `gpt-6.1-sol` at the default tier, the route `POST https://api.openai.com/v1/responses` and the one-request Task 71 procedure. The pass clears this exact build for the owner's separate key and send approvals. It approves neither.
+
+- **T71-01 and T71-02 are closed.** The owner's review exercised every reset state in the test build with a reserved, claimed and uncertain synthetic ledger. Each was refused with no callback and an unchanged folder. It also compared the ordinary start-up step with the earlier start-up flow in 18 cases. All six data clears are unwired in the test build.
+- **The artifact was downloaded and checked.** It holds 411 files: the 410 app files the manifest lists, every size and hash matching, plus the manifest. It carries the mark and the compiled first-live-test getters, and it has no elevated helper. The release candidate builder's mark check refuses it.
+- **The folder check works.** The §12 folder check passed on a fresh extraction. It rejected a changed, missing, extra, hidden-extra or outside file, and a changed manifest.
+- **Three Info notes stay as they are, so the reviewed build and text keep their pins:**
+  - The download clean-up on an update's completion view has no test-build guard of its own. It can't be reached, because every update is refused first.
+  - §12 step 2 doesn't spell out the zip hash command, which is `(Get-FileHash -LiteralPath <zip> -Algorithm SHA256).Hash`.
+  - The folder check's last message also fires when the folder holds less than app and the manifest.
+- **Still to check at the time of each action:**
+  - before a launch: a compatible installed copy with no reset pending, a freshly checked folder, and earlier test use (settled and uncertain);
+  - before the key step: the project's current effective prices and the separate low-funded project;
+  - before the send: a suitable existing diagnostic record for the synthetic-only evidence.
+
+  Ordinary-use resource measurements stay open (§2).
+
