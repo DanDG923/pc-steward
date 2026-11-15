@@ -170,7 +170,7 @@ public sealed partial class MainWindow : Window
         // Chocolatey Confirm design §4.3: closing PC Steward cannot stop an elevated Chocolatey update that has started, so the window
         // stays open until its result is recorded and shown.
         AppWindow.Closing += (_, args) => { if (activeChocolateyClientUpdate?.IsRunning == true || activeChocolateyPackageUpdate?.IsRunning == true) args.Cancel = true; };
-        Title = AppIdentity.DisplayName;
+        Title = AppIdentity.WindowName;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "pc-steward.ico"));
         // Sharp text fix: the app is DPI aware, so the 1280x820 first size is in effective pixels, scaled to the display.
         WindowDisplay.ResizeEffective(this, 1280, 820);

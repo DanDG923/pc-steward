@@ -561,6 +561,12 @@ public sealed partial class MainWindow
     private async Task ReviewAndExecuteAsync(IReadOnlyList<InventoryRow> rows)
     {
         if (HasActiveOperation || windowClosed || reviewDecision is not null || rows.Count == 0) return;
+        // Task 71: the AI test build runs from a folder the user can write to, so it never prepares, approves or starts an update.
+        if (PCSteward.Domain.AdvisoryAiFirstLiveTestBuild.IsTestBuild)
+        {
+            await ShowUpdateOutcomeAsync("Update not available", AppIdentity.TestBuildActionOff);
+            return;
+        }
         // ADR-032 §8 (FR-UPD-04/15): while a PC Steward update may have left an install unlike a signed release, no other update
         // starts until a signed release is reinstalled. The recorded job is decided first if this launch has not finished it yet.
         if (selfUpdateStatusLoad is { IsCompleted: false } statusLoad)

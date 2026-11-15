@@ -92,6 +92,17 @@ function Test-OwnerOnlyCandidateProbeMark {
     [pscustomobject]@{ Included = $true; Detail = 'included' }
 }
 
+# Pure over its input (reads only PCSteward.Domain.dll, writes nothing): Task 71 (ADR-029). True when the payload was built as the
+# one-request AI test build, whose PCSteward.Domain.dll carries the metadata name AdvisoryAiFirstLiveTestBuildMark (NUL-terminated
+# in the #Strings heap; only PCSTEWARD_AI_FIRST_LIVE_TEST compiles it in). A candidate or release payload never may.
+function Test-OwnerOnlyCandidateAiTestBuildMark {
+    param([Parameter(Mandatory)][string]$PayloadRoot)
+    $path = Join-Path $PayloadRoot 'PCSteward.Domain.dll'
+    if (!(Test-Path -LiteralPath $path -PathType Leaf)) { throw 'The candidate payload is missing: PCSteward.Domain.dll' }
+    $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($path))
+    $text.IndexOf('AdvisoryAiFirstLiveTestBuildMark' + [char]0, [StringComparison]::Ordinal) -ge 0
+}
+
 # Pure: global.json SDK rule. Returns $true for the exact pinned SDK, $false for an accepted latestPatch roll-forward.
 function Test-OwnerOnlyCandidateSdkVersion {
     param([Parameter(Mandatory)][string]$Pinned, [string]$RollForward, [Parameter(Mandatory)][string]$Actual)
@@ -455,6 +466,8 @@ try {
     foreach ($runtimeLeaf in @('coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll')) {
         if (Test-Path -LiteralPath (Join-Path $payload $runtimeLeaf)) { throw "The candidate must be framework-dependent, but contains $runtimeLeaf." }
     }
+    # Task 71 (ADR-029): the AI test build, with a reviewed model and paid requests on, is never a candidate or a release.
+    if (Test-OwnerOnlyCandidateAiTestBuildMark -PayloadRoot $payload) { throw 'The payload was built as the AI first-live-test build (PCStewardAiFirstLiveTest), which is never a candidate or a release.' }
     # ADR-033: the helper is the native image alone; none of its managed files may reach the payload from any output.
     foreach ($managedLeaf in @('PCSteward.ElevatedHelper.dll', 'PCSteward.ElevatedHelper.deps.json', 'PCSteward.ElevatedHelper.runtimeconfig.json')) {
         if (Test-Path -LiteralPath (Join-Path $payload $managedLeaf)) { throw "The candidate helper must be a native image, but the payload contains $managedLeaf." }

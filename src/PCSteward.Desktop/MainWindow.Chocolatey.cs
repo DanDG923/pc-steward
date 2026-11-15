@@ -47,6 +47,11 @@ public sealed partial class MainWindow
     private async Task ShowChocolateyPackageUpdateAsync(string packageId)
     {
         if (windowClosed || activeChocolateyPackageUpdate is not null || activeChocolateyClientUpdate is not null) return;
+        if (PCSteward.Domain.AdvisoryAiFirstLiveTestBuild.IsTestBuild)
+        {
+            await ShowUpdateOutcomeAsync("Update not available", AppIdentity.TestBuildActionOff);
+            return;
+        }
         ChocolateyPackageUpdateViewModel OpenChecking() => ChocolateyPackageUpdateViewModel.Open(packageId, viewModel.IsWinGetTrustedSourcesEnabled, probeReviewedRouteSplitToken);
         ChocolateyPackageUpdateViewModel model = OpenChecking();
         ContentDialog dialog = ChocolateyPackageUpdateSurfaces.ReviewDialog(Content.XamlRoot, model);
@@ -85,6 +90,11 @@ public sealed partial class MainWindow
     private async Task ShowChocolateyClientUpdateAsync()
     {
         if (windowClosed || activeChocolateyClientUpdate is not null || activeChocolateyPackageUpdate is not null) return;
+        if (PCSteward.Domain.AdvisoryAiFirstLiveTestBuild.IsTestBuild)
+        {
+            await ShowUpdateOutcomeAsync("Update not available", AppIdentity.TestBuildActionOff);
+            return;
+        }
         // Every opening and every "Check again" probes the split token afresh (C4).
         ChocolateyClientUpdateViewModel OpenChecking() => ChocolateyClientUpdateView(probeReviewedRouteSplitToken, ChocolateyInstalledClientVerification.Checking);
         ChocolateyClientUpdateViewModel model = OpenChecking();

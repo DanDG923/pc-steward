@@ -28,7 +28,7 @@ public sealed class AdvisoryAiExplainTests
     public async Task NothingIsDraftedOrReviewedWithoutAReviewedModelOrAConnection()
     {
         await using Fixture fixture = await Fixture.CreateAsync(connected: false, prices: true);
-        AdvisoryAiExplainService none = fixture.Service(AdvisoryAiAvailability.Current);
+        AdvisoryAiExplainService none = fixture.Service(AdvisoryAiAvailability.Evaluate([], AdvisoryAiPaidRequestMode.Disabled));
         Assert.AreEqual(AdvisoryAiExplainBlock.NotAvailable, (await none.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Block);
 
         AdvisoryAiDraftResult notConnected = await fixture.Service().DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None);

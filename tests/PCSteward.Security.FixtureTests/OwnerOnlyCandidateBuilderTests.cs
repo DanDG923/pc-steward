@@ -86,6 +86,7 @@ public sealed class OwnerOnlyCandidateBuilderTests
 
             AssertBuildSteps(result.GetProperty("steps"));
             AssertProbeMark(result.GetProperty("probeMark"), result.GetProperty("probeTypeNames"));
+            AssertAiTestBuildMark(result.GetProperty("aiTestMark"));
             AssertLineage(result.GetProperty("lineage"));
             AssertSdkRule(result.GetProperty("sdk"));
             foreach (JsonProperty rule in result.GetProperty("outputRoots").EnumerateObject())
@@ -260,6 +261,35 @@ public sealed class OwnerOnlyCandidateBuilderTests
         StringAssert.Contains(next > 0 ? section[..next] : section, "fetch-depth: 0");
         // The existing build-and-test job keeps its own steps.
         StringAssert.Contains(workflow[..job], "pwsh -NoProfile -File ./scripts/Test-CI.ps1");
+    }
+
+    /// <summary>
+    /// Task 71 (ADR-029): a payload whose PCSteward.Domain.dll carries the AI test-build mark is never a candidate or a release. The
+    /// mark is the NUL-terminated metadata name; a longer name that starts with it is not the mark, and a missing assembly refuses.
+    /// </summary>
+    private static void AssertAiTestBuildMark(JsonElement marks)
+    {
+        Dictionary<string, string> expected = new()
+        {
+            ["ordinary"] = "False",
+            ["test-build"] = "True",
+            ["prefix-only"] = "False",
+            ["missing"] = "refused",
+        };
+        CollectionAssert.AreEquivalent(expected.Keys.ToArray(), marks.EnumerateObject().Select(item => item.Name).ToArray());
+        foreach ((string name, string value) in expected) Assert.AreEqual(value, marks.GetProperty(name).GetString(), name);
+
+        string root = FindRepositoryRoot();
+        string builder = File.ReadAllText(Path.Combine(root, "scripts", "New-OwnerOnlyCandidate.ps1"));
+        StringAssert.Contains(builder, "if (Test-OwnerOnlyCandidateAiTestBuildMark -PayloadRoot $payload) { throw ");
+        // The name the builder looks for is the one the Domain compiles in, only under the test-build symbol.
+        string policy = File.ReadAllText(Path.Combine(root, "src", "PCSteward.Domain", "AdvisoryAiPolicy.cs"));
+        StringAssert.Contains(policy, "public const string BuildMarkTypeName = \"AdvisoryAiFirstLiveTestBuildMark\";");
+        int markClass = policy.IndexOf("internal static class AdvisoryAiFirstLiveTestBuildMark", StringComparison.Ordinal);
+        Assert.IsTrue(markClass > 0, "the mark type is in the Domain");
+        int opening = policy.LastIndexOf("#if PCSTEWARD_AI_FIRST_LIVE_TEST", markClass, StringComparison.Ordinal);
+        Assert.IsTrue(opening > 0 && policy.IndexOf("#endif", opening, StringComparison.Ordinal) > markClass, "the mark type compiles only in the test build");
+        Assert.IsTrue(policy.IndexOf("#else", opening, StringComparison.Ordinal) is var otherwise && (otherwise < 0 || otherwise > markClass), "the mark type is not in an #else branch");
     }
 
     /// <summary>

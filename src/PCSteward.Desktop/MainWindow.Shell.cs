@@ -69,7 +69,7 @@ public sealed partial class MainWindow
         brand.Children.Add(mark);
         // Owner report 2026-11-13 (release 0.1.15): the name sat higher than the mark beside it and the window's own buttons
         // (1.5 units above their shared middle, measured from the drawn pixels). Its capital letters are now what is centred.
-        brand.Children.Add(StewardVisuals.CapHeightBox(new TextBlock { Text = AppIdentity.DisplayName, Style = AppStyle("StewardCaptionStyle") }));
+        brand.Children.Add(StewardVisuals.CapHeightBox(new TextBlock { Text = AppIdentity.WindowName, Style = AppStyle("StewardCaptionStyle") }));
         dragRegion.Children.Add(brand);
         Grid.SetColumn(dragRegion, 1);
         titleBar.Children.Add(dragRegion);

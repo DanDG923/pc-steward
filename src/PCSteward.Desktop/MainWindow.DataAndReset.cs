@@ -109,6 +109,13 @@ public sealed partial class MainWindow
 
     private async Task ConfirmAndArmFactoryResetAsync(Button invoker)
     {
+        // Task 71: a reset would delete the AI ledger the test is measured against, and the installed copy's scheduled check.
+        if (PCSteward.Domain.AdvisoryAiFirstLiveTestBuild.IsTestBuild)
+        {
+            await new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Factory reset unavailable", Content = AppIdentity.TestBuildActionOff, CloseButtonText = "Close" }.ShowAsync();
+            invoker.Focus(FocusState.Programmatic);
+            return;
+        }
         ContentDialog scope = new() { XamlRoot = Content.XamlRoot, Title = "Review factory reset scope", Content = "Deletes: all PC Steward scan data, source metadata, logs, update history, downloads, settings, consent, decisions and the current-user scheduled check. " + DataResetPresenter.FactoryResetAiDeletes + "\n\nPreserves: PC Steward binaries, installed applications, provider caches and your exports.\n\n" + DataResetPresenter.FactoryResetAiAfterwards + "\n\nNo active work is allowed.", PrimaryButtonText = "Continue to final confirmation", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
         if (await scope.ShowAsync() != ContentDialogResult.Primary) { invoker.Focus(FocusState.Programmatic); return; }
         TextBox phrase = new() { Header = "Type RESET to continue", PlaceholderText = "RESET" };

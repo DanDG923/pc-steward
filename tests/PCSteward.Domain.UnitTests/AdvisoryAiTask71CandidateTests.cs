@@ -4,20 +4,14 @@ using PCSteward.Domain;
 namespace PCSteward.Domain.UnitTests;
 
 /// <summary>
-/// Task 90 for Task 70 T70-02 (ADR-028 F1/F7, ADR-029): the arithmetic behind the Task 71 test packet in
-/// docs/review/TASK_69_AI_EVIDENCE_GPT_6_1_SOL.md §6 and §10, with the owner's wide safety margins (2026-11-14). The profile here is a
-/// copy for checking only. It is not reviewed, is never offered, and nothing here enables a model or a paid request.
+/// Task 90 for Task 70 T70-02 (ADR-028 F1/F7, ADR-029) and Task 71: the arithmetic behind the Task 71 test packet in
+/// docs/review/TASK_69_AI_EVIDENCE_GPT_6_1_SOL.md §6 and §10, with the owner's wide safety margins (2026-11-14). The profile is
+/// <see cref="AdvisoryAiFirstLiveTestBuild.Candidate"/>, which only the one-request test build lists as reviewed.
 /// </summary>
 [TestClass]
 public sealed class AdvisoryAiTask71CandidateTests
 {
-    /// <summary>The Task 69 §6 candidate with the owner's wide margins: 8,192 framing tokens, 192 bytes per output token, 1 MiB envelope.</summary>
-    private static readonly AdvisoryAiModelProfile Candidate = new("gpt-6.1-sol", 1, 1_050_000, 128_000, 8_192, true, 192, 1_048_576, "default")
-    {
-        ReasoningEffort = "low",
-        StandardPriceInputTokens = 272_000,
-        RequestNoPromptCache = true
-    };
+    private static readonly AdvisoryAiModelProfile Candidate = AdvisoryAiFirstLiveTestBuild.Candidate;
 
     /// <summary>The Task 71 limits: 12,288 input tokens, 2,048 output tokens, $0.05 per request, $1.00 per month.</summary>
     private static readonly AdvisoryAiLimits TestLimits = new(12_288, 2_048, new(50_000), new(1_000_000));
@@ -27,13 +21,37 @@ public sealed class AdvisoryAiTask71CandidateTests
     /// <summary>Task 69 §3 Standard prices, per 1M tokens: input $2.00, cached $0.10, output $10.00.</summary>
     private static readonly AdvisoryAiTariff Listed = new(1, "gpt-6.1-sol", "default", new(2_000_000), new(100_000), new(10_000_000), Confirmed);
 
+    /// <summary>Every value is the Task 69 §6 table, with the owner's B1 (a) and B2 wide margins.</summary>
+    [TestMethod]
+    [TestCategory("FR-AI-01")]
+    public void TheCandidateIsExactlyTheTask69Profile()
+    {
+        AdvisoryAiModelProfile expected = new("gpt-6.1-sol", 1, 1_050_000, 128_000, 8_192, true, 192, 1_048_576, "default")
+        {
+            ReasoningEffort = "low",
+            StandardPriceInputTokens = 272_000,
+            RequestNoPromptCache = true
+        };
+        Assert.AreEqual(expected, Candidate);
+        Assert.AreEqual(AdvisoryAiProviderId.OpenAI, Candidate.Provider);
+        Assert.IsTrue(Candidate.IsCoherent);
+    }
+
     [TestMethod]
     [TestCategory("FR-AI-04")]
-    public void TheCandidateStaysUnreviewedAndPaidRequestsStayOff()
+    public void OnlyTheTestBuildReviewsTheCandidateAndOnlyForTheFirstLiveTest()
     {
-        Assert.AreEqual(0, AdvisoryAiModelProfiles.Reviewed.Count, "Task 90 adds no reviewed model");
+#if PCSTEWARD_AI_FIRST_LIVE_TEST
+        Assert.IsTrue(AdvisoryAiFirstLiveTestBuild.IsTestBuild);
+        CollectionAssert.AreEqual(new[] { Candidate }, AdvisoryAiModelProfiles.Reviewed.ToArray());
+        Assert.AreEqual(AdvisoryAiPaidRequestMode.FirstLiveTest, AdvisoryAiBuildPolicy.PaidRequests);
+        Assert.IsNotNull(typeof(AdvisoryAiFirstLiveTestBuild).Assembly.GetType("PCSteward.Domain." + AdvisoryAiFirstLiveTestBuild.BuildMarkTypeName));
+#else
+        Assert.IsFalse(AdvisoryAiFirstLiveTestBuild.IsTestBuild);
+        Assert.AreEqual(0, AdvisoryAiModelProfiles.Reviewed.Count, "an ordinary or release build reviews no model");
         Assert.AreEqual(AdvisoryAiPaidRequestMode.Disabled, AdvisoryAiBuildPolicy.PaidRequests);
-        Assert.IsTrue(Candidate.IsCoherent);
+        Assert.IsNull(typeof(AdvisoryAiFirstLiveTestBuild).Assembly.GetType("PCSteward.Domain." + AdvisoryAiFirstLiveTestBuild.BuildMarkTypeName));
+#endif
     }
 
     [TestMethod]

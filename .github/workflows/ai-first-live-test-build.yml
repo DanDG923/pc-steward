@@ -1,0 +1,40 @@
+name: AI first live test build
+
+# Task 71 (ADR-029; docs/review/TASK_69_AI_EVIDENCE_GPT_6_1_SOL.md §10 item 2): the one-request AI test build, on demand only and
+# only from phase/4-beta. It is unsigned and is never a release: no MSI, no release check, no signing and no updater channel, and
+# the release candidate builder refuses its mark. Building it sends nothing to a provider and uses no key. The owner records the
+# run, the source commit and the artefact's SHA-256 digest (which GitHub publishes for the run) before the test build's own
+# review and before any approval to use it.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ai-first-live-test-build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}\artifacts\nuget-packages
+    steps:
+      - name: Refuse anything but phase/4-beta
+        shell: pwsh
+        env:
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if ($env:REF_TYPE -cne 'branch' -or $env:REF -cne 'refs/heads/phase/4-beta') { throw "The AI test build is built from phase/4-beta only, not $($env:REF_TYPE) $($env:REF)." }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - run: pwsh -NoProfile -File ./scripts/New-AdvisoryAiFirstLiveTestBuild.ps1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pc-steward-ai-first-live-test
+          path: artifacts/ai-first-live-test/
+          if-no-files-found: error
+          retention-days: 7

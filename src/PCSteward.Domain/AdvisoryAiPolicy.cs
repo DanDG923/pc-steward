@@ -212,13 +212,17 @@ public sealed record AdvisoryAiModelProfile(
 }
 
 /// <summary>
-/// FR-AI-01 (ADR-028 F1/F7/F11, Task 67 exit): the reviewed models. Empty on purpose: no model is chosen from memory. A profile is
-/// added only with the Task 69 evidence for that exact model (tokenizer, framing, response size, current prices), and paid
-/// requests stay disabled by <see cref="AdvisoryAiBuildPolicy"/> until the Task 70 review passes.
+/// FR-AI-01 (ADR-028 F1/F7/F11, Task 67 exit): the reviewed models. Empty on purpose in every ordinary and release build: no model
+/// is chosen from memory. Only the separately reviewed Task 71 test build (<see cref="AdvisoryAiFirstLiveTestBuild"/>) lists the
+/// Task 69 candidate, and paid requests stay disabled by <see cref="AdvisoryAiBuildPolicy"/> everywhere else.
 /// </summary>
 public static class AdvisoryAiModelProfiles
 {
+#if PCSTEWARD_AI_FIRST_LIVE_TEST
+    public static IReadOnlyList<AdvisoryAiModelProfile> Reviewed { get; } = [AdvisoryAiFirstLiveTestBuild.Candidate];
+#else
     public static IReadOnlyList<AdvisoryAiModelProfile> Reviewed { get; } = [];
+#endif
 
     public static AdvisoryAiModelProfile? Find(string? modelId) =>
         Reviewed.FirstOrDefault(profile => string.Equals(profile.ModelId, modelId, StringComparison.Ordinal));
@@ -230,8 +234,52 @@ public static class AdvisoryAiModelProfiles
 /// </summary>
 public static class AdvisoryAiBuildPolicy
 {
+#if PCSTEWARD_AI_FIRST_LIVE_TEST
+    public static AdvisoryAiPaidRequestMode PaidRequests => AdvisoryAiPaidRequestMode.FirstLiveTest;
+#else
     public static AdvisoryAiPaidRequestMode PaidRequests => AdvisoryAiPaidRequestMode.Disabled;
+#endif
 }
+
+/// <summary>
+/// Task 71 (ADR-029, docs/review/TASK_69_AI_EVIDENCE_GPT_6_1_SOL.md §6 and §10): the one-request test build. It exists only when the
+/// build sets the MSBuild property <c>PCStewardAiFirstLiveTest=true</c>, which defines <c>PCSTEWARD_AI_FIRST_LIVE_TEST</c>; only
+/// scripts/New-AdvisoryAiFirstLiveTestBuild.ps1 sets it, and the release candidate builder refuses an assembly that carries
+/// <see cref="BuildMarkTypeName"/>. That build lists <see cref="Candidate"/> as its one reviewed model and runs in
+/// <see cref="AdvisoryAiPaidRequestMode.FirstLiveTest"/>, inside the cumulative $1 envelope. Every other build compiles the
+/// candidate as inert data that nothing offers.
+/// </summary>
+public static class AdvisoryAiFirstLiveTestBuild
+{
+    /// <summary>The metadata name that marks a test-build assembly; release tooling looks for it in PCSteward.Domain.dll.</summary>
+    public const string BuildMarkTypeName = "AdvisoryAiFirstLiveTestBuildMark";
+
+    /// <summary>True only in the Task 71 test build.</summary>
+#if PCSTEWARD_AI_FIRST_LIVE_TEST
+    public static bool IsTestBuild => true;
+#else
+    public static bool IsTestBuild => false;
+#endif
+
+    /// <summary>
+    /// The Task 69 §6 candidate for <c>gpt-6.1-sol</c>, with the owner's decisions of 2026-11-14: B1 option (a), a byte-level
+    /// token bound checked live, and B2 "Use wide safety margins": 8,192 framing tokens, 192 bytes per output token and a 1 MiB
+    /// response envelope (ADR-028 addendum A2).
+    /// </summary>
+    public static AdvisoryAiModelProfile Candidate { get; } = new("gpt-6.1-sol", 1, 1_050_000, 128_000, 8_192, true, 192, 1_048_576, "default")
+    {
+        ReasoningEffort = "low",
+        StandardPriceInputTokens = 272_000,
+        RequestNoPromptCache = true
+    };
+}
+
+#if PCSTEWARD_AI_FIRST_LIVE_TEST
+/// <summary>The test-build mark (<see cref="AdvisoryAiFirstLiveTestBuild.BuildMarkTypeName"/>): present only in the Task 71 test build.</summary>
+internal static class AdvisoryAiFirstLiveTestBuildMark
+{
+}
+#endif
 
 public enum AdvisoryAiPaidRequestMode
 {
