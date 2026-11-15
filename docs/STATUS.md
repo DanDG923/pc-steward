@@ -1,3 +1,8 @@
+**Advisory AI, Task 71 test build passed both reviews (2026-11-15; reviews only; no paid call, no key).** Requirements: `FR-AI-01–06`, `FR-BUD-01–04` ([Task 90 record §10](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Reviews of `12852c3` and its artifact.** The owner's Task 71B review and the independent re-review both returned PASS with no new findings. They cover run 43660727591, artifact SHA-256 `99570e62…650d`, `gpt-6.1-sol` at the default tier, the Responses route and the one-request procedure. The owner's review downloaded and checked the artifact. Neither report is in the repository.
+- **Not covered.** The key step and the one send each still need the owner's separate approval, with the action-time checks in Task 69 §§10 and 12. Every other build keeps `Reviewed` empty and paid requests disabled.
+
 **Diagnostics: Reliability Monitor ran out of time; now two queries instead of eight (2026-11-15; code and tests; rides the next release).** Requirement: `FR-DIA-01` ([plan](review/TASK_64_DIAGNOSTIC_TIMELINE_PLAN.md)).
 
 - **Found on the owner's PC with 0.1.17.** Diagnostics showed Reliability Monitor as "Not read: it took too long". A read-only timing check showed each `Win32_ReliabilityRecords` query takes about 3.7 seconds however few records it matches: 371 records for seven days in 4.0 seconds, and the whole store (596 records) in 3.7 seconds. The reader's walk back in stretches doubling from one hour made eight queries (29.9 seconds), well past its 15-second share.
