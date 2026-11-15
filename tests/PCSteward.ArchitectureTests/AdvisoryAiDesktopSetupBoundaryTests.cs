@@ -35,11 +35,14 @@ public sealed class AdvisoryAiDesktopSetupBoundaryTests
         string reset = Between(app, "private static async Task<bool> RemoveAdvisoryAiKeysAsync(", "private static string? CurrentUserSid()");
         StringAssert.Contains(reset, "RemoveAndVerifyAsync(cancellationToken)");
         StringAssert.Contains(reset, "if (removal is not (AdvisoryAiCredentialRemoval.Removed or AdvisoryAiCredentialRemoval.AlreadyAbsent)) return false;");
-        // The reset step is passed to the reset, to the start-up check of first-run setup and to its Continue, and nowhere else.
-        Assert.AreEqual(3, Regex.Count(app, @"RemoveAdvisoryAiKeysAsync\b") - 1, "the reset step has three callers");
-        StringAssert.Contains(app, "FactoryReset.CompletePendingAsync(scheduleRegistrar.EnsureAbsentAsync, RemoveAdvisoryAiKeysAsync, CancellationToken.None, stateDirectory)");
-        StringAssert.Contains(app, "FactoryReset.VerifyOnboardingBootstrap(RemoveAdvisoryAiKeysAsync, stateDirectory)");
+        // The reset step is passed to the start-up reset step (which hands it to the reset and to the start-up check of first-run
+        // setup) and to first-run setup's Continue, and nowhere else.
+        Assert.AreEqual(2, Regex.Count(app, @"RemoveAdvisoryAiKeysAsync\b") - 1, "the reset step has two callers");
+        StringAssert.Contains(app, "FactoryReset.RecoverAtStartup(scheduleRegistrar.EnsureAbsentAsync, RemoveAdvisoryAiKeysAsync, PCSteward.Domain.AdvisoryAiFirstLiveTestBuild.IsTestBuild, stateDirectory)");
         StringAssert.Contains(app, "GetResult(), RemoveAdvisoryAiKeysAsync)");
+        string storage = File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Storage", "FactoryReset.cs"));
+        StringAssert.Contains(storage, "() => CompletePendingAsync(removeScheduledTask, removeAiCredentials, CancellationToken.None, stateRoot).GetAwaiter().GetResult(),");
+        StringAssert.Contains(storage, "() => VerifyOnboardingBootstrap(removeAiCredentials, stateRoot));");
     }
 
     [TestMethod]

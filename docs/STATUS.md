@@ -4,6 +4,16 @@
 - **Fixed.** The reader reads the newest day, then the rest of the window in one query: about 7.5 seconds on that PC. The rules are unchanged: the cap counts every record materialized, a stretch is kept only when all its records fit, and an older record is never kept in place of a newer one. If the rest of the window holds more than fits, only the newest day is kept and the source is marked truncated.
 - **Next.** Check on the owner's PC after the next release that Reliability is read and shows the Windows Installer records from #108.
 
+**Advisory AI, Task 71 test-build review failed on one High finding; fixed (2026-11-15; code, tests and docs; no paid call, no key).** Requirements: `FR-AI-01–06`, `FR-BUD-01–04` ([Task 90 record §9](review/TASK_90_TASK_70_AI_REMEDIATION.md), [Task 69 §12](review/TASK_69_AI_EVIDENCE_GPT_6_1_SOL.md)).
+
+- **Reviews of `97699d9` and its artifact.** The owner's review confirmed the artifact's contents and returned FAIL on T71-01 (High): at start-up the test build would finish a reset that the installed copy had left pending, which deletes the shared ledger, task and key. It also raised T71-02 (Low). The independent review returned PASS with Low and Info notes. Neither report is in the repository.
+- **Fixed.**
+  - The test build stops at start-up while any reset state is present, before any callback, migration or fresh store (T71-01).
+  - It clears none of the shared data (T71-02).
+  - Its manifest covers hidden files, and the build checks the upload count (F1).
+  - The owner's steps download the reviewed run's artifact, check the folder against the reviewed manifest, check the installed version and that no reset is pending, and disconnect afterwards.
+- **Next.** Build the test build again from the fixed commit, then both reviews of the new artifact. The key and the one send each need the owner's separate approval.
+
 **Advisory AI, Task 71 test build (2026-11-14; build switch, guards, workflow and tests; no paid call, no key).** Requirements: `FR-AI-01–06`, `FR-BUD-01–04` ([Task 69 §12](review/TASK_69_AI_EVIDENCE_GPT_6_1_SOL.md)).
 
 - **Built for the owner's go-ahead** to build the one-request test build and have it reviewed. The build property `PCStewardAiFirstLiveTest=true` lists the Task 69 candidate as the one reviewed model and turns on first-live-test mode. Only `scripts/New-AdvisoryAiFirstLiveTestBuild.ps1` sets it, and it runs only on a hosted runner.

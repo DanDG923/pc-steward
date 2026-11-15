@@ -13,5 +13,9 @@ public static class AppIdentity
 
     /// <summary>Task 71: why an action that changes the PC, its schedule, its data or PC Steward itself is off in the AI test build.</summary>
     public const string TestBuildActionOff =
-        "This is the AI test build. It only runs the one AI test, so it doesn't update apps, change the scheduled check, reset PC Steward or update itself. Close it and use the installed PC Steward for that.";
+        "This is the AI test build. It doesn't update apps, change the scheduled check, clear or reset PC Steward's data or update itself. Close it and use the installed PC Steward for that.";
+
+    /// <summary>Task 71 (T71-01): why the AI test build stopped at start-up while a factory reset is pending.</summary>
+    public const string TestBuildResetPending =
+        "This is the AI test build. A factory reset that the installed PC Steward started hasn't finished, so the test build stopped without opening, changing or resetting anything. Close it and start the installed PC Steward to deal with the reset.";
 }

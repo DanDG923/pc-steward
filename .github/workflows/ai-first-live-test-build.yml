@@ -37,4 +37,5 @@ jobs:
           name: pc-steward-ai-first-live-test
           path: artifacts/ai-first-live-test/
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 7

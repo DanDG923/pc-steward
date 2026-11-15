@@ -1080,7 +1080,7 @@ public sealed class UiRedesignContractTests
         StringAssert.Contains(notice, "StewardVisuals.ActionButton(StartupNoticeText.CopyDetailsLabel, \"to the clipboard\")");
         StringAssert.Contains(app, "StewardVisuals.PrimaryButton(StartupNoticeText.CloseLabel, \"PC Steward\")");
         StringAssert.Contains(notice, "close.Click += (_, _) => window.Close();");
-        Assert.AreEqual(3, Count(app, "Content = StartupNotice.Build(this,"), "all three windows use the shared style");
+        Assert.AreEqual(4, Count(app, "Content = StartupNotice.Build(this,"), "all four windows use the shared style (the fourth is the AI test build's pending-reset notice)");
         StringAssert.Contains(app, "StartupNoticeText.ExceptionDetails(exception.GetType().Name, exception.Message)");
         StringAssert.Contains(app, "StartupNoticeText.ResidualDetails(result.Residuals.Select(item => (item.Category, item.Reason, item.Detail)))");
         // Independent review fix 2: both diagnostics are sanitized before they are shown or copied.

@@ -58,34 +58,20 @@ public partial class App : global::Microsoft.UI.Xaml.Application
         InventoryExperienceViewModel viewModel = new();
         string stateDirectory = FactoryReset.GetStateRoot();
         WindowsCurrentUserScheduledTaskRegistrar scheduleRegistrar = new(Path.Combine(AppContext.BaseDirectory, "PCSteward.ScheduledHost.exe"));
-        bool showPostResetOnboarding = false;
-        FactoryResetMarkerState markerState = FactoryReset.GetMarkerState(stateDirectory);
-        if (markerState is FactoryResetMarkerState.ResetPending or FactoryResetMarkerState.Partial or FactoryResetMarkerState.TransitionPending)
+        // Task 71 (T71-01): the AI test build shares the installed copy's data, ledger, task and key, so it leaves any reset state
+        // alone and stops here, before a schedule or key callback, a migration or a fresh store.
+        FactoryResetStartup startup = FactoryReset.RecoverAtStartup(scheduleRegistrar.EnsureAbsentAsync, RemoveAdvisoryAiKeysAsync, PCSteward.Domain.AdvisoryAiFirstLiveTestBuild.IsTestBuild, stateDirectory);
+        if (startup.Kind == FactoryResetStartupKind.RefusedInTestBuild)
         {
-            FactoryResetResult reset = FactoryReset.CompletePendingAsync(scheduleRegistrar.EnsureAbsentAsync, RemoveAdvisoryAiKeysAsync, CancellationToken.None, stateDirectory).GetAwaiter().GetResult();
-            if (!reset.Succeeded)
-            {
-                ActivateWindow(new ResetRecoveryWindow(reset));
-                return;
-            }
-            showPostResetOnboarding = true;
-        }
-        else if (markerState == FactoryResetMarkerState.OnboardingPending) showPostResetOnboarding = true;
-        else if (markerState == FactoryResetMarkerState.Invalid)
-        {
-            ActivateWindow(new ResetRecoveryWindow(new FactoryResetResult(false, [new FactoryResetResidual("Reset marker", "InvalidMarker", "The reset control state is invalid.")])));
+            ActivateWindow(new TestBuildResetPendingWindow());
             return;
         }
-        if (showPostResetOnboarding)
+        if (startup.Kind == FactoryResetStartupKind.NeedsAttention)
         {
-            // ADR-028: a reset that finished on an earlier start (or before the AI key step existed) still rechecks the AI key.
-            FactoryResetResult onboardingAuthority = FactoryReset.VerifyOnboardingBootstrap(RemoveAdvisoryAiKeysAsync, stateDirectory);
-            if (!onboardingAuthority.Succeeded)
-            {
-                ActivateWindow(new ResetRecoveryWindow(onboardingAuthority));
-                return;
-            }
+            ActivateWindow(new ResetRecoveryWindow(startup.Result));
+            return;
         }
+        bool showPostResetOnboarding = startup.Kind == FactoryResetStartupKind.Onboarding;
         Directory.CreateDirectory(stateDirectory);
         SqliteDatabase database = new(Path.Combine(stateDirectory, "pcsteward.db"), new ChocolateyHelperVersionGrammar());
         database.MigrateAsync(CancellationToken.None).GetAwaiter().GetResult();
@@ -283,6 +269,16 @@ internal sealed class ResetRecoveryWindow : Window
         Content = StartupNotice.Build(this, "", "Factory reset is incomplete",
             "PC Steward did not reopen prior data. Close applications holding the listed items and restart PC Steward to retry.",
             StartupNoticeText.ResidualDetails(result.Residuals.Select(item => (item.Category, item.Reason, item.Detail))));
+    }
+}
+
+/// <summary>Task 71 (T71-01): the AI test build found a reset that the installed copy started, and left it alone.</summary>
+internal sealed class TestBuildResetPendingWindow : Window
+{
+    public TestBuildResetPendingWindow()
+    {
+        Title = AppIdentity.WindowName;
+        Content = StartupNotice.Build(this, "\uE7BA", "A factory reset is still pending", AppIdentity.TestBuildResetPending, null);
     }
 }
 
