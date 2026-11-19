@@ -32,7 +32,7 @@ public sealed class AdvisoryAiLedgerTests
         Assert.AreEqual(AdvisoryAiSettings.Initial, settings);
         AdvisoryAiAccountingState state = await fixture.Store.GetAccountingStateAsync(CancellationToken.None);
         Assert.AreEqual(new AdvisoryAiAccountingState(AdvisoryAiContinuity.NotEstablished, null, null, false), state);
-        Assert.AreEqual(15L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(16L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
     }
 
     [TestMethod]

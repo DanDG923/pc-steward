@@ -14,8 +14,12 @@ namespace PCSteward.Provider.WinGet;
 /// itself links to the installed package (its product code), so that entry is matched to the package without a name guess. For an
 /// MSIX app it is instead the product key of the one MSIX package family WinGet links to the installed package (MSIX design note §3.1),
 /// so the app's own MSIX row is matched the same way.</para>
+/// <para><see cref="InstallerFit"/> (owner's PC, 2026-11-19: Microsoft GameInput was offered as Ready, then refused at review because
+/// its installer is a zip around an MSI) says whether the installer WinGet would choose is one the reviewed route for this scope can
+/// run, by the same rules the review applies. It can only hold an update back; the review still checks the installer itself.</para>
 /// </summary>
-internal sealed record WingetCandidateCompatibility(string Scope, string Architecture, string Channel, string? Publisher = null, string? LinkedProductKey = null);
+internal sealed record WingetCandidateCompatibility(string Scope, string Architecture, string Channel, string? Publisher = null, string? LinkedProductKey = null,
+    SourceInstallerFit InstallerFit = SourceInstallerFit.NoObjection);
 
 /// <summary>What WinGet's structured API reported for one exact package ID. Plain values only, so the rules are testable.</summary>
 internal sealed record WinGetCandidateCompatibilityObservation(
@@ -38,7 +42,8 @@ internal sealed record WinGetCandidateCompatibilityObservation(
     string? CandidatePublisher = null,
     IReadOnlyList<string>? InstalledProductCodes = null,
     IReadOnlyList<string>? InstalledPackageFamilyNames = null,
-    string? InstallerType = null);
+    string? InstallerType = null,
+    string? NestedInstallerType = null);
 
 internal interface IWinGetCandidateCompatibilityQuery
 {
@@ -56,7 +61,9 @@ internal static class WingetCandidateCompatibilityRules
 
     /// <summary>
     /// Returns the compatibility evidence for one display-table update row, or null when WinGet's structured answer is not
-    /// the same exact, trusted, single update with the same installed and available versions.
+    /// the same exact, trusted, single update with the same installed and available versions. When WinGet has no installer for the
+    /// installed scope, the evidence says so (<see cref="SourceInstallerFit.NoInstallerForInstalledScope"/>) with an unknown
+    /// architecture, so that update can never be offered.
     /// <list type="bullet">
     /// <item>Scope: the scope of the installer WinGet would choose for this installed scope. When that installer does not say
     /// (scope Unknown), WinGet keeps the installed scope, so the scope WinGet recorded for the installed app is used; when that
@@ -80,7 +87,6 @@ internal static class WingetCandidateCompatibilityRules
             observation.WasLimitExceeded ||
             observation.MatchCount != 1 ||
             !observation.IsUpdateAvailable ||
-            !observation.HasApplicableInstaller ||
             !string.Equals(observation.RequestedPackageId, packageId, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(observation.PackageId, packageId, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(observation.CandidateSourceId, sourceId, StringComparison.OrdinalIgnoreCase) ||
@@ -90,6 +96,20 @@ internal static class WingetCandidateCompatibilityRules
             !string.Equals(observation.CandidateVersion, availableVersion, StringComparison.Ordinal))
         {
             return null;
+        }
+
+        // Owner's PC, 2026-11-19 (MEGAsync): installed for one account, while WinGet offers only an every-user installer, so WinGet has no
+        // installer for the scope the app is installed in. The update is still this exact package, so its publisher and WinGet's own
+        // link to the installed entry are kept (that entry's row, not a second one), and the update is held back with that reason.
+        if (!observation.HasApplicableInstaller)
+        {
+            return new(
+                Scope(observation.InstalledScope),
+                "Unknown",
+                string.IsNullOrEmpty(observation.Channel) ? "Stable" : "Unknown",
+                BoundedText(observation.CandidatePublisher),
+                InstalledProductKey(observation.InstalledProductCodes, observation.InstalledPackageFamilyNames, null),
+                SourceInstallerFit.NoInstallerForInstalledScope);
         }
 
         string installerScope = Scope(observation.InstallerScope);
@@ -107,7 +127,40 @@ internal static class WingetCandidateCompatibilityRules
             Architecture(observation.InstallerArchitecture),
             string.IsNullOrEmpty(observation.Channel) ? "Stable" : "Unknown",
             BoundedText(observation.CandidatePublisher),
-            InstalledProductKey(observation.InstalledProductCodes, observation.InstalledPackageFamilyNames, observation.InstallerType));
+            InstalledProductKey(observation.InstalledProductCodes, observation.InstalledPackageFamilyNames, observation.InstallerType),
+            InstallerFit(sourceId, scope, observation));
+    }
+
+    /// <summary>
+    /// Whether the reviewed route for <paramref name="scope"/> can run the installer WinGet chose, by the review's own rules. Only the
+    /// <c>winget</c> source is checked (both reviewed WinGet routes take it); an unknown scope or an installer type WinGet didn't report
+    /// raises no objection here, because such an update is already a review item or is checked at review.
+    /// <list type="bullet">
+    /// <item>Every user (D4b design §7, <see cref="WingetMachineInstallerEvidenceSource"/>): an msi, wix, exe, inno, nullsoft or burn
+    /// installer that itself says it installs for every user. Zip (a wrapped installer), msix, portable and the rest are refused.</item>
+    /// <item>One account (D7 design §3, <see cref="WingetUserInstallerRules"/>): a Store-type or msix installer, or a vendor type that
+    /// itself says it installs for one account, unless WinGet places it itself (portable, or a zip around a portable app). A zip around
+    /// an msix, Store-type or font installer, or around one WinGet doesn't name, is refused.</item>
+    /// </list>
+    /// </summary>
+    internal static SourceInstallerFit InstallerFit(string sourceId, string scope, WinGetCandidateCompatibilityObservation observation)
+    {
+        if (!string.Equals(sourceId, "winget", StringComparison.OrdinalIgnoreCase) || observation.InstallerType is not { } type) return SourceInstallerFit.NoObjection;
+        string declared = observation.InstallerScope?.Trim() ?? string.Empty;
+        switch (scope)
+        {
+            case "Machine":
+                bool machineType = type is "Msi" or "Wix" or "Exe" or "Inno" or "Nullsoft" or "Burn";
+                return machineType && declared == "System" ? SourceInstallerFit.NoObjection : SourceInstallerFit.InstallerNotSupported;
+            case "User":
+                if (type is "MSStore" or "Msix") return SourceInstallerFit.NoObjection;
+                if (type == "Zip" && observation.NestedInstallerType is "Msix" or "MSStore" or "Font" or "Unknown" or null) return SourceInstallerFit.InstallerNotSupported;
+                bool placedByWinGet = type == "Portable" || (type == "Zip" && observation.NestedInstallerType == "Portable");
+                bool userType = type is "Msi" or "Wix" or "Exe" or "Inno" or "Nullsoft" or "Burn" or "Portable" or "Zip";
+                return userType && (placedByWinGet || declared == "User") ? SourceInstallerFit.NoObjection : SourceInstallerFit.InstallerNotSupported;
+            default:
+                return SourceInstallerFit.NoObjection;
+        }
     }
 
     /// <summary>
@@ -307,6 +360,7 @@ internal sealed class WinGetComCandidateCompatibilityQuery : IWinGetCandidateCom
             candidate.Publisher,
             [.. installed.ProductCodes],
             [.. installed.PackageFamilyNames],
-            installer is null ? null : installer.InstallerType.ToString());
+            installer is null ? null : installer.InstallerType.ToString(),
+            installer is null ? null : installer.NestedInstallerType.ToString());
     }
 }

@@ -45,7 +45,11 @@ public enum MappingReviewReason
     /// WinGet links it to an x64 package by product code. The registration view is not proof of the architecture, so this is
     /// offered with the architecture proven at review, or refused there. Appended so stored ordinals are unchanged.
     /// </summary>
-    ArchitectureCheckedAtReview
+    ArchitectureCheckedAtReview,
+    /// <summary>The source said the update's installer is of a kind PC Steward's reviewed route can't run (<see cref="SourceInstallerFit.InstallerNotSupported"/>). Appended.</summary>
+    InstallerNotSupported,
+    /// <summary>The source has no installer for the scope the app is installed in (<see cref="SourceInstallerFit.NoInstallerForInstalledScope"/>). Appended.</summary>
+    NoInstallerForInstalledScope
 }
 
 public sealed record ProductMatchProfile(
@@ -83,7 +87,8 @@ public sealed record PackageMatchCandidate(
     string? ProviderSuppliedStableProductKey = null,
     bool RequiresConnectorSpecificVersionSemantics = false,
     IReadOnlyCollection<string>? ProductAliases = null,
-    IReadOnlyCollection<string>? PublisherAliases = null);
+    IReadOnlyCollection<string>? PublisherAliases = null,
+    SourceInstallerFit InstallerFit = SourceInstallerFit.NoObjection);
 
 public sealed record DeclaredPackageMapping(string StableProductKey, string SourceId, string PackageId, MappingOrigin Origin);
 
@@ -177,6 +182,9 @@ public static class ProductPackageMatching
 
         if (product.HasConflictingTargetInstances) reasons.Add(MappingReviewReason.MultipleInstallationInstanceAmbiguity);
         AddCompatibilityReasons(product, candidate, origin, reasons);
+        // Only ever holds an update back: an installer the reviewed route can't run is never offered, whatever the match.
+        if (candidate.InstallerFit == SourceInstallerFit.InstallerNotSupported) reasons.Add(MappingReviewReason.InstallerNotSupported);
+        if (candidate.InstallerFit == SourceInstallerFit.NoInstallerForInstalledScope) reasons.Add(MappingReviewReason.NoInstallerForInstalledScope);
         VersionComparisonResult comparison = VersionComparison.Compare(new(product.InstalledVersion, candidate.CandidateVersion, candidate.RequiresConnectorSpecificVersionSemantics));
         // A name-only candidate with incomplete publisher evidence has not established that its
         // version uses the same scheme as the installed product. Keep it review-only without

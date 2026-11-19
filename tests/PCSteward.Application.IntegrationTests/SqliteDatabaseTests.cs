@@ -209,6 +209,24 @@ public sealed class SqliteDatabaseTests
     }
 
     [TestMethod]
+    public async Task SourceCacheKeepsWhatTheSourceSaidAboutEachInstaller()
+    {
+        // Migration 16 (owner's PC, 2026-11-19): an update held back for its installer stays held back when the results are cached.
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        SourcePackageRecord[] packages =
+        [
+            new("winget", "Contoso.Fine", "Fine", "Contoso", "1.0", "1.1", "Machine", "X64", "Stable"),
+            new("winget", "Contoso.Zip", "Zip", "Contoso", "1.0", "1.1", "Machine", "X64", "Stable", InstallerFit: SourceInstallerFit.InstallerNotSupported),
+            new("winget", "Contoso.User", "User", "Contoso", "1.0", "1.1", "User", "Unknown", "Stable", InstallerFit: SourceInstallerFit.NoInstallerForInstalledScope)
+        ];
+        await database.Store.SaveSourceSnapshotAsync(new SourceSnapshot("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, packages, []), CancellationToken.None);
+
+        SourceSnapshot restored = (await database.Store.GetSourceSnapshotAsync("winget", CancellationToken.None))!;
+
+        CollectionAssert.AreEqual(packages.Select(package => package.InstallerFit).ToArray(), restored.Packages.OrderBy(package => package.PackageId == "Contoso.Fine" ? 0 : package.PackageId == "Contoso.Zip" ? 1 : 2).Select(package => package.InstallerFit).ToArray());
+    }
+
+    [TestMethod]
     public async Task SourceCachePersistsChocolateyCommunitySnapshots()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync(); DateTimeOffset timestamp = DateTimeOffset.UnixEpoch;
