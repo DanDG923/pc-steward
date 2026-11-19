@@ -107,7 +107,9 @@ public static class ReviewReasonText
         [nameof(MappingReviewReason.MissingScopeEvidence)] = "The install scope isn't known.",
         [nameof(MappingReviewReason.MissingArchitectureEvidence)] = "The app's architecture isn't known.",
         [nameof(MappingReviewReason.MissingChannelEvidence)] = "The release channel isn't known.",
-        [nameof(MappingReviewReason.ArchitectureCheckedAtReview)] = "Windows lists this app as 32-bit, as its installer registers it. PC Steward checks it is the 64-bit build when you review the update."
+        [nameof(MappingReviewReason.ArchitectureCheckedAtReview)] = "Windows lists this app as 32-bit, as its installer registers it. PC Steward checks it is the 64-bit build when you review the update.",
+        [nameof(MappingReviewReason.InstallerNotSupported)] = "The update's installer is a kind PC Steward can't run for this app yet, such as an installer packed inside a zip file.",
+        [nameof(MappingReviewReason.NoInstallerForInstalledScope)] = "WinGet has no installer for this update that installs the way this app is installed, for example only for every user when it's installed for your account."
     };
 
     /// <summary>The words for a reason this build has no sentence for.</summary>
@@ -673,6 +675,8 @@ public static class CantUpdateReasons
     public const string VersionsNotComparable = "The installed and offered versions can't be compared.";
     public const string MoreThanOne = "More than one match or installation was found.";
     public const string HowInstalledUnknown = "PC Steward can't tell how this app was installed.";
+    public const string InstallerNotSupported = "PC Steward can't run the installer this update uses yet.";
+    public const string NoInstallerForInstalledScope = "WinGet has no installer that matches how this app is installed.";
 
     private static readonly (string Reason, string[] Recorded)[] Order =
     [
@@ -686,6 +690,9 @@ public static class CantUpdateReasons
     public static string For(UpdateDetail? detail)
     {
         if (detail is null) return NotSureItMatches;
+        // A fresh check can't change what the installer is, so the installer reasons are said even when the check is out of date.
+        if (detail.ReviewReasons.Contains(nameof(MappingReviewReason.NoInstallerForInstalledScope), StringComparer.Ordinal)) return NoInstallerForInstalledScope;
+        if (detail.ReviewReasons.Contains(nameof(MappingReviewReason.InstallerNotSupported), StringComparer.Ordinal)) return InstallerNotSupported;
         if (detail.RequiresFreshSourceEvidence || detail.ReviewReasons.Contains(nameof(MappingReviewReason.MissingSourceEvidence), StringComparer.Ordinal)) return NeedsFreshCheck;
         foreach ((string reason, string[] recorded) in Order)
             if (detail.ReviewReasons.Any(item => recorded.Contains(item, StringComparer.Ordinal))) return reason;

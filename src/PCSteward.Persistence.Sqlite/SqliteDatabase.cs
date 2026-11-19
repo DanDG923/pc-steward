@@ -87,6 +87,13 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
             await CreateAdvisoryAiSchemaAsync(connection, transaction, cancellationToken);
         if (await MigrationRequiredAsync(connection, transaction, 15, cancellationToken))
             await CreateAdvisoryAiCompactionSchemaAsync(connection, transaction, cancellationToken);
+        if (await MigrationRequiredAsync(connection, transaction, 16, cancellationToken))
+        {
+            // Migration 16 (owner's PC, 2026-11-19): what the source said about running each cached update's installer
+            // (SourceInstallerFit, stored as its number). Rows cached before it have no objection recorded until the next live check.
+            await ExecuteAsync(connection, "ALTER TABLE source_package_cache ADD COLUMN installer_fit INTEGER NOT NULL DEFAULT 0 CHECK(installer_fit IN (0,1,2));", cancellationToken, transaction);
+            await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (16);", cancellationToken, transaction);
+        }
         await ValidateReviewedOperationsSchemaAsync(connection, transaction, cancellationToken);
         await ValidateUpdateDispatchSchemaAsync(connection, transaction, cancellationToken);
         await ValidateDiagnosticSnapshotSchemaAsync(connection, transaction, cancellationToken);
@@ -290,7 +297,7 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
         foreach (SourcePackageRecord package in snapshot.Packages)
         {
             if (!string.Equals(snapshot.SourceId, package.SourceId, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Cached package source does not match its snapshot.", nameof(snapshot));
-            await ExecuteAsync(connection, "INSERT INTO source_package_cache(source_id,package_id,display_name,publisher,installed_version,available_version,scope,architecture,channel,connector_semantics,stable_product_key) VALUES ($source,$package,$name,$publisher,$installed,$available,$scope,$architecture,$channel,$semantics,$stable);", cancellationToken, transaction, ("$source", SourceId(package.SourceId)), ("$package", Text(package.PackageId)), ("$name", Text(package.DisplayName)), ("$publisher", Text(package.Publisher)), ("$installed", Text(package.InstalledVersion)), ("$available", Text(package.AvailableVersion)), ("$scope", Text(package.Scope)), ("$architecture", Text(package.Architecture)), ("$channel", Text(package.Channel)), ("$semantics", package.RequiresConnectorSpecificVersionSemantics), ("$stable", Text(package.ProviderSuppliedStableProductKey)));
+            await ExecuteAsync(connection, "INSERT INTO source_package_cache(source_id,package_id,display_name,publisher,installed_version,available_version,scope,architecture,channel,connector_semantics,stable_product_key,installer_fit) VALUES ($source,$package,$name,$publisher,$installed,$available,$scope,$architecture,$channel,$semantics,$stable,$fit);", cancellationToken, transaction, ("$source", SourceId(package.SourceId)), ("$package", Text(package.PackageId)), ("$name", Text(package.DisplayName)), ("$publisher", Text(package.Publisher)), ("$installed", Text(package.InstalledVersion)), ("$available", Text(package.AvailableVersion)), ("$scope", Text(package.Scope)), ("$architecture", Text(package.Architecture)), ("$channel", Text(package.Channel)), ("$semantics", package.RequiresConnectorSpecificVersionSemantics), ("$stable", Text(package.ProviderSuppliedStableProductKey)), ("$fit", (int)package.InstallerFit));
         }
         await transaction.CommitAsync(cancellationToken);
     }
@@ -299,10 +306,18 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
     {
         string source = SourceId(sourceId); await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteCommand snapshot = connection.CreateCommand(); snapshot.CommandText = "SELECT provider_version,last_success_at FROM source_snapshots WHERE source_id = $source;"; snapshot.Parameters.AddWithValue("$source", source); await using SqliteDataReader header = await snapshot.ExecuteReaderAsync(cancellationToken); if (!await header.ReadAsync(cancellationToken)) return null;
         string? providerVersion = header.IsDBNull(0) ? null : header.GetString(0); DateTimeOffset lastSuccess = DateTimeOffset.Parse(header.GetString(1), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
-        await header.CloseAsync(); List<SourcePackageRecord> packages = []; await using SqliteCommand rows = connection.CreateCommand(); rows.CommandText = "SELECT package_id,display_name,publisher,installed_version,available_version,scope,architecture,channel,connector_semantics,stable_product_key FROM source_package_cache WHERE source_id = $source ORDER BY package_id;"; rows.Parameters.AddWithValue("$source", source); await using SqliteDataReader reader = await rows.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken)) packages.Add(new(source, reader.GetString(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.GetInt64(8) != 0, reader.IsDBNull(9) ? null : reader.GetString(9)));
+        await header.CloseAsync(); List<SourcePackageRecord> packages = []; await using SqliteCommand rows = connection.CreateCommand(); rows.CommandText = "SELECT package_id,display_name,publisher,installed_version,available_version,scope,architecture,channel,connector_semantics,stable_product_key,installer_fit FROM source_package_cache WHERE source_id = $source ORDER BY package_id;"; rows.Parameters.AddWithValue("$source", source); await using SqliteDataReader reader = await rows.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken)) packages.Add(new(source, reader.GetString(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.GetInt64(8) != 0, reader.IsDBNull(9) ? null : reader.GetString(9), InstallerFit(reader.GetInt64(10))));
         return new(source, providerVersion, lastSuccess, SourceSnapshotState.Cached, packages, []);
     }
+
+    // A stored number this build doesn't know holds the update back rather than dropping the objection.
+    private static SourceInstallerFit InstallerFit(long value) => value switch
+    {
+        0 => SourceInstallerFit.NoObjection,
+        2 => SourceInstallerFit.NoInstallerForInstalledScope,
+        _ => SourceInstallerFit.InstallerNotSupported,
+    };
 
     public async Task PruneSourceSnapshotsAsync(DateTimeOffset olderThan, CancellationToken cancellationToken)
     {

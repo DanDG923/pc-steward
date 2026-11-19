@@ -54,7 +54,6 @@ public sealed class WingetCandidateCompatibilityTests
             Observation() with { MatchCount = 2 },
             Observation() with { WasLimitExceeded = true },
             Observation() with { IsUpdateAvailable = false },
-            Observation() with { HasApplicableInstaller = false },
             Observation() with { PackageId = "Contoso.Other" },
             Observation() with { RequestedPackageId = "Contoso.Other" },
             Observation() with { CandidateSourceId = "msstore" },
@@ -280,6 +279,127 @@ public sealed class WingetCandidateCompatibilityTests
 
         Assert.AreEqual("Unknown", other.Packages.Single(package => package.PackageId == "Contoso.Cli").Scope);
         Assert.AreEqual("Unknown", duplicate.Packages.Single(package => package.PackageId == "Contoso.Cli").Scope);
+    }
+
+    [TestMethod]
+    public void WithNoInstallerForTheInstalledScopeTheLinkIsKeptAndTheUpdateIsHeldBack()
+    {
+        // Owner's PC, 2026-11-19 (MEGAsync, shape only): installed for one account; WinGet's package has only an every-user installer.
+        WingetCandidateCompatibility evidence = WingetCandidateCompatibilityRules.Evaluate(
+            Observation() with { HasApplicableInstaller = false, InstalledScope = "User", InstallerScope = "Unknown", InstallerArchitecture = "Unknown", InstalledProductCodes = ["ContosoCliKey"] },
+            "winget", "Contoso.Cli", "2.0.0", "2.1.0")!;
+
+        Assert.AreEqual(new WingetCandidateCompatibility("User", "Unknown", "Stable", "Contoso, Inc.", RegistryKey("ContosoCliKey"), SourceInstallerFit.NoInstallerForInstalledScope), evidence);
+        // A package family is never linked without an msix installer, so it isn't linked here either.
+        Assert.IsNull(WingetCandidateCompatibilityRules.Evaluate(MsixObservation() with { HasApplicableInstaller = false, InstallerType = null }, "winget", "Contoso.Studio", "3.3.0.4529", "3.4.0.4650")!.LinkedProductKey);
+    }
+
+    [TestMethod]
+    [DataRow("Msi", null, "System", SourceInstallerFit.NoObjection)]
+    [DataRow("Wix", null, "System", SourceInstallerFit.NoObjection)]
+    [DataRow("Exe", null, "System", SourceInstallerFit.NoObjection)]
+    [DataRow("Inno", null, "System", SourceInstallerFit.NoObjection)]
+    [DataRow("Nullsoft", null, "System", SourceInstallerFit.NoObjection)]
+    [DataRow("Burn", null, "System", SourceInstallerFit.NoObjection)]
+    [DataRow("Zip", "Wix", "System", SourceInstallerFit.InstallerNotSupported)]
+    [DataRow("Zip", "Msi", "System", SourceInstallerFit.InstallerNotSupported)]
+    [DataRow("Msix", "Unknown", "System", SourceInstallerFit.InstallerNotSupported)]
+    [DataRow("MSStore", "Unknown", "System", SourceInstallerFit.InstallerNotSupported)]
+    [DataRow("Portable", "Unknown", "System", SourceInstallerFit.InstallerNotSupported)]
+    [DataRow("Font", "Unknown", "System", SourceInstallerFit.InstallerNotSupported)]
+    [DataRow("Unknown", "Unknown", "System", SourceInstallerFit.InstallerNotSupported)]
+    [DataRow("Exe", "Unknown", "Unknown", SourceInstallerFit.InstallerNotSupported)]
+    public void AnEveryUserUpdateIsHeldBackUnlessTheReviewedRouteCanRunItsInstaller(string type, string? nested, string installerScope, SourceInstallerFit expected)
+    {
+        // Owner's PC, 2026-11-19 (Microsoft GameInput, shape only): a zip around an MSI, every user, was Ready and then refused at review.
+        WingetCandidateCompatibility evidence = WingetCandidateCompatibilityRules.Evaluate(
+            Observation() with { InstallerType = type, NestedInstallerType = nested, InstallerScope = installerScope, InstalledScope = "Machine" }, "winget", "Contoso.Cli", "2.0.0", "2.1.0")!;
+
+        Assert.AreEqual("Machine", evidence.Scope);
+        Assert.AreEqual(expected, evidence.InstallerFit);
+        // The review's own rule: the lowercase type must be one the route parses, and the installer must itself say every user.
+        bool reviewAccepts = WinGetMachineEvidence.TryParseInstallerType(type.ToLowerInvariant(), out _) && nested is null or "Unknown" && installerScope == "System";
+        Assert.AreEqual(reviewAccepts, expected == SourceInstallerFit.NoObjection);
+    }
+
+    [TestMethod]
+    public void AOneAccountUpdateIsHeldBackExactlyWhenThePerUserReviewWouldRefuseItsInstaller()
+    {
+        string[] types = ["Unknown", "Inno", "Wix", "Msi", "Nullsoft", "Zip", "Msix", "Exe", "Burn", "MSStore", "Portable", "Font"];
+        string?[] nestedTypes = [null, "Unknown", "Inno", "Wix", "Msi", "Nullsoft", "Zip", "Msix", "Exe", "Burn", "MSStore", "Portable", "Font"];
+        UpdateJobSelection selection = new("winget:contoso.cli", UpdateProvider.WinGet, UpdateSource.WinGet, "Contoso.Cli", "2.0.0", "2.1.0", UpdateScope.User,
+            UpdateArchitecture.X64, UpdateChannel.Unknown, "winget-com-v1");
+        foreach (string type in types)
+        foreach (string? nested in nestedTypes)
+        foreach (string installerScope in new[] { "User", "Unknown" })
+        {
+            WinGetCandidateCompatibilityObservation observation = Observation() with { InstallerType = type, NestedInstallerType = nested, InstallerScope = installerScope, InstalledScope = "User" };
+            WingetCandidateCompatibility evidence = WingetCandidateCompatibilityRules.Evaluate(observation, "winget", "Contoso.Cli", "2.0.0", "2.1.0")!;
+            WingetUserInstallerCheck review = WingetUserInstallerRules.Evaluate(
+                new("Contoso.Cli", true, true, true, 1, false, "Contoso.Cli", 1, type, nested, installerScope, "Unknown"), selection);
+            bool reviewAccepts = review.IsMsix || review.Installer is not null;
+            string label = $"{type}/{nested ?? "null"}/{installerScope}";
+            // An msix installer with no scope of its own is taken as one account only when WinGet links the package family; the review
+            // accepts it either way, so only the fit is compared where the scope stayed one account.
+            if (evidence.Scope != "User") continue;
+            Assert.AreEqual(reviewAccepts, evidence.InstallerFit == SourceInstallerFit.NoObjection, label);
+        }
+    }
+
+    [TestMethod]
+    public void OnlyTheWinGetSourceAndAKnownScopeAndInstallerTypeAreChecked()
+    {
+        WinGetCandidateCompatibilityObservation zip = Observation() with { InstallerType = "Zip", NestedInstallerType = "Wix" };
+        Assert.AreEqual(SourceInstallerFit.NoObjection, WingetCandidateCompatibilityRules.InstallerFit("msstore", "Machine", zip));
+        Assert.AreEqual(SourceInstallerFit.NoObjection, WingetCandidateCompatibilityRules.InstallerFit("winget", "Unknown", zip));
+        Assert.AreEqual(SourceInstallerFit.NoObjection, WingetCandidateCompatibilityRules.InstallerFit("winget", "Machine", zip with { InstallerType = null }));
+        Assert.AreEqual(SourceInstallerFit.InstallerNotSupported, WingetCandidateCompatibilityRules.InstallerFit("winget", "Machine", zip));
+        // An MSIX app's update (scope taken as one account through its package family) raises no objection.
+        Assert.AreEqual(SourceInstallerFit.NoObjection, WingetCandidateCompatibilityRules.Evaluate(MsixObservation(), "winget", "Contoso.Studio", "3.3.0.4529", "3.4.0.4650")!.InstallerFit);
+    }
+
+    [TestMethod]
+    public async Task AZipWrappedEveryUserUpdateIsCachedAndAssessedAsCantUpdateNotReady()
+    {
+        SourceSnapshot snapshot = await new WingetUpdateSourceConnector(Process(), "winget",
+            new FakeCompatibility(_ => [Observation() with { InstallerType = "Zip", NestedInstallerType = "Wix", InstalledProductCodes = ["ContosoCliKey"] }])).RefreshAsync(CancellationToken.None);
+        Assert.AreEqual(SourceInstallerFit.InstallerNotSupported, snapshot.Packages.Single(package => package.PackageId == "Contoso.Cli").InstallerFit);
+        ProductMatchProfile product = new(RegistryKey("ContosoCliKey"), "Contoso CLI", null, null, null, "Contoso", "2.0.0", "Machine", "x64", null);
+
+        UpdateIntelligenceItem item = UpdateIntelligence.Assess([product], [snapshot]).Items.Single();
+
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, item.Status, item.Explanation);
+        Assert.IsFalse(item.Mapping!.IsActionable);
+        Assert.AreEqual(MappingOrigin.ProviderSupplied, item.Mapping.Origin);
+        CollectionAssert.AreEqual(new[] { MappingReviewReason.InstallerNotSupported }, item.Mapping.ReviewReasons.ToArray());
+        // The owner's confirmation can't settle it either.
+        DeclaredPackageMapping confirmed = new(product.StableProductKey, "winget", "Contoso.Cli", MappingOrigin.UserConfirmed);
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, UpdateIntelligence.Assess([product], [snapshot], [confirmed]).Items.Single().Status);
+    }
+
+    [TestMethod]
+    public async Task AnAppInstalledForOneAccountWithOnlyAnEveryUserInstallerIsOneRowThatCantUpdate()
+    {
+        // Owner's PC, 2026-11-19 (MEGAsync, shape only): the account's uninstall entry, WinGet's own record of the package at the version
+        // it maps that entry to, and the app's Explorer add-on, a separate MSIX package with the same name and publisher at that version.
+        SourceSnapshot snapshot = await new WingetUpdateSourceConnector(Process(), "winget", new FakeCompatibility(_ =>
+            [Observation() with { HasApplicableInstaller = false, InstalledScope = "User", InstallerScope = "Unknown", InstallerArchitecture = "Unknown", CandidatePublisher = "Contoso", InstalledProductCodes = ["ContosoCliKey"] }]))
+            .RefreshAsync(CancellationToken.None);
+        ProductMatchProfile entry = new(RegistryKey("ContosoCliKey"), "Contoso CLI", null, null, null, "Contoso", "2.0", "User", "x64", null);
+        ProductMatchProfile addOn = new(MsixKey("Contoso.CliShell_g54w8ztgkx496"), "Contoso CLI", null, "Contoso.CliShell_g54w8ztgkx496", null, "Contoso", "2.0.0", "User", "X64", null);
+        ProductMatchProfile wingetOnly = new("winget:winget:Contoso.Cli", "Contoso CLI", "Contoso.Cli", null, null, null, "2.0.0", "Unknown", "Unknown", null, InstalledSourceId: "winget", HasConcreteLocalEvidence: false);
+
+        UpdateIntelligenceSummary summary = UpdateIntelligence.Assess([entry, addOn, wingetOnly], [snapshot]);
+
+        UpdateIntelligenceItem item = summary.Items.Single(candidate => candidate.StableProductKey == entry.StableProductKey);
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, item.Status, item.Explanation);
+        Assert.AreEqual(MappingOrigin.ProviderSupplied, item.Mapping!.Origin);
+        CollectionAssert.Contains(item.Mapping.ReviewReasons.ToArray(), MappingReviewReason.NoInstallerForInstalledScope);
+        Assert.AreEqual(UpdateIntelligenceStatus.Unmanaged, summary.Items.Single(candidate => candidate.StableProductKey == addOn.StableProductKey).Status, "the add-on doesn't take the linked package by name");
+        Assert.IsFalse(summary.Items.Any(candidate => candidate.StableProductKey == wingetOnly.StableProductKey), "WinGet's own record is the entry's row");
+        // An owner's recorded mapping for the add-on still holds.
+        DeclaredPackageMapping mapped = new(addOn.StableProductKey, "winget", "Contoso.Cli", MappingOrigin.UserConfirmed);
+        Assert.IsNotNull(UpdateIntelligence.Assess([entry, addOn], [snapshot], [mapped]).Items.Single(candidate => candidate.StableProductKey == addOn.StableProductKey).Mapping);
     }
 
     private static UpdateIntelligenceItem ConfirmedAssessment(SourceSnapshot snapshot)

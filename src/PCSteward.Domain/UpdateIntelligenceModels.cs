@@ -19,7 +19,26 @@ public sealed record SourcePackageRecord(
     string Architecture,
     string? Channel,
     bool RequiresConnectorSpecificVersionSemantics = false,
-    string? ProviderSuppliedStableProductKey = null);
+    string? ProviderSuppliedStableProductKey = null,
+    SourceInstallerFit InstallerFit = SourceInstallerFit.NoObjection);
+
+/// <summary>
+/// What the source said, when it checked for updates, about running this update's installer on PC Steward's reviewed route for the
+/// app's install scope (owner's PC, 2026-11-19: an update shown as Ready was then refused at review for its installer type). Anything
+/// but <see cref="NoObjection"/> holds the update back as a review item with the reason; <see cref="NoObjection"/> proves nothing, the
+/// review still checks the installer. Stored as its number, so values are only appended.
+/// </summary>
+public enum SourceInstallerFit
+{
+    /// <summary>Nothing known against the installer (or the source doesn't say). The review decides.</summary>
+    NoObjection = 0,
+
+    /// <summary>The installer is of a kind the reviewed route for this scope can't run (for example a zip around an MSI).</summary>
+    InstallerNotSupported = 1,
+
+    /// <summary>The source has no installer for the scope the app is installed in (for example only every-user, installed for one account).</summary>
+    NoInstallerForInstalledScope = 2,
+}
 
 public sealed record SourceSnapshot(
     string SourceId,

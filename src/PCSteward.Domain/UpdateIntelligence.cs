@@ -34,7 +34,9 @@ public static class UpdateIntelligence
             if (policy.IsPinned) { items.Add(new(product.StableProductKey, UpdateIntelligenceStatus.Pinned, null, policy.PinDescription ?? "The product is pinned by a recorded user decision.")); continue; }
             (SourceSnapshot Snapshot, PackageMatchCandidate Candidate)[] candidateEntries = snapshots
                 .Where(source => source.State is SourceSnapshotState.Live or SourceSnapshotState.Cached)
-                .SelectMany(source => source.Packages.Select(package => (source, new PackageMatchCandidate(package.SourceId, package.PackageId, package.DisplayName, null, null, package.Publisher, package.AvailableVersion, package.Scope, package.Architecture, package.Channel, true, package.ProviderSuppliedStableProductKey, package.RequiresConnectorSpecificVersionSemantics))))
+                .SelectMany(source => source.Packages
+                    .Where(package => !IsLinkedToAnotherProduct(product, package, concreteKeys, declaredMappings))
+                    .Select(package => (source, new PackageMatchCandidate(package.SourceId, package.PackageId, package.DisplayName, null, null, package.Publisher, package.AvailableVersion, package.Scope, package.Architecture, package.Channel, true, package.ProviderSuppliedStableProductKey, package.RequiresConnectorSpecificVersionSemantics, InstallerFit: package.InstallerFit))))
                 .ToArray();
             PackageMatchCandidate[] candidates = candidateEntries.Select(entry => entry.Candidate).ToArray();
             SourceSnapshot? unavailable = snapshots.FirstOrDefault(source =>
@@ -161,6 +163,17 @@ public static class UpdateIntelligence
         wingetListsAs.GetValueOrDefault(product.StableProductKey) == (mapping.SourceId.ToUpperInvariant(), mapping.PackageId.ToUpperInvariant()) &&
         mapping.ReviewReasons.All(reason => reason is MappingReviewReason.AmbiguousPublisher or MappingReviewReason.CandidateIsCurrent
             or MappingReviewReason.MissingScopeEvidence or MappingReviewReason.MissingArchitectureEvidence or MappingReviewReason.MissingChannelEvidence);
+
+    // Owner's PC, 2026-11-19 (MEGAsync): WinGet links its package to the app's uninstall entry by product code, and the app's Explorer
+    // add-on is a separate MSIX package with the same name. A package WinGet links to one concrete product is that product's, so another
+    // product never gets it by a name match (that would be a second row offering the same update). An owner's recorded mapping still holds.
+    private static bool IsLinkedToAnotherProduct(ProductMatchProfile product, SourcePackageRecord package, HashSet<string> concreteKeys,
+        IEnumerable<DeclaredPackageMapping>? declaredMappings) =>
+        package.ProviderSuppliedStableProductKey is { } linked && concreteKeys.Contains(linked) &&
+        !string.Equals(linked, product.StableProductKey, StringComparison.OrdinalIgnoreCase) &&
+        declaredMappings?.Any(mapping => string.Equals(mapping.StableProductKey, product.StableProductKey, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(mapping.SourceId, package.SourceId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(mapping.PackageId, package.PackageId, StringComparison.OrdinalIgnoreCase)) != true;
 
     private static HashSet<(string SourceId, string PackageId)> LinkedToConcreteProduct(HashSet<string> concreteKeys, IReadOnlyCollection<SourceSnapshot> snapshots) =>
         snapshots

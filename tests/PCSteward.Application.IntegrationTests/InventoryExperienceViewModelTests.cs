@@ -230,6 +230,23 @@ public sealed class InventoryExperienceViewModelTests
     }
 
     [TestMethod]
+    public void AMatchHeldBackByItsInstallerIsNotOfferedForConfirmation()
+    {
+        // Owner's PC, 2026-11-19: confirming the package settles identity only, so it isn't asked when the installer still holds it back.
+        foreach (MappingReviewReason held in new[] { MappingReviewReason.InstallerNotSupported, MappingReviewReason.NoInstallerForInstalledScope })
+        {
+            InventoryExperienceViewModel viewModel = new();
+            Guid id = Guid.NewGuid();
+            viewModel.LoadInventory([new CanonicalProduct(id, "product:widget", "Widget")], [new InstallationInstance(Guid.NewGuid(), id, "registry", "widget", "1.0", "User", "x64", "Contoso")]);
+            PackageMapping mapping = new("winget", "Contoso.Widget", "1.1", MappingConfidence.Medium, MappingOrigin.Automatic, "Review.", false, [MappingReviewReason.AmbiguousPublisher, held], new VersionComparisonResult(VersionComparisonOutcome.Newer, VersionComparisonExplanation.NumericDotted));
+            SourceSnapshot source = new("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.Widget", "Widget", "Contoso", "1.0", "1.1", "User", "Unknown", "Stable", InstallerFit: SourceInstallerFit.InstallerNotSupported)], []);
+            viewModel.LoadUpdateIntelligence(new UpdateIntelligenceSummary([new UpdateIntelligenceItem("product:widget", UpdateIntelligenceStatus.ReviewRequired, mapping, "Review.", "winget", source.LastSuccessAt)], Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, _ => 0), [source]));
+
+            Assert.IsFalse(viewModel.UpdateDetails["product:widget"].CanConfirmPackageIdentity, held.ToString());
+        }
+    }
+
+    [TestMethod]
     public void AmbiguousCandidatesExposeStructuredChoosePinAndIgnoreActions()
     {
         InventoryExperienceViewModel viewModel = new();

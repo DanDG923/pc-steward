@@ -147,6 +147,19 @@ public sealed class UiReviewUpdatesPresentationTests
             Assert.AreEqual(StatusTone.Neutral, VersionJumpPresenter.Badge(jump)!.Tone, $"{jump}: a version change is not a warning");
     }
 
+    [TestMethod]
+    [Description("Owner's PC, 2026-11-19: an update whose installer PC Steward can't run says so, even when the check is out of date.")]
+    public void AnUpdateHeldBackByItsInstallerSaysWhyInsteadOfAskingForAnotherCheck()
+    {
+        Assert.AreEqual(CantUpdateReasons.InstallerNotSupported, CantUpdateReasons.For(Detail("game", "4.0.306.0", "4.1.314", "Microsoft.GameInput", reasons: ["InstallerNotSupported"])));
+        Assert.AreEqual(CantUpdateReasons.InstallerNotSupported, CantUpdateReasons.For(Detail("game", "4.0.306.0", "4.1.314", "Microsoft.GameInput", reasons: ["InstallerNotSupported"], needsFreshCheck: true)));
+        Assert.AreEqual(CantUpdateReasons.NoInstallerForInstalledScope, CantUpdateReasons.For(Detail("mega", "6.7.0", "6.7.1.0", "Mega.MEGASync", reasons: ["MissingArchitectureEvidence", "NoInstallerForInstalledScope"])));
+        Assert.AreEqual(CantUpdateReasons.HowInstalledUnknown, CantUpdateReasons.For(Detail("other", "1.0", "2.0", "Contoso.App", reasons: ["MissingArchitectureEvidence"])));
+        Assert.IsNotNull(ReviewReasonText.Describe("InstallerNotSupported"));
+        Assert.AreNotEqual(ReviewReasonText.NeedsCloserLook, ReviewReasonText.Describe("InstallerNotSupported"));
+        Assert.AreNotEqual(ReviewReasonText.NeedsCloserLook, ReviewReasonText.Describe("NoInstallerForInstalledScope"));
+    }
+
     private static InventoryRow Row(string key, string name, string status, string version) =>
         new(Guid.NewGuid(), name, "Contoso", "winget", "User", version, status, "Application", [], key);
 
