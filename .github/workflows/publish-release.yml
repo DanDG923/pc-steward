@@ -2,7 +2,7 @@ name: Publish release
 
 # ADR-032 revision 2 §12 step 3 (FR-UPD-04/15, TM-19): turn one green "Release payload" run into a DRAFT GitHub release with
 # the run's check file attached, on demand only. It checks that the run is a successful, hand-started release-payload.yml run
-# of this repository on phase/4-beta or main, downloads that run's pc-steward-release-check artefact, and refuses unless the
+# of this repository on phase/4-beta, downloads that run's pc-steward-release-check artefact, and refuses unless the
 # zip's SHA-256 is the digest GitHub records for it and its record names this run and commit. The tag is v<msiVersion> at the
 # run's commit. It cannot sign anything: the owner attaches the YubiKey-signed PCSteward-<msiVersion>.msi to the draft in the
 # browser and publishes it, and immutable releases then stop the tag and assets changing. PC Steward trusts nothing written
@@ -39,9 +39,9 @@ jobs:
           run_json="$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID")"
           jq -e --arg repository "$REPOSITORY" --argjson id "$RUN_ID" '
             .id == $id and .path == ".github/workflows/release-payload.yml" and .event == "workflow_dispatch" and
-            .status == "completed" and .conclusion == "success" and (.head_branch == "phase/4-beta" or .head_branch == "main") and
+            .status == "completed" and .conclusion == "success" and .head_branch == "phase/4-beta" and
             .repository.full_name == $repository and .head_repository.full_name == $repository' <<<"$run_json" >/dev/null ||
-            fail "Run $RUN_ID is not a successful hand-started Release payload run of this repository on phase/4-beta or main."
+            fail "Run $RUN_ID is not a successful hand-started Release payload run of this repository on phase/4-beta."
           commit="$(jq -r '.head_sha' <<<"$run_json")"
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || fail "The run's commit is not a full commit id."
 

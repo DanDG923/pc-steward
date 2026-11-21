@@ -221,11 +221,11 @@ public sealed partial class MainWindow
         ContentDialog dialog = new()
         {
             XamlRoot = Content.XamlRoot, Title = $"Connect {provider.Name}", Content = new ScrollViewer { Content = body, MaxHeight = 520 },
-            PrimaryButtonText = "Save key and connect", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close, IsPrimaryButtonEnabled = false
+            PrimaryButtonText = "Save key and connect", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close, IsPrimaryButtonEnabled = !askPriorUse
         };
-        void Refresh() => dialog.IsPrimaryButtonEnabled = keyBox.Password.Length > 0 && (!askPriorUse || priorUse.SelectedIndex >= 0);
-        keyBox.PasswordChanged += (_, _) => Refresh();
-        priorUse.SelectionChanged += (_, _) => Refresh();
+        // Mythos whole-app review MY-03: the box is never read to enable the button, because every read of Password is another
+        // copy of the key that can't be cleared. An empty box is refused when the button is pressed ("Paste your API key first").
+        priorUse.SelectionChanged += (_, _) => dialog.IsPrimaryButtonEnabled = !askPriorUse || priorUse.SelectedIndex >= 0;
         AdvisoryAiApiKey? key = null;
         dialog.PrimaryButtonClick += (_, args) => { key = TakeKey(keyBox, problem); if (key is null) args.Cancel = true; };
         dialog.Closed += (_, _) => keyBox.Password = string.Empty;
@@ -276,9 +276,8 @@ public sealed partial class MainWindow
         ContentDialog dialog = new()
         {
             XamlRoot = Content.XamlRoot, Title = "Replace key", Content = body,
-            PrimaryButtonText = "Save new key", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close, IsPrimaryButtonEnabled = false
+            PrimaryButtonText = "Save new key", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close
         };
-        keyBox.PasswordChanged += (_, _) => dialog.IsPrimaryButtonEnabled = keyBox.Password.Length > 0;
         AdvisoryAiApiKey? key = null;
         dialog.PrimaryButtonClick += (_, args) => { key = TakeKey(keyBox, problem); if (key is null) args.Cancel = true; };
         dialog.Closed += (_, _) => keyBox.Password = string.Empty;

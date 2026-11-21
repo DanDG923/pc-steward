@@ -24,7 +24,11 @@ internal static class ReleaseRunEvidence
     /// <summary>GitHub's numeric id of <see cref="ReleaseCheckPolicy.Repository"/>; a renamed or re-created repository has another.</summary>
     internal const long RepositoryId = 1331300752;
     internal const string WorkflowPath = ".github/workflows/release-payload.yml";
-    internal static readonly IReadOnlyList<string> ReleaseBranches = ["phase/4-beta", "main"];
+    /// <summary>
+    /// The release branches. Only phase/4-beta: main does not exist, and a branch that does not exist yet is not trusted until it
+    /// does and its ruleset restricts creation (Mythos whole-app review MY-02).
+    /// </summary>
+    internal static readonly IReadOnlyList<string> ReleaseBranches = ["phase/4-beta"];
 
     /// <summary>The largest answer either caller reads before parsing.</summary>
     internal const int MaximumAnswerBytes = 512 * 1024;

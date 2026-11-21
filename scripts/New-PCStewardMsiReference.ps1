@@ -2,7 +2,10 @@
 param(
     # The release payload folder: payload\, candidate-manifest.json and release-payload.json (or, in the CI MSI job, the same
     # layout built there). msi-reference.json is written into it.
-    [Parameter(Mandatory)][string]$ReleasePayloadRoot
+    [Parameter(Mandatory)][string]$ReleasePayloadRoot,
+    # Mythos whole-app review MY-01: build with Microsoft's SDK zip pinned in scripts\release-toolchain-pins.json (downloaded and
+    # checked into this run's own folder), not with whatever SDK the machine has. The release workflow and the CI MSI job use it.
+    [switch]$PinnedSdk
 )
 
 # ADR-034 security review H1 (FR-UPD-15, TM-04/13): build the release MSI once, unsigned, from the CI payload, exactly as
@@ -27,7 +30,16 @@ try {
     Copy-Item -LiteralPath (Join-Path $root 'payload') -Destination $payload -Recurse
     $null = & (Join-Path $PSScriptRoot 'New-PCStewardReleaseManifest.ps1') -PayloadRoot $payload -ProductVersion $productVersion
     $msiPath = Join-Path $work "PCSteward-$msiVersion.msi"
-    $null = & (Join-Path $PSScriptRoot 'New-PCStewardMsi.ps1') -PayloadRoot $payload -MsiVersion $msiVersion -OutputPath $msiPath
+    $msiArguments = @{ PayloadRoot = $payload; MsiVersion = $msiVersion; OutputPath = $msiPath }
+    if ($PinnedSdk) {
+        . (Join-Path $PSScriptRoot 'PCStewardReleaseToolchain.ps1')
+        $toolchainPins = Read-PCStewardReleaseToolchainPins -RepositoryRoot (Split-Path -Parent $PSScriptRoot)
+        $sdkFolder = Join-Path $work 'sdk'
+        New-Item -ItemType Directory -Path $sdkFolder | Out-Null
+        $sdkRoot = Install-PCStewardPinnedSdk -Pins $toolchainPins -Folder $sdkFolder
+        $msiArguments['Dotnet'] = Join-Path $sdkRoot 'dotnet.exe'
+    }
+    $null = & (Join-Path $PSScriptRoot 'New-PCStewardMsi.ps1') @msiArguments
     $tables = Get-PCStewardMsiTables -Path $msiPath
     $reference = [ordered]@{
         schema = 'pc-steward-msi-reference:1'; productVersion = $productVersion; msiVersion = $msiVersion

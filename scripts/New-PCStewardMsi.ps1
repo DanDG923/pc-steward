@@ -2,14 +2,18 @@
 param(
     [Parameter(Mandatory)][string]$PayloadRoot,
     [Parameter(Mandatory)][string]$MsiVersion,
-    [Parameter(Mandatory)][string]$OutputPath
+    [Parameter(Mandatory)][string]$OutputPath,
+    # Optional: the dotnet.exe of a pinned SDK folder (New-PCStewardMsiReference.ps1 -PinnedSdk). Without it, dotnet on PATH.
+    [string]$Dotnet
 )
 
 # ADR-034 §1 and §5 (FR-UPD-04/15, TM-04/13): build the PC Steward MSI from a complete payload folder (signed executables and
 # PCSteward.ReleaseManifest.json already written), with the WiX SDK pinned in packaging\msi\PCSteward.Installer.wixproj, then
 # check the built package: no services and no custom action that runs code, the protected install-folder DACL, the fixed
-# UpgradeCode and the version asked for. Local only: no signing, install, elevation or certificate store. `dotnet build`
-# restores the pinned WiX SDK from NuGet; that is the only network effect.
+# UpgradeCode and the version asked for. Local only: no signing, install, elevation or certificate store. The only network
+# effect is one download of the WiX SDK package from the nuget.org address pinned in scripts\release-toolchain-pins.json
+# (msiSdk). Mythos whole-app review MY-01: its size and SHA-512 must equal the pin before any of its code runs, and the build
+# restores only from a local feed that holds that one checked file, into a new empty package folder.
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $script:UpgradeCode = '{2AD17330-BAD5-46BE-A409-20814B26673C}'
@@ -37,6 +41,56 @@ try {
         if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "$file is not a plain file." }
         Copy-Item -LiteralPath $item.FullName -Destination (Join-Path $source $item.Name)
     }
+    # MY-01: the WiX SDK is the one package this build restores. It is checked byte for byte against the committed pin before
+    # dotnet is started, then offered to NuGet as the only file of the only package source, with every other source, fallback
+    # folder and package folder cleared, so NuGet cannot fetch or reuse anything else.
+    $wix = ([IO.File]::ReadAllText((Join-Path $repositoryRoot 'scripts\release-toolchain-pins.json')) | ConvertFrom-Json).msiSdk
+    if (!$wix -or [string]$wix.id -cne 'WixToolset.Sdk' -or [string]$wix.version -cnotmatch '\A\d+\.\d+\.\d+\z' -or
+        [string]$wix.sha512 -cnotmatch '\A[A-Za-z0-9+/]{86}==\z' -or [long]$wix.bytes -lt 1MB -or [long]$wix.bytes -gt 256MB) {
+        throw 'scripts\release-toolchain-pins.json has no valid msiSdk pin.'
+    }
+    $wixId = ([string]$wix.id).ToLowerInvariant(); $wixVersion = [string]$wix.version
+    $wixUrl = "https://api.nuget.org/v3-flatcontainer/$wixId/$wixVersion/$wixId.$wixVersion.nupkg"
+    if ([string]$wix.url -cne $wixUrl) { throw "The pinned WiX SDK must be nuget.org's $wixUrl." }
+    if (!([IO.File]::ReadAllText((Join-Path $source 'PCSteward.Installer.wixproj'))).StartsWith("<Project Sdk=`"$($wix.id)/$wixVersion`">", [StringComparison]::Ordinal)) {
+        throw 'The installer project names another WiX SDK than the pinned one.'
+    }
+    $feed = Join-Path $build 'feed'
+    $packages = Join-Path $build 'packages'
+    New-Item -ItemType Directory -Path $feed | Out-Null
+    New-Item -ItemType Directory -Path $packages | Out-Null
+    $wixPackage = Join-Path $feed "$wixId.$wixVersion.nupkg"
+    $previousProgress = $ProgressPreference; $ProgressPreference = 'SilentlyContinue'
+    try { Invoke-WebRequest -Uri $wixUrl -OutFile $wixPackage -UseBasicParsing } finally { $ProgressPreference = $previousProgress }
+    function Get-FileSha512Base64([string]$Path) {
+        $sha = [Security.Cryptography.SHA512]::Create(); $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        try { [Convert]::ToBase64String($sha.ComputeHash($stream)) } finally { $stream.Dispose(); $sha.Dispose() }
+    }
+    if ((Get-Item -LiteralPath $wixPackage).Length -ne [long]$wix.bytes) { throw "The downloaded WiX SDK is not the pinned $($wix.bytes) bytes." }
+    if ((Get-FileSha512Base64 $wixPackage) -cne [string]$wix.sha512) { throw 'The downloaded WiX SDK does not match its pinned SHA-512.' }
+    $escapedFeed = [Security.SecurityElement]::Escape($feed); $escapedPackages = [Security.SecurityElement]::Escape($packages)
+    $nugetConfig = @"
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="pinned-wix-sdk" value="$escapedFeed" />
+  </packageSources>
+  <packageSourceMapping>
+    <clear />
+    <packageSource key="pinned-wix-sdk">
+      <package pattern="$($wix.id)" />
+    </packageSource>
+  </packageSourceMapping>
+  <fallbackPackageFolders>
+    <clear />
+  </fallbackPackageFolders>
+  <config>
+    <add key="globalPackagesFolder" value="$escapedPackages" />
+  </config>
+</configuration>
+"@
+    [IO.File]::WriteAllText((Join-Path $source 'nuget.config'), $nugetConfig, [Text.UTF8Encoding]::new($false))
     $hookNames = @('Directory.Build.props', 'Directory.Build.targets', 'Directory.Build.rsp', 'Directory.Packages.props', 'Directory.Solution.props', 'Directory.Solution.targets', 'NuGet.Config', 'global.json')
     for ($folder = Split-Path -Parent $source; $folder; $folder = Split-Path -Parent $folder) {
         foreach ($name in $hookNames) { if (Test-Path -LiteralPath (Join-Path $folder $name)) { throw "A build hook sits above the MSI build folder: $(Join-Path $folder $name)" } }
@@ -47,8 +101,35 @@ try {
         "-p:PayloadDir=$payload", "-p:ProductVersion=$MsiVersion")
     # --no-incremental: the version and payload come in as properties, which an incremental build does not see change.
     # The build log goes to the console, never into this script's output (the last output line is the JSON result).
-    & dotnet @arguments | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "The MSI build failed with exit code $LASTEXITCODE." }
+    # The package folder and HTTP cache are the new empty ones for this build only (an inherited NUGET_PACKAGES, as the release
+    # workflow sets, would otherwise win over nuget.config). With -Dotnet, the pinned SDK is the only one dotnet can find.
+    $dotnetCommand = 'dotnet'
+    $savedEnvironment = @{}
+    $buildEnvironment = @{ NUGET_PACKAGES = $packages; NUGET_HTTP_CACHE_PATH = (Join-Path $build 'http-cache'); NUGET_FALLBACK_PACKAGES = $null }
+    if ($Dotnet) {
+        $dotnetPath = [IO.Path]::GetFullPath($Dotnet)
+        if ([IO.Path]::GetFileName($dotnetPath) -cne 'dotnet.exe' -or !(Test-Path -LiteralPath $dotnetPath -PathType Leaf)) { throw "Dotnet must name a dotnet.exe: $Dotnet" }
+        $dotnetCommand = $dotnetPath
+        $sdkRoot = Split-Path -Parent $dotnetPath
+        $buildEnvironment['DOTNET_ROOT'] = $sdkRoot
+        $buildEnvironment['DOTNET_MULTILEVEL_LOOKUP'] = '0'
+        $buildEnvironment['PATH'] = $sdkRoot + [IO.Path]::PathSeparator + $env:PATH
+    }
+    foreach ($name in @($buildEnvironment.Keys)) {
+        $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+        [Environment]::SetEnvironmentVariable($name, $buildEnvironment[$name], 'Process')
+    }
+    try { & $dotnetCommand @arguments | Out-Host; $buildExit = $LASTEXITCODE }
+    finally { foreach ($name in @($savedEnvironment.Keys)) { [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process') } }
+    if ($buildExit -ne 0) { throw "The MSI build failed with exit code $buildExit." }
+    # MY-01: the build restored exactly the checked WiX SDK and nothing else.
+    $restored = @(Get-ChildItem -LiteralPath $packages -Force)
+    $restoredVersions = @(Get-ChildItem -LiteralPath (Join-Path $packages $wixId) -Force -ErrorAction SilentlyContinue)
+    $restoredPackage = Join-Path $packages "$wixId\$wixVersion\$wixId.$wixVersion.nupkg"
+    if ($restored.Count -ne 1 -or $restored[0].Name -cne $wixId -or $restoredVersions.Count -ne 1 -or $restoredVersions[0].Name -cne $wixVersion -or
+        !(Test-Path -LiteralPath $restoredPackage -PathType Leaf) -or (Get-FileSha512Base64 $restoredPackage) -cne [string]$wix.sha512) {
+        throw "The MSI build restored something other than the pinned WiX SDK: $(($restored | ForEach-Object { $_.Name }) -join ', ')"
+    }
     $built = @(Get-ChildItem -LiteralPath $buildOutput -Recurse -Filter '*.msi' -File)
     if ($built.Count -ne 1) { throw "Expected one MSI in the build output, found $($built.Count)." }
     # The output copy is taken before the package is opened. The checks below read the build copy, which must hash the same.

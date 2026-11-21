@@ -93,8 +93,10 @@ public sealed class ReleaseKeyScriptBoundaryTests
         StringAssert.Contains(workflow, "permissions:\n  contents: read\n");
         StringAssert.Contains(workflow, "persist-credentials: false");
         // Self-updater security review R3: a run on a tag (whose name GitHub reports as head_branch) or another branch fails first.
-        StringAssert.Contains(workflow, "if ($env:REF_TYPE -cne 'branch' -or $env:REF -cnotin @('refs/heads/phase/4-beta', 'refs/heads/main')) { throw");
-        Assert.IsLessThan(workflow.IndexOf("uses: actions/checkout@", StringComparison.Ordinal), workflow.IndexOf("Refuse anything but a release branch", StringComparison.Ordinal));
+        // Mythos whole-app review MY-02: phase/4-beta is the only release branch; main does not exist and is not trusted.
+        StringAssert.Contains(workflow, "if ($env:REF_TYPE -cne 'branch' -or $env:REF -cne 'refs/heads/phase/4-beta') { throw");
+        Assert.IsFalse(workflow.Contains("refs/heads/main", StringComparison.Ordinal), "main is not a release branch");
+        Assert.IsLessThan(workflow.IndexOf("uses: actions/checkout@", StringComparison.Ordinal), workflow.IndexOf("Refuse anything but the release branch", StringComparison.Ordinal));
         StringAssert.Contains(workflow, "run: pwsh -NoProfile -File ./scripts/Test-OwnerOnlyCandidateBuilderCI.ps1 -ReleasePayload");
         StringAssert.Contains(workflow, "name: pc-steward-release-payload");
         // Every action is pinned to a full commit, so a moved tag cannot change what builds the payload.
@@ -117,7 +119,7 @@ public sealed class ReleaseKeyScriptBoundaryTests
         string release = Script("New-PCStewardRelease.ps1");
         StringAssert.Contains(release, "$repository = 'DanDG923/pc-steward'");
         StringAssert.Contains(release, "$workflowPath = '.github/workflows/release-payload.yml'");
-        StringAssert.Contains(release, "$allowedBranches = @('phase/4-beta', 'main')");
+        StringAssert.Contains(release, "$allowedBranches = @('phase/4-beta')");
         StringAssert.Contains(release, "if ($run.path -cne $workflowPath -or $run.event -cne 'workflow_dispatch')");
         StringAssert.Contains(release, "if ($run.status -cne 'completed' -or $run.conclusion -cne 'success')");
         StringAssert.Contains(release, "if ($zipHash -cne $expectedZip)");

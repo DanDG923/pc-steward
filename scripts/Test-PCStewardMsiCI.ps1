@@ -309,7 +309,8 @@ try {
         manifestSha256 = (Get-FileSha256 (Join-Path $release 'candidate-manifest.json')); fileCount = 0; pins = [ordered]@{ primary = $pin; backup = $backupPin }
     }
     [IO.File]::WriteAllText((Join-Path $release 'release-payload.json'), ($releaseRecord | ConvertTo-Json -Depth 3), [Text.UTF8Encoding]::new($false))
-    $reference = & (Join-Path $PSScriptRoot 'New-PCStewardMsiReference.ps1') -ReleasePayloadRoot $release | Select-Object -Last 1 | ConvertFrom-Json
+    # -PinnedSdk as in the release workflow, so every pull request proves the pinned-SDK reference build (Mythos MY-01).
+    $reference = & (Join-Path $PSScriptRoot 'New-PCStewardMsiReference.ps1') -ReleasePayloadRoot $release -PinnedSdk | Select-Object -Last 1 | ConvertFrom-Json
     $signedTables = Get-PCStewardMsiTables -Path $msis['0.1.1'].Path
     $referenceLines = @((Get-Content -LiteralPath (Join-Path $release 'msi-reference.json') -Raw | ConvertFrom-Json).tables)
     $tableDifferences = @(Compare-Object $referenceLines @($signedTables.Lines) -CaseSensitive | ForEach-Object { $_.SideIndicator + ' ' + $_.InputObject })

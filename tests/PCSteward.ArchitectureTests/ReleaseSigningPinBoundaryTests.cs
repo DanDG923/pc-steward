@@ -43,7 +43,7 @@ public sealed class ReleaseSigningPinBoundaryTests
         StringAssert.Contains(verify, "UiChoice = NativeMethods.WtdUiNone,");
         Assert.IsTrue(verify.IndexOf("signer = ReadSigner(data.StateData);", StringComparison.Ordinal) <
             verify.IndexOf("data.StateAction = NativeMethods.WtdStateActionClose;", StringComparison.Ordinal));
-        string pinned = Between(transport, "internal static bool TryReadPinnedSigner(", "internal static bool HaveSameSigner(");
+        string pinned = Between(transport, "internal static bool TryReadPinnedSigner(", "private static int VerifyTrust(");
         Assert.IsFalse(pinned.Contains("CreateFromSignedFile", StringComparison.Ordinal), "the pinned check never re-parses the file");
         // Exactly two WinVerifyTrust calls in the transport (verify and close), both inside VerifyTrust.
         Assert.AreEqual(2, Regex.Count(transport, @"NativeMethods\.WinVerifyTrust\("));
@@ -59,6 +59,13 @@ public sealed class ReleaseSigningPinBoundaryTests
         StringAssert.Contains(validate, "AuthenticodeIdentity.HaveSamePinnedSigner(expectedDesktop, expectedHelper, ReleaseSigningPins.Compiled)");
         string pair = Between(transport, "internal static bool IsTrustedAndSameSigner(string firstPath, string secondPath)", "internal static bool IsTrusted(string path)");
         StringAssert.Contains(pair, "HaveSamePinnedSigner(firstPath, secondPath, ReleaseSigningPins.Compiled)");
+        // Mythos whole-app review MY-05: the ADR-022 rule (any certificate Windows trusts, the same raw signer) is gone from launch
+        // trust and from both peer checks; only the compiled pins are accepted.
+        Assert.IsFalse(pair.Contains("IsTrusted(", StringComparison.Ordinal), "the pair rule accepts no Windows-trusted signer");
+        Assert.IsFalse(transport.Contains("HaveSameSigner(", StringComparison.Ordinal), "no raw-certificate comparison remains");
+        Assert.IsFalse(transport.Contains("CreateFromSignedFile", StringComparison.Ordinal));
+        Assert.IsFalse(validate.Contains("AuthenticodeIdentity.IsTrusted(", StringComparison.Ordinal), "launch trust needs the pin");
+        StringAssert.Contains(validate, "bool sameSigner = samePin;");
         // The desktop's protocol-1 peer check and the helper's protocol-2 peer check both use the pair check.
         StringAssert.Contains(transport, "if (!AuthenticodeIdentity.IsTrustedAndSameSigner(actualPath, ownPath))");
         StringAssert.Contains(File.ReadAllText(Path.Combine(execution, "ReviewedHelperBootstrap.cs")),

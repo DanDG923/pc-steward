@@ -38,6 +38,49 @@ public sealed class ReleaseToolchainPinTests
     }
 
     [TestMethod]
+    public void TheWixSdkThatBuildsTheMsiIsPinnedAndCheckedBeforeItRuns()
+    {
+        // Mythos whole-app review MY-01: the WiX SDK is the one package the MSI build restores; its bytes are pinned like every
+        // release package, checked before dotnet starts, and offered to NuGet as the only file of the only source.
+        using JsonDocument pins = JsonDocument.Parse(File.ReadAllText(Path.Combine(Root, "scripts", "release-toolchain-pins.json")));
+        JsonElement wix = pins.RootElement.GetProperty("msiSdk");
+        string id = wix.GetProperty("id").GetString()!, version = wix.GetProperty("version").GetString()!;
+        Assert.AreEqual("WixToolset.Sdk", id);
+        string lower = id.ToLowerInvariant();
+        Assert.AreEqual($"https://api.nuget.org/v3-flatcontainer/{lower}/{version}/{lower}.{version}.nupkg", wix.GetProperty("url").GetString());
+        StringAssert.Matches(wix.GetProperty("sha512").GetString(), new Regex(@"\A[A-Za-z0-9+/]{86}==\z"));
+        Assert.IsGreaterThan(1_000_000L, wix.GetProperty("bytes").GetInt64());
+        string project = File.ReadAllText(Path.Combine(Root, "packaging", "msi", "PCSteward.Installer.wixproj"));
+        StringAssert.StartsWith(project, $"<Project Sdk=\"{id}/{version}\">", "the project builds with the pinned WiX SDK");
+
+        string msi = Script("New-PCStewardMsi.ps1");
+        int check = msi.IndexOf("if ((Get-FileSha512Base64 $wixPackage) -cne [string]$wix.sha512) { throw", StringComparison.Ordinal);
+        int build = msi.IndexOf("& $dotnetCommand @arguments", StringComparison.Ordinal);
+        Assert.IsGreaterThan(0, check, "the downloaded WiX SDK is checked against its pin");
+        Assert.IsLessThan(build, check, "before dotnet starts");
+        Assert.AreEqual(1, Regex.Count(msi, @"& \$dotnetCommand @arguments"), "one dotnet start");
+        Assert.IsFalse(Regex.IsMatch(msi, @"&\s+dotnet\s"), "no other dotnet start");
+        StringAssert.Contains(msi, "[IO.File]::ReadAllText((Join-Path $source 'PCSteward.Installer.wixproj'))).StartsWith(\"<Project Sdk=`\"$($wix.id)/$wixVersion`\">\"");
+        StringAssert.Matches(msi, new Regex(@"<packageSources>\s*<clear />\s*<add key=""pinned-wix-sdk"" value=""\$escapedFeed"" />\s*</packageSources>"));
+        StringAssert.Matches(msi, new Regex(@"<fallbackPackageFolders>\s*<clear />\s*</fallbackPackageFolders>"));
+        StringAssert.Contains(msi, "NUGET_PACKAGES = $packages;");
+        StringAssert.Contains(msi, "throw \"The MSI build restored something other than the pinned WiX SDK:");
+
+        // The CI reference MSI (release workflow and the CI MSI job) is built with the pinned SDK, not the runner's.
+        string reference = Script("New-PCStewardMsiReference.ps1");
+        StringAssert.Contains(reference, "$sdkRoot = Install-PCStewardPinnedSdk -Pins $toolchainPins -Folder $sdkFolder");
+        StringAssert.Contains(reference, "$msiArguments['Dotnet'] = Join-Path $sdkRoot 'dotnet.exe'");
+        string workflow = File.ReadAllText(Path.Combine(Root, ".github", "workflows", "release-payload.yml"));
+        StringAssert.Contains(workflow, "./scripts/New-PCStewardMsiReference.ps1 -ReleasePayloadRoot artifacts/release-payload -PinnedSdk");
+        StringAssert.Contains(Script("Test-PCStewardMsiCI.ps1"), "New-PCStewardMsiReference.ps1') -ReleasePayloadRoot $release -PinnedSdk");
+
+        // The pin reader requires it and the pin printer keeps it.
+        string toolchain = Script("PCStewardReleaseToolchain.ps1");
+        StringAssert.Contains(toolchain, "throw 'release-toolchain-pins.json has no WiX SDK pin.'");
+        StringAssert.Contains(toolchain, "msiSdk = [ordered]@{ id = [string]$Pins.MsiSdk.id;");
+    }
+
+    [TestMethod]
     public void RestoreUsesOnlyNuGetOrgAndNoFallbackPackageFolder()
     {
         string config = File.ReadAllText(Path.Combine(Root, "nuget.config"));

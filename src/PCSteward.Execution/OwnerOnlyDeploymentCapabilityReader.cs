@@ -311,7 +311,7 @@ internal sealed class OwnerOnlyDeploymentCapabilityReader : IHelperProtocolCapab
 
     /// <summary>
     /// The embedded Authenticode signing certificate's SHA-1 thumbprint and <c>NotAfter</c> (UTC) of a held file, or null when
-    /// the file carries no readable embedded signature. Path-based (as <c>AuthenticodeIdentity.HaveSameSigner</c>); the caller
+    /// the file carries no readable embedded signature. Path-based; the caller
     /// holds the file share-read, so the path names the held file. No trust decision is made here.
     /// </summary>
     private static HelperSignerFacts? TryReadSigner(string path)

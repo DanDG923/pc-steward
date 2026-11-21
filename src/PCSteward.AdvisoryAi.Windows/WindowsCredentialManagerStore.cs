@@ -200,6 +200,10 @@ internal sealed class NativeCredentialManagerApi : ICredentialManagerApi
         }
         finally
         {
+            // Mythos whole-app review MY-03: Windows' own copy of the key is overwritten before it is freed.
+            NativeCredential returned = Marshal.PtrToStructure<NativeCredential>(pointer);
+            if (returned.CredentialBlob != IntPtr.Zero && returned.CredentialBlobSize > 0)
+                Marshal.Copy(new byte[returned.CredentialBlobSize], 0, returned.CredentialBlob, returned.CredentialBlobSize);
             CredFree(pointer);
         }
     }
