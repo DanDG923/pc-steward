@@ -172,6 +172,28 @@ public sealed class InventoryWorkflowUpdateSourceTests
     }
 
     [TestMethod]
+    public async Task AnAppsPackageWithAnExternalLocationIsNotASecondUpdateRow()
+    {
+        // Owner's PC, 2026-11-21 (0.1.18, MEGAsync, shape only): the app's Explorer add-on is an MSIX package with an external location and the
+        // app's own name and publisher. Matched by name, it was a second "can't update yet" row for the same update.
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        CanonicalProduct entry = new(Guid.NewGuid(), "registry:contoso.sync", "Contoso Sync");
+        CanonicalProduct addOn = new(Guid.NewGuid(), "msix:contososyncshell_6.7.0.3_x64__g54w8ztgkx496", "Contoso Sync");
+        InstallationInstance registry = new(Guid.NewGuid(), entry.Id, "registry", "ContosoSync", "6.7.0", "User", "x64", "Contoso Ltd");
+        InstallationInstance shell = new(Guid.NewGuid(), addOn.Id, "msix", "ContosoSyncShell_6.7.0.3_x64__g54w8ztgkx496", "6.7.0.3", "User", "X64", "Contoso Ltd", null, null, null, "ExternalLocation");
+        await database.Store.PersistScanAsync(new ScanRun(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "Completed", Guid.NewGuid()), [entry, addOn], [registry, shell], [], [], CancellationToken.None);
+        SourceSnapshot snapshot = new("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [new SourcePackageRecord("winget", "Contoso.Sync", "Contoso Sync", "Contoso Ltd", "6.7.0", "6.7.1.0", "Unknown", "Unknown", null)], []);
+        using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store, Array.Empty<ILocalInventoryProvider>(), decisions: database.Store, sourceCache: database.Store, updateSourceConnectors: [new FakeConnector(snapshot)]);
+
+        UpdateIntelligenceSummary result = await workflow.RefreshUpdateIntelligenceAsync(true, CancellationToken.None);
+
+        UpdateIntelligenceItem item = result.Items.Single();
+        Assert.AreEqual(entry.StableKey, item.StableProductKey);
+        Assert.AreEqual("Contoso.Sync", item.Mapping!.PackageId);
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, item.Status);
+    }
+
+    [TestMethod]
     public async Task SamePackageIdFromAnotherSourceAndMultipleInstallTargetsRemainReviewOnly()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();

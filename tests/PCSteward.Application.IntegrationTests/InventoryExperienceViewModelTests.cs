@@ -181,6 +181,40 @@ public sealed class InventoryExperienceViewModelTests
     }
 
     [TestMethod]
+    public void APackagesUnusedDetailedReadIsSaidOnlyOnThatAppsDetails()
+    {
+        // Owner's PC, 2026-11-21 (0.1.18, MEGAsync): which check dropped WinGet's detailed read is shown on that app, and only there.
+        InventoryExperienceViewModel viewModel = new(); Guid sync = Guid.NewGuid(), widget = Guid.NewGuid();
+        viewModel.LoadInventory([new CanonicalProduct(sync, "product:sync", "Contoso Sync"), new CanonicalProduct(widget, "product:widget", "Widget")],
+            [new InstallationInstance(Guid.NewGuid(), sync, "registry", "sync", "6.7.0", "User", "x64", "Contoso"), new InstallationInstance(Guid.NewGuid(), widget, "registry", "widget", "1.0", "Machine", "x64", "Contoso")]);
+        PackageMapping syncMapping = new("winget", "Contoso.Sync", "6.7.1.0", MappingConfidence.Medium, MappingOrigin.Automatic, "Name and publisher.", false, [MappingReviewReason.MissingScopeEvidence], new VersionComparisonResult(VersionComparisonOutcome.Newer, VersionComparisonExplanation.NumericDotted));
+        PackageMapping widgetMapping = new("winget", "Contoso.Widget", "1.1", MappingConfidence.High, MappingOrigin.Automatic, "Exact identity.", true, [], new VersionComparisonResult(VersionComparisonOutcome.Newer, VersionComparisonExplanation.NumericDotted));
+        string warning = SourceWarningText.DetailUnused("winget", "Contoso.Sync", "installed-version-differs-6.7.0.3");
+        viewModel.LoadUpdateIntelligence(new UpdateIntelligenceSummary(
+            [new UpdateIntelligenceItem("product:sync", UpdateIntelligenceStatus.ReviewRequired, syncMapping, "Review.", "winget", DateTimeOffset.UnixEpoch), new UpdateIntelligenceItem("product:widget", UpdateIntelligenceStatus.VerifiedUpdate, widgetMapping, "Exact identity.", "winget", DateTimeOffset.UnixEpoch)],
+            Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, _ => 0),
+            [new SourceSnapshot("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [], [warning])]));
+
+        Assert.AreEqual("winget:detail-unused:Contoso.Sync:installed-version-differs-6.7.0.3", warning);
+        StringAssert.Contains(viewModel.UpdateDetails["product:sync"].Freshness, "check: installed-version-differs-6.7.0.3");
+        Assert.IsFalse(viewModel.UpdateDetails["product:widget"].Freshness.Contains("detail", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(viewModel.UpdateFreshnessLabel.Contains("detail", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(viewModel.UpdateFreshnessLabel.Contains("Source warning", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ADetailUnusedWarningKeepsOnlySafeCharactersAndReadsBack()
+    {
+        string warning = SourceWarningText.DetailUnused("winget", "Contoso.Sync", @"read failed: C:\Users\alice\x");
+
+        Assert.AreEqual("winget:detail-unused:Contoso.Sync:readfailedCUsersalicex", warning);
+        Assert.IsTrue(SourceWarningText.TryReadDetailUnused(warning, out string package, out string reason));
+        Assert.AreEqual(("Contoso.Sync", "readfailedCUsersalicex"), (package, reason));
+        Assert.IsFalse(SourceWarningText.TryReadDetailUnused("winget:compatibility-unavailable", out _, out _));
+        Assert.IsFalse(SourceWarningText.TryReadDetailUnused(null, out _, out _));
+    }
+
+    [TestMethod]
     public void AdministratorRequirementUsesValidatedSelectionAndRemainsUnknownBeforeReview()
     {
         AdministratorRequirementPresentation unknown = AdministratorRequirementPresenter.BeforeReview();

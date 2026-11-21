@@ -22,7 +22,7 @@ internal sealed class WindowsCurrentUserPackageCatalog : ICurrentUserPackageCata
                 // Shown names are read only for apps: frameworks and resource packs are most of the catalog and never offered.
                 bool isApp = !isFramework && !isResource;
                 record = new MsixPackageInfo(package.Id.FamilyName ?? string.Empty, package.Id.FullName ?? string.Empty, package.Id.Name ?? string.Empty, $"{package.Id.Version.Major}.{package.Id.Version.Minor}.{package.Id.Version.Build}.{package.Id.Version.Revision}", package.Id.Architecture.ToString() ?? string.Empty, package.Id.PublisherId ?? string.Empty, null, isFramework, isResource, IsSystemSigned(package),
-                    isApp ? ReadOrNull(() => package.DisplayName) : null, isApp ? ReadOrNull(() => package.PublisherDisplayName) : null);
+                    isApp ? ReadOrNull(() => package.DisplayName) : null, isApp ? ReadOrNull(() => package.PublisherDisplayName) : null, isApp && HasExternalLocation(package));
             }
             catch (Exception) { continue; }
             yield return record;
@@ -35,6 +35,14 @@ internal sealed class WindowsCurrentUserPackageCatalog : ICurrentUserPackageCata
     internal static bool IsSystemSigned(Package package)
     {
         try { return package.SignatureKind == PackageSignatureKind.System; }
+        catch (Exception) { return false; }
+    }
+
+    // Owner's PC, 2026-11-21 (MEGAsync): a package with an external location is part of a desktop app (MsixInventoryProvider.
+    // ExternalLocationClassification). A package whose external location can't be read is treated as an ordinary app.
+    internal static bool HasExternalLocation(Package package)
+    {
+        try { return !string.IsNullOrWhiteSpace(package.EffectiveExternalPath); }
         catch (Exception) { return false; }
     }
 

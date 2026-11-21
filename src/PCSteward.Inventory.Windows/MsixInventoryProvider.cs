@@ -2,8 +2,12 @@ using PCSteward.Domain;
 
 namespace PCSteward.Inventory.Windows;
 
+/// <summary>
+/// One package as Windows reports it. <see cref="HasExternalLocation"/> is true for a package with an external location (a "sparse"
+/// package): an identity package that a desktop app's own installer registers from its install folder, for example an Explorer add-on.
+/// </summary>
 public sealed record MsixPackageInfo(string FamilyName, string FullName, string Name, string Version, string Architecture, string PublisherId, string? InstallLocation, bool IsFramework, bool IsResourcePackage, bool IsSystemPackage,
-    string? DisplayName = null, string? PublisherDisplayName = null);
+    string? DisplayName = null, string? PublisherDisplayName = null, bool HasExternalLocation = false);
 /// <summary>
 /// One MSIX package installed for the current user. <see cref="DisplayName"/> and <see cref="Publisher"/> are the names Windows shows
 /// (Package.DisplayName and Package.PublisherDisplayName), or the package name and publisher ID when Windows gives none.
@@ -19,6 +23,14 @@ public interface ICurrentUserPackageCatalog
 
 public sealed class MsixInventoryProvider
 {
+    /// <summary>
+    /// Owner's PC, 2026-11-21 (MEGAsync): the classification of a package with an external location. Such a package is part of a desktop
+    /// app that its own installer registers and updates (MEGAsync's Explorer add-on, MEGASyncShellSparse), not an app of its own, and WinGet
+    /// never updates it as a package. Like a framework, it keeps its full package name, is listed only with system components, and is never
+    /// matched to an update, so it can't show as a second row for the desktop app it belongs to.
+    /// </summary>
+    public const string ExternalLocationClassification = "ExternalLocation";
+
     private readonly ICurrentUserPackageCatalog catalog;
     public MsixInventoryProvider(ICurrentUserPackageCatalog catalog) => this.catalog = catalog;
     public MsixInventoryResult ReadCurrentUserPackages(DateTimeOffset retrievedAt)
@@ -32,7 +44,8 @@ public sealed class MsixInventoryProvider
                 try
                 {
                     if (!PackageFamilyName.IsValid(package.FamilyName) || string.IsNullOrWhiteSpace(package.FullName)) throw new InvalidOperationException("Package identity is required.");
-                    string classification = package.IsFramework ? "Framework" : package.IsResourcePackage ? "Resource" : package.IsSystemPackage ? "System" : "Application";
+                    string classification = package.IsFramework ? "Framework" : package.IsResourcePackage ? "Resource" : package.IsSystemPackage ? "System"
+                        : package.HasExternalLocation ? ExternalLocationClassification : "Application";
                     records.Add(new MsixInventoryRecord("msix", Text(package.FamilyName), Text(package.FullName), ShownName(package.DisplayName) ?? Text(package.Name), Text(package.Version), Text(package.Architecture), Text(package.PublisherId), SafePath(package.InstallLocation), classification, retrievedAt,
                         ShownName(package.PublisherDisplayName) ?? Text(package.PublisherId)));
                 }

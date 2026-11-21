@@ -232,22 +232,22 @@ public sealed class UiReviewFaultsPresentationTests
         Assert.AreEqual("Show system components (85)", InstalledAppsFilters.SystemComponentsLabel(85));
 
         InventoryExperienceViewModel viewModel = new();
-        Guid appId = Guid.NewGuid(), frameworkId = Guid.NewGuid(), resourceId = Guid.NewGuid(), systemId = Guid.NewGuid(), unknownId = Guid.NewGuid();
+        Guid appId = Guid.NewGuid(), frameworkId = Guid.NewGuid(), resourceId = Guid.NewGuid(), systemId = Guid.NewGuid(), unknownId = Guid.NewGuid(), addOnId = Guid.NewGuid();
         viewModel.LoadInventory(
             [new CanonicalProduct(appId, "msix:terminal", "Windows Terminal"), new CanonicalProduct(frameworkId, "msix:vclibs", "Microsoft.VCLibs.140.00"), new CanonicalProduct(resourceId, "msix:lang", "Language pack"),
-             new CanonicalProduct(systemId, "msix:shell", "1527c705-839a-4832-9118-54d4Bd6a0c89"), new CanonicalProduct(unknownId, "registry:7zip", "7-Zip")],
-            [Instance(appId, "Application"), Instance(frameworkId, "Framework"), Instance(resourceId, "Resource"), Instance(systemId, "System"), Instance(unknownId, "Unknown")]);
+             new CanonicalProduct(systemId, "msix:shell", "1527c705-839a-4832-9118-54d4Bd6a0c89"), new CanonicalProduct(unknownId, "registry:7zip", "7-Zip"), new CanonicalProduct(addOnId, "msix:sync-shell", "Contoso Sync")],
+            [Instance(appId, "Application"), Instance(frameworkId, "Framework"), Instance(resourceId, "Resource"), Instance(systemId, "System"), Instance(unknownId, "Unknown"), Instance(addOnId, "ExternalLocation")]);
 
         Assert.IsFalse(viewModel.ShowSystemComponents, "hidden until asked for");
-        Assert.AreEqual(3, viewModel.SystemComponentCount);
-        Assert.AreEqual(5, viewModel.AllRows.Count, "the saved inventory and every other page keep every record");
+        Assert.AreEqual(4, viewModel.SystemComponentCount, "a desktop app's package with an external location (owner's PC, 2026-11-21) is a component too");
+        Assert.AreEqual(6, viewModel.AllRows.Count, "the saved inventory and every other page keep every record");
         CollectionAssert.AreEqual(AppNames, viewModel.VisibleRows.Select(row => row.Name).ToArray());
         Assert.AreEqual(2, InstalledAppsFilters.Options(viewModel.ListedRows)[0].Count, "the All tab counts what the list can show");
         Assert.AreEqual("2 apps", InstalledAppsFilters.CountText(viewModel.VisibleRows.Count, viewModel.ListedRows.Count));
 
         viewModel.SetShowSystemComponents(true);
-        Assert.AreEqual(5, viewModel.VisibleRows.Count);
-        Assert.AreEqual(5, InstalledAppsFilters.Options(viewModel.ListedRows)[0].Count);
+        Assert.AreEqual(6, viewModel.VisibleRows.Count);
+        Assert.AreEqual(6, InstalledAppsFilters.Options(viewModel.ListedRows)[0].Count);
         viewModel.SetFilters("zip", null, null, null, null);
         viewModel.SetShowSystemComponents(false);
         Assert.AreEqual("7-Zip", viewModel.VisibleRows.Single().Name, "the switch combines with search");

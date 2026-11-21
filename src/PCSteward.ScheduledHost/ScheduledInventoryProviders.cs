@@ -40,7 +40,7 @@ internal sealed class ScheduledMsixInventoryProvider(Func<bool> isEnabled) : ILo
         List<CanonicalProduct> products = []; List<InstallationInstance> instances = []; List<RawProviderRecord> raw = [];
         foreach (Package package in new PackageManager().FindPackagesForUser(string.Empty))
         {
-            cancellationToken.ThrowIfCancellationRequested(); if (package.IsFramework || package.IsResourcePackage || IsSystemSigned(package)) continue;
+            cancellationToken.ThrowIfCancellationRequested(); if (package.IsFramework || package.IsResourcePackage || IsSystemSigned(package) || HasExternalLocation(package)) continue;
             string family = package.Id.FamilyName ?? string.Empty; string full = package.Id.FullName ?? string.Empty;
             if (!PackageFamilyName.IsValid(family) || string.IsNullOrWhiteSpace(full)) continue;
             Guid productId = StableGuid("product|" + family);
@@ -63,6 +63,12 @@ internal sealed class ScheduledMsixInventoryProvider(Func<bool> isEnabled) : ILo
     private static bool IsSystemSigned(Package package)
     {
         try { return package.SignatureKind == PackageSignatureKind.System; }
+        catch (Exception) { return false; }
+    }
+    // The same rule as the desktop's MSIX inventory: a package with an external location is part of a desktop app, never an app to offer.
+    private static bool HasExternalLocation(Package package)
+    {
+        try { return !string.IsNullOrWhiteSpace(package.EffectiveExternalPath); }
         catch (Exception) { return false; }
     }
     private static Guid StableGuid(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));

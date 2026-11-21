@@ -167,7 +167,7 @@ public sealed class InventoryExperienceViewModel
         for (int index = 0; index < allRows.Count; index++)
             allRows[index] = allRows[index] with { Status = items.TryGetValue(allRows[index].StableProductKey, out UpdateIntelligenceItem? item) ? item.Status.ToString() : "Installed" };
         Dictionary<string, SourceSnapshot> sources = summary.Sources.ToDictionary(snapshot => snapshot.SourceId, StringComparer.OrdinalIgnoreCase);
-        SourceFreshnessLabels = summary.Sources.OrderBy(snapshot => snapshot.SourceId, StringComparer.Ordinal).Select(DescribeSource).ToArray();
+        SourceFreshnessLabels = summary.Sources.OrderBy(snapshot => snapshot.SourceId, StringComparer.Ordinal).Select(snapshot => DescribeSource(snapshot, null)).ToArray();
         UpdateFreshnessLabel = SourceFreshnessLabels.Count == 0 ? "Update checks are off." : string.Join(" ", SourceFreshnessLabels);
         string InstalledVersionFor(string stableProductKey) => allRows.FirstOrDefault(row => row.StableProductKey == stableProductKey)?.Version ?? "Unknown";
         UpdateDetails = summary.Items.ToDictionary(item => item.StableProductKey, item =>
@@ -184,7 +184,7 @@ public sealed class InventoryExperienceViewModel
                 item.Mapping?.PackageId,
                 item.Mapping?.Confidence.ToString() ?? "None",
                 item.Explanation,
-                item.SourceId is not null && sources.TryGetValue(item.SourceId, out SourceSnapshot? source) ? DescribeSource(source) : UpdateFreshnessLabel,
+                item.SourceId is not null && sources.TryGetValue(item.SourceId, out SourceSnapshot? source) ? DescribeSource(source, item.Mapping?.PackageId) : UpdateFreshnessLabel,
                 allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Instances.FirstOrDefault()?.Architecture ?? "Unknown",
                 allRows.FirstOrDefault(row => row.StableProductKey == item.StableProductKey)?.Instances.FirstOrDefault()?.Channel,
                 DescribeAvailableActions(item, reviewCandidates, canConfirmPackageIdentity, requiresFreshSourceEvidence),
@@ -199,9 +199,10 @@ public sealed class InventoryExperienceViewModel
         ApplyFilters();
     }
 
-    private static string DescribeSource(SourceSnapshot source)
+    // A per-package warning (SourceWarningText.DetailUnused) is said only on the details of the app matched to that package.
+    private static string DescribeSource(SourceSnapshot source, string? packageId)
     {
-        string warningDescription = DescribeSourceWarnings(source.Warnings);
+        string warningDescription = DescribeSourceWarnings(source.Warnings, packageId);
         string warningSuffix = warningDescription.Length == 0 ? string.Empty : $" {warningDescription}";
         return source.State switch
         {
@@ -212,9 +213,11 @@ public sealed class InventoryExperienceViewModel
         };
     }
 
-    private static string DescribeSourceWarnings(IEnumerable<string> warnings) => string.Join(" ", warnings
+    private static string DescribeSourceWarnings(IEnumerable<string> warnings, string? packageId) => string.Join(" ", warnings
         .Select(warning => warning switch
         {
+            _ when SourceWarningText.TryReadDetailUnused(warning, out string package, out string reason) =>
+                packageId is not null && string.Equals(package, packageId, StringComparison.OrdinalIgnoreCase) ? SourceWarningText.DescribeDetailUnused(reason) : string.Empty,
             "source:stale" => string.Empty,
             "source:offline" => "The source was offline.",
             _ when warning.EndsWith(":update-check-unavailable", StringComparison.OrdinalIgnoreCase) => "Update availability was not established.",
