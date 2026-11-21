@@ -325,13 +325,13 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
         if (compatibility is null || withUpdate.Length == 0) return result;
         if (withUpdate.Length > MaximumCompatibilityQueries) warnings.Add("winget:compatibility-limit");
         WingetInstalledRecord[] queried = withUpdate.Take(MaximumCompatibilityQueries).ToArray();
-        IReadOnlyList<WinGetCandidateCompatibilityObservation> observations;
+        WinGetCandidateCompatibilityRead read;
         try
         {
             using CancellationTokenSource budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             budget.CancelAfter(compatibilityBudget);
             string[] ids = queried.Select(record => record.Id).ToArray();
-            observations = await Task.Run(() => compatibility.QueryAsync(SourceId, ids, budget.Token), CancellationToken.None)
+            read = await Task.Run(() => compatibility.QueryAsync(SourceId, ids, budget.Token), CancellationToken.None)
                 .WaitAsync(compatibilityBudget, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
@@ -340,15 +340,26 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
             return result;
         }
 
+        int unused = 0;
         foreach (WingetInstalledRecord record in queried)
         {
-            WinGetCandidateCompatibilityObservation[] matching = observations
+            WinGetCandidateCompatibilityObservation[] matching = read.Observations
                 .Where(observation => string.Equals(observation.RequestedPackageId, record.Id, StringComparison.OrdinalIgnoreCase))
                 .ToArray();
-            WingetCandidateCompatibility? evidence = matching.Length == 1
-                ? WingetCandidateCompatibilityRules.Evaluate(matching[0], SourceId, record.Id, record.Version, upgrades[record.Id].AvailableVersion)
-                : null;
-            if (evidence is not null) result[record.Id] = evidence;
+            string? whyNot = matching.Length switch
+            {
+                1 => WingetCandidateCompatibilityRules.WhyNotUsed(matching[0], SourceId, record.Id, record.Version, upgrades[record.Id].AvailableVersion),
+                0 => read.Unread.GetValueOrDefault(record.Id) ?? "not-read",
+                _ => "more-than-one-answer"
+            };
+            if (whyNot is null)
+            {
+                if (WingetCandidateCompatibilityRules.Evaluate(matching[0], SourceId, record.Id, record.Version, upgrades[record.Id].AvailableVersion) is { } evidence) result[record.Id] = evidence;
+            }
+            else if (unused++ < SourceWarningText.MaximumDetailUnusedWarnings)
+            {
+                warnings.Add(SourceWarningText.DetailUnused(SourceId, record.Id, whyNot));
+            }
         }
 
         return result;

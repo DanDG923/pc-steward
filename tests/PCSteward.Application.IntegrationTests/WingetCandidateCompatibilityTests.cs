@@ -65,8 +65,54 @@ public sealed class WingetCandidateCompatibilityTests
         foreach (WinGetCandidateCompatibilityObservation observation in refused)
         {
             Assert.IsNull(WingetCandidateCompatibilityRules.Evaluate(observation, "winget", "Contoso.Cli", "2.0.0", "2.1.0"), observation.ToString());
+            Assert.IsNotNull(WingetCandidateCompatibilityRules.WhyNotUsed(observation, "winget", "Contoso.Cli", "2.0.0", "2.1.0"), observation.ToString());
         }
         Assert.IsNull(WingetCandidateCompatibilityRules.Evaluate(null, "winget", "Contoso.Cli", "2.0.0", "2.1.0"));
+        Assert.IsNull(WingetCandidateCompatibilityRules.WhyNotUsed(Observation(), "winget", "Contoso.Cli", "2.0.0", "2.1.0"));
+    }
+
+    [TestMethod]
+    public void EachRefusedCheckIsNamedAndOnlyABoundedVersionIsEchoed()
+    {
+        (WinGetCandidateCompatibilityObservation Observation, string Reason)[] cases =
+        [
+            (Observation() with { CatalogIsPredefined = false }, "catalog-not-predefined"),
+            (Observation() with { CatalogIsTrusted = false }, "catalog-not-trusted"),
+            (Observation() with { ExactIdMatch = false }, "not-an-exact-id-match"),
+            (Observation() with { WasLimitExceeded = true }, "too-many-matches"),
+            (Observation() with { MatchCount = 2 }, "matches-2"),
+            (Observation() with { IsUpdateAvailable = false }, "no-update-available"),
+            (Observation() with { PackageId = "Contoso.Other" }, "another-package"),
+            (Observation() with { CandidateSourceId = "msstore" }, "another-source"),
+            (Observation() with { InstalledVersion = @"C:\Users\alice" }, "installed-version-unreadable"),
+            (Observation() with { CandidateVersion = "2.1.0 & x" }, "available-version-unreadable"),
+            (Observation() with { InstalledVersion = "2.0.0.3" }, "installed-version-differs-2.0.0.3"),
+            (Observation() with { CandidateVersion = "2.2.0" }, "available-version-differs-2.2.0")
+        ];
+
+        foreach ((WinGetCandidateCompatibilityObservation observation, string reason) in cases)
+        {
+            Assert.AreEqual(reason, WingetCandidateCompatibilityRules.WhyNotUsed(observation, "winget", "Contoso.Cli", "2.0.0", "2.1.0"));
+        }
+    }
+
+    [TestMethod]
+    public async Task APackageWhoseDetailedReadIsNotUsedGetsAWarningNamingItAndTheCheck()
+    {
+        SourceSnapshot differs = await new WingetUpdateSourceConnector(Process(), "winget", new FakeCompatibility(_ => [Observation() with { InstalledVersion = "2.0.0.3" }])).RefreshAsync(CancellationToken.None);
+        SourceSnapshot unread = await new WingetUpdateSourceConnector(Process(), "winget", new FakeCompatibility(_ => new WinGetCandidateCompatibilityRead([], new Dictionary<string, string> { ["Contoso.Cli"] = "read-failed-COMException-0x80004005" }))).RefreshAsync(CancellationToken.None);
+        SourceSnapshot missing = await new WingetUpdateSourceConnector(Process(), "winget", new FakeCompatibility(_ => [])).RefreshAsync(CancellationToken.None);
+        SourceSnapshot duplicate = await new WingetUpdateSourceConnector(Process(), "winget", new FakeCompatibility(_ => [Observation(), Observation()])).RefreshAsync(CancellationToken.None);
+        SourceSnapshot used = await new WingetUpdateSourceConnector(Process(), "winget", new FakeCompatibility(_ => [Observation()])).RefreshAsync(CancellationToken.None);
+
+        CollectionAssert.Contains(differs.Warnings.ToArray(), "winget:detail-unused:Contoso.Cli:installed-version-differs-2.0.0.3");
+        CollectionAssert.Contains(unread.Warnings.ToArray(), "winget:detail-unused:Contoso.Cli:read-failed-COMException-0x80004005");
+        CollectionAssert.Contains(missing.Warnings.ToArray(), "winget:detail-unused:Contoso.Cli:not-read");
+        CollectionAssert.Contains(duplicate.Warnings.ToArray(), "winget:detail-unused:Contoso.Cli:more-than-one-answer");
+        Assert.IsFalse(used.Warnings.Any(warning => warning.Contains("detail-unused", StringComparison.Ordinal)));
+        // The warning only explains: the update stays a review item with the missing-evidence reasons, as before.
+        Assert.AreEqual("Unknown", differs.Packages.Single(package => package.PackageId == "Contoso.Cli").Scope);
+        Assert.AreEqual(UpdateIntelligenceStatus.ReviewRequired, ConfirmedAssessment(differs).Status);
     }
 
     [TestMethod]
@@ -174,12 +220,27 @@ public sealed class WingetCandidateCompatibilityTests
     [TestMethod]
     public async Task OnePackageWhoseReadThrowsDoesNotLoseThePackagesAroundIt()
     {
-        IReadOnlyList<WinGetCandidateCompatibilityObservation> observations = await WingetCandidateCompatibilityRules.CollectAsync(
+        WinGetCandidateCompatibilityRead read = await WingetCandidateCompatibilityRules.CollectAsync(
             ThreePackages,
-            id => id == "Contoso.Broken" ? throw new InvalidOperationException("manifest could not be loaded") : Task.FromResult<WinGetCandidateCompatibilityObservation?>(Observation() with { RequestedPackageId = id }),
+            id => id == "Contoso.Broken" ? throw new InvalidOperationException(@"manifest C:\Users\alice\x.yaml could not be loaded") : Task.FromResult(WinGetCandidateCompatibilityReadOne.Read(Observation() with { RequestedPackageId = id })),
             CancellationToken.None);
 
-        CollectionAssert.AreEqual(TheTwoReadable, observations.Select(observation => observation.RequestedPackageId).ToArray());
+        CollectionAssert.AreEqual(TheTwoReadable, read.Observations.Select(observation => observation.RequestedPackageId).ToArray());
+        // Owner's PC, 2026-11-21: the package left out says why, by the exception's type and HRESULT only, never its message.
+        Assert.AreEqual($"read-failed-InvalidOperationException-0x{new InvalidOperationException().HResult:X8}", read.Unread["Contoso.Broken"]);
+        Assert.HasCount(1, read.Unread);
+    }
+
+    [TestMethod]
+    public async Task APackageTheReaderLeavesOutKeepsTheReadersReason()
+    {
+        WinGetCandidateCompatibilityRead read = await WingetCandidateCompatibilityRules.CollectAsync(
+            ThreePackages,
+            id => Task.FromResult(id == "Contoso.Broken" ? WinGetCandidateCompatibilityReadOne.NotRead("matches-2") : WinGetCandidateCompatibilityReadOne.Read(Observation() with { RequestedPackageId = id })),
+            CancellationToken.None);
+
+        CollectionAssert.AreEqual(TheTwoReadable, read.Observations.Select(observation => observation.RequestedPackageId).ToArray());
+        Assert.AreEqual("matches-2", read.Unread["Contoso.Broken"]);
     }
 
     [TestMethod]
@@ -188,7 +249,7 @@ public sealed class WingetCandidateCompatibilityTests
         using CancellationTokenSource cancelled = new();
         await cancelled.CancelAsync();
 
-        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => WingetCandidateCompatibilityRules.CollectAsync(ThreePackages, _ => Task.FromResult<WinGetCandidateCompatibilityObservation?>(Observation()), cancelled.Token));
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => WingetCandidateCompatibilityRules.CollectAsync(ThreePackages, _ => Task.FromResult(WinGetCandidateCompatibilityReadOne.Read(Observation())), cancelled.Token));
     }
 
     [TestMethod]
@@ -259,7 +320,7 @@ public sealed class WingetCandidateCompatibilityTests
     [TestMethod]
     public async Task FailedOrSlowStructuredReadKeepsTheSnapshotLiveButUnknown()
     {
-        SourceSnapshot failed = await new WingetUpdateSourceConnector(Process(), "winget", new FakeCompatibility(_ => throw new InvalidOperationException("class not registered"))).RefreshAsync(CancellationToken.None);
+        SourceSnapshot failed = await new WingetUpdateSourceConnector(Process(), "winget", new FakeCompatibility((Func<IReadOnlyList<string>, WinGetCandidateCompatibilityRead>)(_ => throw new InvalidOperationException("class not registered")))).RefreshAsync(CancellationToken.None);
         SourceSnapshot slow = await new WingetUpdateSourceConnector(Process(), "winget", new SlowCompatibility(), TimeSpan.FromMilliseconds(50)).RefreshAsync(CancellationToken.None);
 
         foreach (SourceSnapshot snapshot in new[] { failed, slow })
@@ -445,10 +506,13 @@ public sealed class WingetCandidateCompatibilityTests
         public Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) => Task.FromResult(results.Dequeue());
     }
 
-    private sealed class FakeCompatibility(Func<IReadOnlyList<string>, IReadOnlyList<WinGetCandidateCompatibilityObservation>> answer) : IWinGetCandidateCompatibilityQuery
+    private sealed class FakeCompatibility(Func<IReadOnlyList<string>, WinGetCandidateCompatibilityRead> answer) : IWinGetCandidateCompatibilityQuery
     {
+        public FakeCompatibility(Func<IReadOnlyList<string>, IReadOnlyList<WinGetCandidateCompatibilityObservation>> observations)
+            : this(ids => new WinGetCandidateCompatibilityRead(observations(ids), new Dictionary<string, string>())) { }
+
         public List<string> Requested { get; } = [];
-        public Task<IReadOnlyList<WinGetCandidateCompatibilityObservation>> QueryAsync(string sourceId, IReadOnlyList<string> packageIds, CancellationToken cancellationToken)
+        public Task<WinGetCandidateCompatibilityRead> QueryAsync(string sourceId, IReadOnlyList<string> packageIds, CancellationToken cancellationToken)
         {
             Requested.AddRange(packageIds);
             return Task.FromResult(answer(packageIds));
@@ -457,10 +521,10 @@ public sealed class WingetCandidateCompatibilityTests
 
     private sealed class SlowCompatibility : IWinGetCandidateCompatibilityQuery
     {
-        public async Task<IReadOnlyList<WinGetCandidateCompatibilityObservation>> QueryAsync(string sourceId, IReadOnlyList<string> packageIds, CancellationToken cancellationToken)
+        public async Task<WinGetCandidateCompatibilityRead> QueryAsync(string sourceId, IReadOnlyList<string> packageIds, CancellationToken cancellationToken)
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-            return [];
+            return WinGetCandidateCompatibilityRead.Empty;
         }
     }
 }

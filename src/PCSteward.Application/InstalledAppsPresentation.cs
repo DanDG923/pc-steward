@@ -159,12 +159,13 @@ public static class InstalledAppsFilters
 
     /// <summary>
     /// UI review 2026-11-13 (fault 3): true for a record that is part of Windows or of another app rather than an app the owner
-    /// installed: an MSIX framework, resource pack or system package. Installed apps lists these only on request.
+    /// installed: an MSIX framework, resource pack or system package, or a package with an external location that belongs to a desktop
+    /// app (owner's PC, 2026-11-21: MEGAsync's Explorer add-on). Installed apps lists these only on request.
     /// </summary>
     public static bool IsSystemComponent(InventoryRow row)
     {
         ArgumentNullException.ThrowIfNull(row);
-        return row.Classification is "Framework" or "Resource" or "System";
+        return row.Classification is "Framework" or "Resource" or "System" or "ExternalLocation";
     }
 
     /// <summary>The label of the switch that lists system components, with how many there are.</summary>

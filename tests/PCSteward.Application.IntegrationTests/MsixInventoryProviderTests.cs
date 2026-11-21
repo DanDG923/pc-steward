@@ -51,5 +51,24 @@ public sealed class MsixInventoryProviderTests
         CollectionAssert.AreEqual(ExpectedIdentities, identities);
     }
 
+    [TestMethod]
+    public void APackageWithAnExternalLocationIsPartOfADesktopAppAndKeepsItsFullName()
+    {
+        // Owner's PC, 2026-11-21 (MEGAsync, shape only): a desktop app's Explorer add-on is an MSIX package with an external location
+        // and the app's own name and publisher.
+        FakeCatalog catalog = new(
+        [
+            new MsixPackageInfo("ContosoSyncShell_g54w8ztgkx496", "ContosoSyncShell_6.7.0.3_x64__g54w8ztgkx496", "ContosoSyncShell", "6.7.0.3", "X64", "g54w8ztgkx496", null, false, false, false, "Contoso Sync", "Contoso Ltd", HasExternalLocation: true),
+            new MsixPackageInfo("Contoso.Studio_g54w8ztgkx496", "Contoso.Studio_3.3.0.4529_x64__g54w8ztgkx496", "Contoso.Studio", "3.3.0.4529", "X64", "g54w8ztgkx496", null, false, false, false, "Contoso Studio", "Contoso Ltd")
+        ]);
+
+        MsixInventoryRecord[] records = [.. new MsixInventoryProvider(catalog).ReadCurrentUserPackages(DateTimeOffset.UnixEpoch).Records];
+
+        MsixInventoryRecord shell = records.Single(record => record.PackageFamilyName == "ContosoSyncShell_g54w8ztgkx496");
+        Assert.AreEqual(MsixInventoryProvider.ExternalLocationClassification, shell.Classification);
+        Assert.AreEqual("ContosoSyncShell_6.7.0.3_x64__g54w8ztgkx496", MsixInventoryProvider.ProviderIdentity(shell));
+        Assert.AreEqual("Application", records.Single(record => record.PackageFamilyName == "Contoso.Studio_g54w8ztgkx496").Classification);
+    }
+
     private sealed class FakeCatalog(IEnumerable<MsixPackageInfo> packages) : ICurrentUserPackageCatalog { public IEnumerable<MsixPackageInfo> FindPackagesForCurrentUser() => packages; }
 }

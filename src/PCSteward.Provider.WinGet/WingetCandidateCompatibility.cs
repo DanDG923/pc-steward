@@ -45,10 +45,28 @@ internal sealed record WinGetCandidateCompatibilityObservation(
     string? InstallerType = null,
     string? NestedInstallerType = null);
 
+/// <summary>
+/// What one structured read gave: an observation for each package that could be read, and for each package that couldn't, a short
+/// fixed-shape code saying why (owner's PC, 2026-11-21: MEGAsync's read was dropped and nothing said which check dropped it).
+/// </summary>
+internal sealed record WinGetCandidateCompatibilityRead(
+    IReadOnlyList<WinGetCandidateCompatibilityObservation> Observations,
+    IReadOnlyDictionary<string, string> Unread)
+{
+    public static WinGetCandidateCompatibilityRead Empty { get; } = new([], new Dictionary<string, string>());
+}
+
+/// <summary>One package's read: its observation, or the code saying why there is none.</summary>
+internal sealed record WinGetCandidateCompatibilityReadOne(WinGetCandidateCompatibilityObservation? Observation, string? Unread)
+{
+    public static WinGetCandidateCompatibilityReadOne Read(WinGetCandidateCompatibilityObservation observation) => new(observation, null);
+    public static WinGetCandidateCompatibilityReadOne NotRead(string reason) => new(null, reason);
+}
+
 internal interface IWinGetCandidateCompatibilityQuery
 {
-    /// <summary>Queries each package ID once against the one predefined catalog. A package that cannot be read is left out.</summary>
-    Task<IReadOnlyList<WinGetCandidateCompatibilityObservation>> QueryAsync(
+    /// <summary>Queries each package ID once against the one predefined catalog. A package that cannot be read is left out, with why.</summary>
+    Task<WinGetCandidateCompatibilityRead> QueryAsync(
         string sourceId,
         IReadOnlyList<string> packageIds,
         CancellationToken cancellationToken);
@@ -80,20 +98,7 @@ internal static class WingetCandidateCompatibilityRules
         string installedVersion,
         string availableVersion)
     {
-        if (observation is null ||
-            !observation.CatalogIsPredefined ||
-            !observation.CatalogIsTrusted ||
-            !observation.ExactIdMatch ||
-            observation.WasLimitExceeded ||
-            observation.MatchCount != 1 ||
-            !observation.IsUpdateAvailable ||
-            !string.Equals(observation.RequestedPackageId, packageId, StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(observation.PackageId, packageId, StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(observation.CandidateSourceId, sourceId, StringComparison.OrdinalIgnoreCase) ||
-            !IsBoundedVersion(observation.InstalledVersion) ||
-            !IsBoundedVersion(observation.CandidateVersion) ||
-            !string.Equals(observation.InstalledVersion, installedVersion, StringComparison.Ordinal) ||
-            !string.Equals(observation.CandidateVersion, availableVersion, StringComparison.Ordinal))
+        if (observation is null || WhyNotUsed(observation, sourceId, packageId, installedVersion, availableVersion) is not null)
         {
             return null;
         }
@@ -129,6 +134,35 @@ internal static class WingetCandidateCompatibilityRules
             BoundedText(observation.CandidatePublisher),
             InstalledProductKey(observation.InstalledProductCodes, observation.InstalledPackageFamilyNames, observation.InstallerType),
             InstallerFit(sourceId, scope, observation));
+    }
+
+    /// <summary>
+    /// The first check that keeps <paramref name="observation"/> from being used for this display-table row, as a short fixed-shape
+    /// code, or null when it passes them all (<see cref="Evaluate"/>). It names the check only: a version is included only when it is a
+    /// bounded version string, and nothing else WinGet reported is echoed. Diagnostic text for the owner; it never decides anything.
+    /// </summary>
+    internal static string? WhyNotUsed(
+        WinGetCandidateCompatibilityObservation observation,
+        string sourceId,
+        string packageId,
+        string installedVersion,
+        string availableVersion)
+    {
+        ArgumentNullException.ThrowIfNull(observation);
+        if (!observation.CatalogIsPredefined) return "catalog-not-predefined";
+        if (!observation.CatalogIsTrusted) return "catalog-not-trusted";
+        if (!observation.ExactIdMatch) return "not-an-exact-id-match";
+        if (observation.WasLimitExceeded) return "too-many-matches";
+        if (observation.MatchCount != 1) return $"matches-{Math.Clamp(observation.MatchCount, 0, 99)}";
+        if (!observation.IsUpdateAvailable) return "no-update-available";
+        if (!string.Equals(observation.RequestedPackageId, packageId, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(observation.PackageId, packageId, StringComparison.OrdinalIgnoreCase)) return "another-package";
+        if (!string.Equals(observation.CandidateSourceId, sourceId, StringComparison.OrdinalIgnoreCase)) return "another-source";
+        if (!IsBoundedVersion(observation.InstalledVersion)) return "installed-version-unreadable";
+        if (!IsBoundedVersion(observation.CandidateVersion)) return "available-version-unreadable";
+        if (!string.Equals(observation.InstalledVersion, installedVersion, StringComparison.Ordinal)) return $"installed-version-differs-{observation.InstalledVersion}";
+        if (!string.Equals(observation.CandidateVersion, availableVersion, StringComparison.Ordinal)) return $"available-version-differs-{observation.CandidateVersion}";
+        return null;
     }
 
     /// <summary>
@@ -207,27 +241,41 @@ internal static class WingetCandidateCompatibilityRules
 
     /// <summary>
     /// Reads each package on its own: a package whose read throws (for example a manifest WinGet can't load) is left out, and the
-    /// packages before and after it keep their observations. Only cancellation stops the whole read.
+    /// packages before and after it keep their observations. Only cancellation stops the whole read. A package left out is recorded
+    /// with why: the reader's own code, or for a read that threw, the exception's type name and HRESULT (never its message, which can
+    /// hold paths or other text from the PC).
     /// </summary>
-    public static async Task<IReadOnlyList<WinGetCandidateCompatibilityObservation>> CollectAsync(
+    public static async Task<WinGetCandidateCompatibilityRead> CollectAsync(
         IReadOnlyList<string> packageIds,
-        Func<string, Task<WinGetCandidateCompatibilityObservation?>> readOne,
+        Func<string, Task<WinGetCandidateCompatibilityReadOne>> readOne,
         CancellationToken cancellationToken)
     {
         List<WinGetCandidateCompatibilityObservation> observations = [];
+        Dictionary<string, string> unread = new(StringComparer.OrdinalIgnoreCase);
         foreach (string packageId in packageIds)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                if (await readOne(packageId).ConfigureAwait(false) is { } observation) observations.Add(observation);
+                WinGetCandidateCompatibilityReadOne one = await readOne(packageId).ConfigureAwait(false);
+                if (one.Observation is { } observation) observations.Add(observation);
+                else unread[packageId] = one.Unread ?? "not-read";
             }
-            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
+                unread[packageId] = ReadFailure(exception);
             }
         }
 
-        return observations;
+        return new(observations, unread);
+    }
+
+    /// <summary>The code for a read that threw: <c>read-failed-</c>, the exception type's name (letters and digits only) and its HRESULT.</summary>
+    internal static string ReadFailure(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        string name = new([.. exception.GetType().Name.Where(char.IsAsciiLetterOrDigit).Take(64)]);
+        return $"read-failed-{(name.Length == 0 ? "Exception" : name)}-0x{exception.HResult:X8}";
     }
 
     private static string? BoundedText(string? value)
@@ -266,7 +314,7 @@ internal static class WingetCandidateCompatibilityRules
 /// </summary>
 internal sealed class WinGetComCandidateCompatibilityQuery : IWinGetCandidateCompatibilityQuery
 {
-    public async Task<IReadOnlyList<WinGetCandidateCompatibilityObservation>> QueryAsync(
+    public async Task<WinGetCandidateCompatibilityRead> QueryAsync(
         string sourceId,
         IReadOnlyList<string> packageIds,
         CancellationToken cancellationToken)
@@ -294,7 +342,11 @@ internal sealed class WinGetComCandidateCompatibilityQuery : IWinGetCandidateCom
         compositeOptions.Catalogs.Add(reference);
         PackageCatalogReference compositeReference = manager.CreateCompositePackageCatalog(compositeOptions);
         ConnectResult connection = await compositeReference.ConnectAsync().AsTask(cancellationToken).ConfigureAwait(false);
-        if (connection.Status != ConnectResultStatus.Ok) return [];
+        if (connection.Status != ConnectResultStatus.Ok)
+        {
+            string reason = $"connect-{connection.Status.ToString().ToLowerInvariant()}";
+            return new([], packageIds.Distinct(StringComparer.OrdinalIgnoreCase).ToDictionary(id => id, _ => reason, StringComparer.OrdinalIgnoreCase));
+        }
 
         PackageCatalog catalog = connection.PackageCatalog;
         return await WingetCandidateCompatibilityRules.CollectAsync(
@@ -303,7 +355,7 @@ internal sealed class WinGetComCandidateCompatibilityQuery : IWinGetCandidateCom
             cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<WinGetCandidateCompatibilityObservation?> ReadOneAsync(
+    private static async Task<WinGetCandidateCompatibilityReadOne> ReadOneAsync(
         PackageCatalog catalog,
         string packageId,
         bool isExpectedPredefinedCatalog,
@@ -318,14 +370,17 @@ internal sealed class WinGetComCandidateCompatibilityQuery : IWinGetCandidateCom
             Value = packageId
         });
         FindPackagesResult result = await catalog.FindPackagesAsync(options).AsTask(cancellationToken).ConfigureAwait(false);
-        if (result.Status != FindPackagesResultStatus.Ok) return null;
+        if (result.Status != FindPackagesResultStatus.Ok) return WinGetCandidateCompatibilityReadOne.NotRead($"find-{result.Status.ToString().ToLowerInvariant()}");
 
         MatchResult[] matches = [.. result.Matches];
-        MatchResult? only = matches.Length == 1 ? matches[0] : null;
-        CatalogPackage? package = only?.CatalogPackage;
-        PackageVersionInfo? installed = package?.InstalledVersion;
-        PackageVersionInfo? candidate = package?.DefaultInstallVersion;
-        if (only is null || package is null || installed is null || candidate is null) return null;
+        if (matches.Length != 1) return WinGetCandidateCompatibilityReadOne.NotRead($"matches-{matches.Length}{(result.WasLimitExceeded ? "-or-more" : string.Empty)}");
+        MatchResult only = matches[0];
+        CatalogPackage? package = only.CatalogPackage;
+        if (package is null) return WinGetCandidateCompatibilityReadOne.NotRead("no-package");
+        PackageVersionInfo? installed = package.InstalledVersion;
+        if (installed is null) return WinGetCandidateCompatibilityReadOne.NotRead("not-installed");
+        PackageVersionInfo? candidate = package.DefaultInstallVersion;
+        if (candidate is null) return WinGetCandidateCompatibilityReadOne.NotRead("no-available-version");
 
         PackageMatchFilter criteria = only.MatchCriteria;
         bool exactIdMatch =
@@ -340,7 +395,7 @@ internal sealed class WinGetComCandidateCompatibilityQuery : IWinGetCandidateCom
             _ => PackageInstallScope.Any
         };
         PackageInstallerInfo? installer = candidate.GetApplicableInstaller(new InstallOptions { PackageInstallScope = requestedScope });
-        return new(
+        return WinGetCandidateCompatibilityReadOne.Read(new(
             packageId,
             isExpectedPredefinedCatalog,
             isTrusted,
@@ -361,6 +416,6 @@ internal sealed class WinGetComCandidateCompatibilityQuery : IWinGetCandidateCom
             [.. installed.ProductCodes],
             [.. installed.PackageFamilyNames],
             installer is null ? null : installer.InstallerType.ToString(),
-            installer is null ? null : installer.NestedInstallerType.ToString());
+            installer is null ? null : installer.NestedInstallerType.ToString()));
     }
 }

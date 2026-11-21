@@ -500,7 +500,9 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
     {
         Dictionary<Guid, InstallationInstance[]> byProduct = instances.GroupBy(instance => instance.ProductId).ToDictionary(group => group.Key, group => group.ToArray());
         Dictionary<Guid, CanonicalProduct> productsById = products.ToDictionary(product => product.Id);
-        return products.Select(product =>
+        // Owner's PC, 2026-11-21 (MEGAsync): a package with an external location is part of a desktop app, never an update target of its
+        // own, so it is never matched to a package (a same-name match made it a second "can't update yet" row for the app).
+        return products.Where(product => !IsOnlyExternalLocationPackage(byProduct.GetValueOrDefault(product.Id, []))).Select(product =>
         {
             InstallationInstance[] productInstances = byProduct.GetValueOrDefault(product.Id, []);
             InstallationInstance? preferred = productInstances.OrderBy(ProviderPriority).ThenBy(instance => instance.ProviderIdentity, StringComparer.Ordinal).FirstOrDefault();
@@ -516,6 +518,11 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
                 RegisteredIn32BitView: winget is null && executionEvidence is not null && IsMachine32Registration(executionEvidence));
         }).ToArray();
     }
+
+    private static bool IsOnlyExternalLocationPackage(InstallationInstance[] productInstances) =>
+        productInstances.Length > 0 && productInstances.All(instance =>
+            string.Equals(instance.Provider, "msix", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(instance.Classification, "ExternalLocation", StringComparison.Ordinal));
 
     private static InstallationInstance? ConcreteExecutionEvidence(IReadOnlyCollection<InstallationInstance> productInstances, InstallationInstance? winget)
     {
