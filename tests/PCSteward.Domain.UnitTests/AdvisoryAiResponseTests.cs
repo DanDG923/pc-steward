@@ -432,6 +432,43 @@ public sealed class AdvisoryAiResponseTests
 
     [TestMethod]
     [TestCategory("FR-BUD-03")]
+    public void TheFirstLiveRequestsReplySettlesAtExactlyItsCost()
+    {
+        // Task 71C review 71C-05: the counts the first live request reported (491 input, none cached, 321 output, no reasoning, a zero
+        // cache-write total with its zero retention breakdown, the default tier) settle at exactly 491 x $2 + 321 x $10 per million,
+        // which is $0.004192, and release the rest of the reservation without a pause.
+        string usage = "\"usage\":{\"input_tokens\":491,\"input_tokens_details\":" + LiveInputDetails +
+            ",\"output_tokens\":321,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":812}";
+        AdvisoryAiResponse response = ReadAsRequested(Body(usage: usage, extra: ",\"service_tier\":\"default\""));
+        Assert.AreEqual(AdvisoryAiResponseDeparture.None, response.Departures);
+        Assert.IsTrue(response.UsageReliable);
+        AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+        Assert.AreEqual(AdvisoryAiRequestState.Settled, settlement.State);
+        Assert.AreEqual(4_192, settlement.Committed.Value);
+        Assert.IsFalse(settlement.NeedsReview);
+        Assert.AreEqual(AdvisoryAiReviewCause.None, settlement.ReviewCauses);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_\\uD800\":0}}", "", "Line one.", DisplayName = "an undecodable key in the cache-write details")]
+    [DataRow(LiveInputDetails, ",\"x\\uDC00\":1", "Line one.", DisplayName = "an undecodable key at the top")]
+    [DataRow(LiveInputDetails, "", "bad \\uD800 text", DisplayName = "undecodable answer text")]
+    public void AReplyThatCanNotBeDecodedStopsPaidRequestsForReview(string details, string extra, string text)
+    {
+        // Task 71C review 71C-01: System.Text.Json accepts an unpaired escaped surrogate while parsing and throws only when the name or
+        // string is read. That reply is malformed, never trusted, keeps the whole reservation and pauses paid requests.
+        string output = "[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"" + text + "\",\"annotations\":[]}]}]";
+        string json = Body(output: output, usage: Usage.Replace("{\"cached_tokens\":0}", details, StringComparison.Ordinal), extra: extra);
+        AdvisoryAiResponse response = ReadAsRequested(json);
+        Assert.AreEqual(AdvisoryAiAnswerStatus.Malformed, response.Status, json);
+        Assert.AreEqual(AdvisoryAiMalformedReason.UndecodableText, response.MalformedReason, json);
+        Assert.IsNull(response.Text, json);
+        AssertPausedWithWholeReservation(response, json);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
     public void ARepeatedBreakdownCanNotHideACacheWrite()
     {
         string repeated = "{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_30m_tokens\":0}," +

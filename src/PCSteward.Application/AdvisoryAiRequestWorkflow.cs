@@ -203,11 +203,30 @@ public sealed class AdvisoryAiRequestWorkflow
         }
     }
 
+    /// <summary>
+    /// Task 71C review 71C-01: the claim is already recorded when the reply is read, so a reader failure must never skip settlement.
+    /// Anything the reader throws becomes an untrusted reply: the whole reservation is kept and paid requests stop for review, instead of
+    /// leaving the claim for start-up recovery, which records it as interrupted without a pause.
+    /// </summary>
+    private static AdvisoryAiResponse ReadReply(AdvisoryAiApproval approval, AdvisoryAiTransportResult sent)
+    {
+        try
+        {
+            return approval.Preview.Provider.WireFormat.Read(sent.Body.AsSpan(), approval);
+        }
+#pragma warning disable CA1031 // Any reader failure after the claim must be settled as an untrusted reply, never lost.
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            return AdvisoryAiResponseReader.Undecodable;
+        }
+    }
+
     private async Task<AdvisoryAiSendOutcome> FinishAsync(AdvisoryAiApproval approval, AdvisoryAiReservationRequest request, AdvisoryAiTariff tariff,
         AdvisoryAiTransportResult sent, DiagnosticRedactionContext? redaction)
     {
         AdvisoryAiDispatchOutcome outcome = Map(sent.Outcome);
-        AdvisoryAiResponse? response = outcome == AdvisoryAiDispatchOutcome.ResponseReceived ? approval.Preview.Provider.WireFormat.Read(sent.Body.AsSpan(), approval) : null;
+        AdvisoryAiResponse? response = outcome == AdvisoryAiDispatchOutcome.ResponseReceived ? ReadReply(approval, sent) : null;
         AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(outcome, response, request.Reservation, tariff);
         AdvisoryAiLedgerWrite written = await ledger.SettleAsync(request.RequestId, settlement, response?.Usage, response?.ResponseId, utcNow(), CancellationToken.None)
             .ConfigureAwait(false);

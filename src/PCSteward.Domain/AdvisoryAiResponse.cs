@@ -47,7 +47,14 @@ public enum AdvisoryAiMalformedReason
     InvalidOutputText,
 
     /// <summary>Independent review F2: the body carries background, continuation or conversation state the request never asked for.</summary>
-    UnexpectedState
+    UnexpectedState,
+
+    /// <summary>
+    /// Task 71C review 71C-01: the body parsed as JSON, but a field name or string in it couldn't be decoded (for example an unpaired
+    /// escaped surrogate), so its billing fields couldn't all be checked. Such a reply is never trusted and always stops paid requests
+    /// for review.
+    /// </summary>
+    UndecodableText
 }
 
 /// <summary>
@@ -243,7 +250,20 @@ public static class AdvisoryAiResponseReader
         {
             return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.NotJson);
         }
+        catch (InvalidOperationException)
+        {
+            // Task 71C review 71C-01: System.Text.Json parses a string token whose escaped contents it can't later decode, and then
+            // throws here when a name or value is read. The billing scan may not have finished, so this is an untrusted reply.
+            return Undecodable;
+        }
     }
+
+    /// <summary>
+    /// Task 71C review 71C-01: a reply PC Steward couldn't read in full. It is never shown or saved, its usage is never trusted, so the
+    /// whole reservation is kept, and it counts as a departure from the approved request, so paid requests stop for review.
+    /// </summary>
+    public static AdvisoryAiResponse Undecodable { get; } =
+        AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.UndecodableText) with { UsageAboveApprovedBounds = true };
 
     private static AdvisoryAiResponse Read(JsonElement root, string expectedModel, long approvedInputTokens, long approvedOutputTokens)
     {

@@ -162,10 +162,12 @@ internal sealed class NativeCredentialManagerApi : ICredentialManagerApi
 
     public int Write(string target, byte[] blob)
     {
-        IntPtr targetName = Marshal.StringToHGlobalUni(target);
-        IntPtr data = Marshal.AllocHGlobal(Math.Max(blob.Length, 1));
+        IntPtr targetName = IntPtr.Zero;
+        IntPtr data = IntPtr.Zero;
         try
         {
+            targetName = Marshal.StringToHGlobalUni(target);
+            data = Marshal.AllocHGlobal(Math.Max(blob.Length, 1));
             Marshal.Copy(blob, 0, data, blob.Length);
             NativeCredential credential = new()
             {
@@ -179,9 +181,16 @@ internal sealed class NativeCredentialManagerApi : ICredentialManagerApi
         }
         finally
         {
-            Marshal.Copy(new byte[blob.Length], 0, data, blob.Length);
-            Marshal.FreeHGlobal(data);
-            Marshal.FreeHGlobal(targetName);
+            // Task 71C review 71C-02: the copy is wiped without allocating, and the buffers are freed even if the wipe fails.
+            try
+            {
+                if (data != IntPtr.Zero) Wipe(data, blob.Length);
+            }
+            finally
+            {
+                if (data != IntPtr.Zero) Marshal.FreeHGlobal(data);
+                if (targetName != IntPtr.Zero) Marshal.FreeHGlobal(targetName);
+            }
         }
     }
 
@@ -189,9 +198,13 @@ internal sealed class NativeCredentialManagerApi : ICredentialManagerApi
     {
         blob = null;
         if (!CredReadW(target, TypeGeneric, 0, out IntPtr pointer)) return Marshal.GetLastPInvokeError();
+        IntPtr returnedBlob = IntPtr.Zero;
+        int returnedSize = 0;
         try
         {
             NativeCredential credential = Marshal.PtrToStructure<NativeCredential>(pointer);
+            returnedBlob = credential.CredentialBlob;
+            returnedSize = credential.CredentialBlobSize;
             if (credential.Type != TypeGeneric || credential.CredentialBlobSize < 0 || credential.CredentialBlobSize > AdvisoryAiApiKey.MaximumUtf8Bytes)
                 return CredentialError.InvalidData;
             blob = new byte[credential.CredentialBlobSize];
@@ -200,12 +213,23 @@ internal sealed class NativeCredentialManagerApi : ICredentialManagerApi
         }
         finally
         {
-            // Mythos whole-app review MY-03: Windows' own copy of the key is overwritten before it is freed.
-            NativeCredential returned = Marshal.PtrToStructure<NativeCredential>(pointer);
-            if (returned.CredentialBlob != IntPtr.Zero && returned.CredentialBlobSize > 0)
-                Marshal.Copy(new byte[returned.CredentialBlobSize], 0, returned.CredentialBlob, returned.CredentialBlobSize);
-            CredFree(pointer);
+            // Mythos whole-app review MY-03: Windows' own copy of the key is overwritten before it is freed. Task 71C review 71C-02:
+            // the wipe allocates nothing, and CredFree runs even if the wipe fails.
+            try
+            {
+                if (returnedBlob != IntPtr.Zero && returnedSize > 0) Wipe(returnedBlob, returnedSize);
+            }
+            finally
+            {
+                CredFree(pointer);
+            }
         }
+    }
+
+    /// <summary>Task 71C review 71C-02: overwrites native memory with zeros one byte at a time, so clearing a secret needs no allocation.</summary>
+    private static void Wipe(IntPtr data, int length)
+    {
+        for (int offset = 0; offset < length; offset++) Marshal.WriteByte(data, offset, 0);
     }
 
     public int Delete(string target) => CredDeleteW(target, TypeGeneric, 0) ? CredentialError.None : Marshal.GetLastPInvokeError();

@@ -220,6 +220,32 @@ public sealed class AdvisoryAiExplainTests
     }
 
     [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public async Task AReplyThatCanNotBeDecodedKeepsTheReservationAndPausesTheNextRequest()
+    {
+        // Task 71C review 71C-01: an unpaired escaped surrogate parses, then throws when its name is read. The claimed request is still
+        // settled, as an untrusted reply that keeps its whole reservation and pauses paid requests until the owner reviews it.
+        await using Fixture fixture = await Fixture.CreateAsync(connected: true, prices: true);
+        string body = Body("Synthetic explanation.").Replace("{\"cached_tokens\":0}",
+            "{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_\\uD800\":0}}", StringComparison.Ordinal);
+        fixture.Transport.Next = new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes(body)]);
+        AdvisoryAiExplainService service = fixture.Service();
+        AdvisoryAiEvidenceDraft draft = (await service.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Draft!;
+        AdvisoryAiReview review = await service.ReviewAsync(draft, CancellationToken.None);
+        AdvisoryAiSendOutcome outcome = await service.SendAsync(review, CancellationToken.None);
+
+        Assert.IsTrue(outcome.Dispatched);
+        Assert.AreEqual(AdvisoryAiRequestState.Uncertain, outcome.Settlement!.State);
+        Assert.AreEqual(review.Reservation, outcome.Settlement.Committed, "the whole reservation is kept");
+        Assert.AreEqual(AdvisoryAiLedgerWrite.Done, outcome.SettlementWrite);
+        Assert.IsNull(outcome.AnswerText);
+        StringAssert.Contains(AdvisoryAiExplainText.ReplyDetails(outcome.UsageReport)!, "couldn't be decoded");
+        AdvisoryAiAccountingState state = await fixture.Store.GetAccountingStateAsync(CancellationToken.None);
+        Assert.IsTrue(state.ReviewBlock);
+        Assert.AreEqual(AdvisoryAiReviewCause.UntrustedReply, state.ReviewCauses, "the review block refuses the next reservation");
+    }
+
+    [TestMethod]
     [TestCategory("FR-AI-04")]
     public async Task AChangeAfterTheReviewRefusesTheSendBeforeAnythingIsReservedOrRead()
     {
