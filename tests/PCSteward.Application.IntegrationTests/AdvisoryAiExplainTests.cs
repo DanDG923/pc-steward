@@ -175,6 +175,51 @@ public sealed class AdvisoryAiExplainTests
     }
 
     [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public async Task TheFirstLiveTestReplyShapeSettlesAtItsActualCost()
+    {
+        // First live test (Task 71): the reply carried cache_write_tokens_details with zero counts. It is no write and no departure.
+        await using Fixture fixture = await Fixture.CreateAsync(connected: true, prices: true);
+        string body = Body("Synthetic explanation.").Replace("{\"cached_tokens\":0}",
+            "{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_30m_tokens\":0}}", StringComparison.Ordinal);
+        fixture.Transport.Next = new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes(body[..^1] + ",\"service_tier\":\"default\"}")]);
+        AdvisoryAiExplainService service = fixture.Service();
+        AdvisoryAiEvidenceDraft draft = (await service.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Draft!;
+        AdvisoryAiSendOutcome outcome = await service.SendAsync(await service.ReviewAsync(draft, CancellationToken.None), CancellationToken.None);
+
+        Assert.AreEqual(AdvisoryAiRequestState.Settled, outcome.Settlement!.State);
+        Assert.IsFalse(outcome.Settlement.NeedsReview);
+        Assert.IsFalse((await fixture.Store.GetAccountingStateAsync(CancellationToken.None)).ReviewBlock);
+        StringAssert.Contains(AdvisoryAiExplainText.UsageCounts(outcome.UsageReport)!, "0 cache-write tokens");
+        Assert.IsFalse(AdvisoryAiExplainText.ReplyDetails(outcome.UsageReport)!.Contains("paused", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public async Task AnUnknownUsageFigureSaysWhereItWasAndTheBannerNamesTheCause()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync(connected: true, prices: true);
+        string body = Body("Synthetic explanation.").Replace("{\"cached_tokens\":0}",
+            "{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_30m_tokens\":0,\"ttl_7d_tokens\":0}}", StringComparison.Ordinal);
+        fixture.Transport.Next = new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes(body)]);
+        AdvisoryAiExplainService service = fixture.Service();
+        AdvisoryAiEvidenceDraft draft = (await service.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Draft!;
+        AdvisoryAiReview review = await service.ReviewAsync(draft, CancellationToken.None);
+        AdvisoryAiSendOutcome outcome = await service.SendAsync(review, CancellationToken.None);
+
+        Assert.AreEqual(review.Reservation, outcome.Settlement!.Committed, "the whole reservation is kept");
+        string details = AdvisoryAiExplainText.ReplyDetails(outcome.UsageReport)!;
+        StringAssert.Contains(details, "a usage figure PC Steward doesn't know how to price (in the cache-write details)");
+        Assert.IsFalse(details.Contains("ttl_7d", StringComparison.Ordinal), "the provider's key name is never shown");
+        AdvisoryAiAccountingState state = await fixture.Store.GetAccountingStateAsync(CancellationToken.None);
+        Assert.AreEqual(AdvisoryAiReviewCause.UntrustedReply, state.ReviewCauses);
+        string banner = AdvisoryAiSetupText.ReviewBlockNoticeFor(state.ReviewCauses);
+        StringAssert.Contains(banner, "couldn't trust or price");
+        Assert.IsFalse(banner.Contains("clock", StringComparison.Ordinal), banner);
+        Assert.IsFalse(banner.Contains("more than PC Steward reserved", StringComparison.Ordinal), banner);
+    }
+
+    [TestMethod]
     [TestCategory("FR-AI-04")]
     public async Task AChangeAfterTheReviewRefusesTheSendBeforeAnythingIsReservedOrRead()
     {

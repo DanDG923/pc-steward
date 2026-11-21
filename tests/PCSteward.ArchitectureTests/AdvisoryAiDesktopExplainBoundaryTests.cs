@@ -88,6 +88,20 @@ public sealed class AdvisoryAiDesktopExplainBoundaryTests
         StringAssert.Contains(explain, "AdvisoryAiFailedUpdateDraftBuilder.OriginId(job.JobId)");
     }
 
+    [TestMethod]
+    public void AnswersAreFormattedAsPlainRunsWithNothingThatActs()
+    {
+        // First live test (Task 71): Markdown marks are shown as formatting. The answer is model text, so it never becomes a link,
+        // an image or anything else that acts, and both the new answer and saved answers go through the same formatter.
+        string explain = DesktopFile("MainWindow.AdvisoryAiExplain.cs");
+        string answer = Between(explain, "private static RichTextBlock AnswerText(string answer, bool truncated)", "/// <summary>FR-AI-06: earlier answers for this record");
+        StringAssert.Contains(answer, "AdvisoryAiAnswerFormat.Parse(answer)");
+        foreach (string forbidden in new[] { "Hyperlink", "NavigateUri", "Image", "InlineUIContainer", "XamlReader", "Launcher" })
+            Assert.IsFalse(explain.Contains(forbidden, StringComparison.Ordinal), $"the explain window uses {forbidden}");
+        StringAssert.Contains(explain, "body.Children.Add(AnswerText(answer, outcome.AnswerTruncated));");
+        StringAssert.Contains(explain, "(UIElement)AnswerText(text, answer.TextTruncated)");
+    }
+
     private static string DesktopFile(string name) => File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Desktop", name));
 
     private static string Between(string source, string start, string end)

@@ -91,6 +91,29 @@ public enum AdvisoryAiResponseDeparture
     ConversationState = 8
 }
 
+/// <summary>
+/// First live test (Task 71): where a usage key the reader doesn't know sat, in PC Steward's own closed terms. The provider's key name
+/// is never kept or shown (as for the service tier, Task 70E T70E-01), so this is what lets an unknown counter be traced without
+/// another paid request.
+/// </summary>
+[Flags]
+public enum AdvisoryAiUsageFieldLocation
+{
+    None = 0,
+
+    /// <summary>Directly in <c>usage</c>, beside the input, output and total counts.</summary>
+    UsageTotals = 1,
+
+    /// <summary>In <c>usage.input_tokens_details</c>.</summary>
+    InputDetails = 2,
+
+    /// <summary>In <c>usage.output_tokens_details</c>.</summary>
+    OutputDetails = 4,
+
+    /// <summary>In <c>usage.input_tokens_details.cache_write_tokens_details</c>, the cache-write breakdown by retention.</summary>
+    CacheWriteDetails = 8
+}
+
 /// <summary>ADR-029: provider-reported token usage. Only <see cref="AdvisoryAiResponse.UsageReliable"/> usage can settle a charge.</summary>
 public sealed record AdvisoryAiUsage(long InputTokens, long CachedInputTokens, long OutputTokens, long ReasoningTokens, long TotalTokens);
 
@@ -130,6 +153,9 @@ public sealed record AdvisoryAiResponse(
 
     /// <summary>Independent review F1/F2: what in the body departs from the approved, priced request.</summary>
     public AdvisoryAiResponseDeparture Departures { get; init; }
+
+    /// <summary>First live test: where any unknown usage key sat; set whenever <see cref="AdvisoryAiResponseDeparture.UnknownUsageField"/> is.</summary>
+    public AdvisoryAiUsageFieldLocation UnknownUsageFieldLocations { get; init; }
 
     public static AdvisoryAiResponse Malformed(AdvisoryAiMalformedReason reason) =>
         new(AdvisoryAiAnswerStatus.Malformed, AdvisoryAiIncompleteReason.None, reason, null, null, null, false, false);
@@ -190,7 +216,8 @@ public static class AdvisoryAiResponseReader
                 new JsonDocumentOptions { MaxDepth = MaximumDepth, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
             AdvisoryAiResponse response = Read(document.RootElement, expectedModel, approvedInputTokens, approvedOutputTokens);
             (long? written, bool unreadable) = CacheWriteReport(document.RootElement);
-            (string? tier, AdvisoryAiServiceTierReport tierReport, AdvisoryAiResponseDeparture departures) = DepartureReport(document.RootElement, expectedServiceTier, noPromptCache);
+            (string? tier, AdvisoryAiServiceTierReport tierReport, AdvisoryAiResponseDeparture departures, AdvisoryAiUsageFieldLocation unknownAt) =
+                DepartureReport(document.RootElement, expectedServiceTier, noPromptCache);
             // Task 70B T70B-02: a reported cache write (or one that isn't a plain count) is an unexpected billing category even when the
             // body is refused earlier for another reason, so it always stops paid requests for review. Independent review F1/F2: so is
             // another service tier, an unknown usage counter, cached input on a no-cache request, or conversation state. Usage is then
@@ -207,6 +234,7 @@ public static class AdvisoryAiResponseReader
                 ServiceTier = tier,
                 ServiceTierReport = tierReport,
                 Departures = departures,
+                UnknownUsageFieldLocations = unknownAt,
                 UsageReliable = response.UsageReliable && !unexpected,
                 UsageAboveApprovedBounds = response.UsageAboveApprovedBounds || unexpected
             };
@@ -343,13 +371,16 @@ public static class AdvisoryAiResponseReader
     /// <c>usage</c>, <c>input_tokens_details</c> and <c>cache_write_tokens</c> occurrence is looked at, not only the last one, so a
     /// repeated container can't hide an earlier write. A count is exact only when it is the single plain count on a single path; any
     /// repetition next to a cache-write field, or a value that isn't a count, is unreadable and stops paid requests for review.
+    /// First live test: <c>cache_write_tokens_details</c>, the breakdown of cache writes by retention, is read here too. It may be
+    /// absent or null; otherwise it must be a single object whose known counts are plain counts that add up to the reported
+    /// <c>cache_write_tokens</c> (zero when that is absent). Anything else is unreadable. Unknown keys inside it are departures.
     /// </summary>
     private static (long? Tokens, bool Unreadable) CacheWriteReport(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object) return (null, false);
-        int fields = 0;
+        int fields = 0, breakdowns = 0;
         bool ambiguous = false, notACount = false;
-        long count = 0;
+        long count = 0, breakdownTotal = 0;
         List<JsonElement> usages = [.. Occurrences(root, "usage")];
         ambiguous |= usages.Count > 1;
         foreach (JsonElement usage in usages)
@@ -366,25 +397,47 @@ public static class AdvisoryAiResponseReader
                     if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long tokens) && tokens >= 0) count = tokens;
                     else notACount = true;
                 }
+                foreach (JsonElement breakdown in Occurrences(detail, "cache_write_tokens_details"))
+                {
+                    breakdowns++;
+                    if (breakdown.ValueKind == JsonValueKind.Null) continue;
+                    if (breakdown.ValueKind != JsonValueKind.Object || HasDuplicate(breakdown)) { notACount = true; continue; }
+                    foreach (JsonProperty part in breakdown.EnumerateObject())
+                    {
+                        // A key the reader doesn't know is a departure (DepartureReport); only the known counts are added up here.
+                        if (!CacheWriteDetailKeys.Contains(part.Name, StringComparer.Ordinal)) continue;
+                        if (part.Value.ValueKind == JsonValueKind.Number && part.Value.TryGetInt64(out long tokens) && tokens >= 0 && tokens <= long.MaxValue - breakdownTotal)
+                            breakdownTotal += tokens;
+                        else notACount = true;
+                    }
+                }
             }
         }
-        if (fields == 0) return (null, false);
-        return fields == 1 && !ambiguous && !notACount ? (count, false) : (null, true);
+        if (fields == 0 && breakdowns == 0) return (null, false);
+        if (fields > 1 || breakdowns > 1 || ambiguous || notACount) return (null, true);
+        // A breakdown that doesn't add up to the reported writes (or reports writes with no total) can't be trusted either way.
+        if (breakdowns == 1 && breakdownTotal != (fields == 1 ? count : 0)) return (null, true);
+        return fields == 1 ? (count, false) : (null, false);
     }
 
     private static readonly string[] UsageKeys = ["input_tokens", "input_tokens_details", "output_tokens", "output_tokens_details", "total_tokens"];
-    private static readonly string[] InputDetailKeys = ["cached_tokens", "cache_write_tokens"];
+    private static readonly string[] InputDetailKeys = ["cached_tokens", "cache_write_tokens", "cache_write_tokens_details"];
     private static readonly string[] OutputDetailKeys = ["reasoning_tokens"];
+
+    /// <summary>First live test: the cache-write retention counts OpenAI documents. Any other key here is still an unknown usage field.</summary>
+    private static readonly string[] CacheWriteDetailKeys = ["ttl_12h_tokens", "ttl_30m_tokens"];
 
     /// <summary>
     /// Independent review F1/F2: the reported service tier and every departure from the approved request, read on its own like
     /// <see cref="CacheWriteReport"/> so a body refused for another reason still reports them, and over every occurrence so a repeated
     /// field can't hide one. One absent or null tier is accepted and shown as not reported.
     /// </summary>
-    private static (string? Tier, AdvisoryAiServiceTierReport Report, AdvisoryAiResponseDeparture Departures) DepartureReport(JsonElement root, string? expectedTier, bool noPromptCache)
+    private static (string? Tier, AdvisoryAiServiceTierReport Report, AdvisoryAiResponseDeparture Departures, AdvisoryAiUsageFieldLocation UnknownAt) DepartureReport(
+        JsonElement root, string? expectedTier, bool noPromptCache)
     {
-        if (root.ValueKind != JsonValueKind.Object) return (null, AdvisoryAiServiceTierReport.NotReported, AdvisoryAiResponseDeparture.None);
+        if (root.ValueKind != JsonValueKind.Object) return (null, AdvisoryAiServiceTierReport.NotReported, AdvisoryAiResponseDeparture.None, AdvisoryAiUsageFieldLocation.None);
         AdvisoryAiResponseDeparture departures = AdvisoryAiResponseDeparture.None;
+        AdvisoryAiUsageFieldLocation unknownAt = AdvisoryAiUsageFieldLocation.None;
 
         // Task 70E T70E-02: every occurrence counts, null ones included, so a null copy can't hide a repeated tier.
         List<JsonElement> tiers = [.. Occurrences(root, "service_tier")];
@@ -404,23 +457,26 @@ public static class AdvisoryAiResponseReader
         foreach (JsonElement usage in Occurrences(root, "usage"))
         {
             if (usage.ValueKind != JsonValueKind.Object) continue;
-            if (HasUnknownKey(usage, UsageKeys)) departures |= AdvisoryAiResponseDeparture.UnknownUsageField;
+            if (HasUnknownKey(usage, UsageKeys)) unknownAt |= AdvisoryAiUsageFieldLocation.UsageTotals;
             foreach (JsonElement details in Occurrences(usage, "input_tokens_details"))
             {
                 if (details.ValueKind != JsonValueKind.Object) continue;
-                if (HasUnknownKey(details, InputDetailKeys)) departures |= AdvisoryAiResponseDeparture.UnknownUsageField;
+                if (HasUnknownKey(details, InputDetailKeys)) unknownAt |= AdvisoryAiUsageFieldLocation.InputDetails;
+                foreach (JsonElement breakdown in Occurrences(details, "cache_write_tokens_details"))
+                    if (breakdown.ValueKind == JsonValueKind.Object && HasUnknownKey(breakdown, CacheWriteDetailKeys)) unknownAt |= AdvisoryAiUsageFieldLocation.CacheWriteDetails;
                 if (noPromptCache && Occurrences(details, "cached_tokens").Any(value => !(value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long cached) && cached == 0)))
                     departures |= AdvisoryAiResponseDeparture.PromptCacheUsed;
             }
             foreach (JsonElement details in Occurrences(usage, "output_tokens_details"))
-                if (details.ValueKind == JsonValueKind.Object && HasUnknownKey(details, OutputDetailKeys)) departures |= AdvisoryAiResponseDeparture.UnknownUsageField;
+                if (details.ValueKind == JsonValueKind.Object && HasUnknownKey(details, OutputDetailKeys)) unknownAt |= AdvisoryAiUsageFieldLocation.OutputDetails;
         }
+        if (unknownAt != AdvisoryAiUsageFieldLocation.None) departures |= AdvisoryAiResponseDeparture.UnknownUsageField;
 
         bool state = Occurrences(root, "background").Any(value => value.ValueKind != JsonValueKind.False) ||
             Occurrences(root, "previous_response_id").Any(value => value.ValueKind != JsonValueKind.Null) ||
             Occurrences(root, "conversation").Any(value => value.ValueKind != JsonValueKind.Null);
         if (state) departures |= AdvisoryAiResponseDeparture.ConversationState;
-        return (tier, report, departures);
+        return (tier, report, departures, unknownAt);
     }
 
     private static bool HasUnknownKey(JsonElement element, string[] known) =>

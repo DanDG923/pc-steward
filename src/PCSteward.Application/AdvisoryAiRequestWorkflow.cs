@@ -36,6 +36,9 @@ public sealed record AdvisoryAiUsageReport(AdvisoryAiUsage? Usage, bool UsageRel
 
     /// <summary>Independent review F1/F2: what in the body departed from the approved, priced request.</summary>
     public AdvisoryAiResponseDeparture Departures { get; init; }
+
+    /// <summary>First live test: where any unknown usage key sat, in closed terms (never the provider's key name).</summary>
+    public AdvisoryAiUsageFieldLocation UnknownUsageFieldLocations { get; init; }
 }
 
 /// <summary>
@@ -217,7 +220,8 @@ public sealed class AdvisoryAiRequestWorkflow
                 MalformedReason = response.MalformedReason,
                 ServiceTier = response.ServiceTier,
                 ServiceTierReport = response.ServiceTierReport,
-                Departures = response.Departures
+                Departures = response.Departures,
+                UnknownUsageFieldLocations = response.UnknownUsageFieldLocations
             };
         if (response is null || response.Status == AdvisoryAiAnswerStatus.Malformed)
             return new(AdvisoryAiSendRefusal.None, AdvisoryAiReservationProblem.None, true, request.Reservation, settlement, written,

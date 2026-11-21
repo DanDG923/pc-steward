@@ -131,8 +131,18 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             INSERT INTO schema_migrations(version) VALUES (15);
             """, cancellationToken, transaction).ConfigureAwait(false);
 
+    /// <summary>
+    /// Migration 17 (first live test, Task 71): why paid requests were paused, as <see cref="AdvisoryAiReviewCause"/> flags kept beside
+    /// the pause and cleared with it. A pause from before this migration keeps no cause and is explained in general words.
+    /// </summary>
+    private static async Task CreateAdvisoryAiReviewCauseSchemaAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken cancellationToken) =>
+        await ExecuteAsync(connection, """
+            ALTER TABLE ai_accounting_state ADD COLUMN review_causes INTEGER NOT NULL DEFAULT 0 CHECK(review_causes BETWEEN 0 AND 31);
+            INSERT INTO schema_migrations(version) VALUES (17);
+            """, cancellationToken, transaction).ConfigureAwait(false);
+
     private static async Task ValidateAdvisoryAiSchemaAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken cancellationToken) =>
-        await ExecuteAsync(connection, "SELECT connected FROM ai_settings LIMIT 0; SELECT continuity FROM ai_accounting_state LIMIT 0; SELECT version FROM ai_tariffs LIMIT 0; SELECT state, committed FROM ai_requests LIMIT 0; SELECT answer FROM ai_explanations LIMIT 0; " +
+        await ExecuteAsync(connection, "SELECT connected FROM ai_settings LIMIT 0; SELECT continuity, review_causes FROM ai_accounting_state LIMIT 0; SELECT version FROM ai_tariffs LIMIT 0; SELECT state, committed FROM ai_requests LIMIT 0; SELECT answer FROM ai_explanations LIMIT 0; " +
             "SELECT settled, test_settled FROM ai_monthly_totals LIMIT 0; SELECT provider_response_id, committed, first_live_test, total_tokens FROM ai_compacted_requests LIMIT 0;",
             cancellationToken, transaction).ConfigureAwait(false);
 
@@ -487,7 +497,7 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
     {
         try
         {
-            await SetReviewBlockAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+            await SetReviewBlockAsync(connection, transaction, AdvisoryAiReviewCause.LedgerProblem, cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (SqliteException)
@@ -574,13 +584,13 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
                     string.Equals(row.Value.Reason, settlement.Reason.ToString(), StringComparison.Ordinal) && row.Value.AboveReservation == settlement.AboveReservation &&
                     row.Value.UsageReadable && row.Value.Usage == counts)
                     return AdvisoryAiLedgerWrite.AlreadyDone;
-                await SetReviewBlockAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+                await SetReviewBlockAsync(connection, transaction, AdvisoryAiReviewCause.ConflictingResult, cancellationToken).ConfigureAwait(false);
                 return AdvisoryAiLedgerWrite.Conflict;
             }
             if (row.Value.State != AdvisoryAiRequestState.DispatchClaimed)
             {
                 // A result for a request that was never claimed, or was released, is unbound evidence: stop paid requests for review.
-                await SetReviewBlockAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+                await SetReviewBlockAsync(connection, transaction, AdvisoryAiReviewCause.ConflictingResult, cancellationToken).ConfigureAwait(false);
                 return row.Value.State == AdvisoryAiRequestState.NotSent ? AdvisoryAiLedgerWrite.Conflict : AdvisoryAiLedgerWrite.WrongState;
             }
 
@@ -590,7 +600,10 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             {
                 // The same provider response cannot settle two requests: keep the larger of the two figures as uncertain and stop.
                 long kept = Math.Max(row.Value.Committed, settlement.Committed.Value);
-                applied = new(AdvisoryAiRequestState.Uncertain, new(kept), AdvisoryAiUncertainReason.UsageMissingOrUnreliable, true);
+                applied = new(AdvisoryAiRequestState.Uncertain, new(kept), AdvisoryAiUncertainReason.UsageMissingOrUnreliable, true)
+                {
+                    ReviewCause = settlement.ReviewCauses | AdvisoryAiReviewCause.ConflictingResult
+                };
                 responseId = null;
                 result = AdvisoryAiLedgerWrite.Conflict;
             }
@@ -601,7 +614,7 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
                 """, cancellationToken, ("$state", applied.State.ToString()), ("$committed", applied.Committed.Value), ("$reason", applied.Reason.ToString()),
                 ("$above", applied.AboveReservation ? 1 : 0), ("$now", Utc(nowUtc)), ("$response", responseId), ("$in", counts?.InputTokens), ("$cached", counts?.CachedInputTokens),
                 ("$out", counts?.OutputTokens), ("$reasoning", counts?.ReasoningTokens), ("$total", counts?.TotalTokens), ("$id", Id(requestId))).ConfigureAwait(false);
-            if (applied.NeedsReview) await SetReviewBlockAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+            if (applied.NeedsReview) await SetReviewBlockAsync(connection, transaction, applied.ReviewCauses, cancellationToken).ConfigureAwait(false);
             return result;
         }, AdvisoryAiLedgerWrite.StorageFailed, cancellationToken).ConfigureAwait(false);
     }
@@ -617,7 +630,7 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
         // Recovery never repairs a row that doesn't add up: it stops paid requests for review instead.
         int compacted = 0;
         if (await SnapshotAsync(connection, transaction, AdvisoryAiPeriod.Of(nowUtc), nowUtc, cancellationToken).ConfigureAwait(false) is null)
-            await SetReviewBlockAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+            await SetReviewBlockAsync(connection, transaction, AdvisoryAiReviewCause.LedgerProblem, cancellationToken).ConfigureAwait(false);
         else
         {
             // The compaction is all or nothing inside this transaction: if any total would change it is undone and the ledger stops for review.
@@ -630,7 +643,7 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             catch (Exception exception) when (exception is InvalidOperationException or SqliteException)
             {
                 await transaction.RollbackAsync("compaction", cancellationToken).ConfigureAwait(false);
-                await SetReviewBlockAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+                await SetReviewBlockAsync(connection, transaction, AdvisoryAiReviewCause.LedgerProblem, cancellationToken).ConfigureAwait(false);
             }
         }
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -647,7 +660,7 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
 
     private static async Task<AdvisoryAiAccountingState?> ReadAccountingStateAsync(SqliteConnection connection, SqliteTransaction? transaction, CancellationToken cancellationToken)
     {
-        await using SqliteCommand command = AiCommand(connection, transaction, "SELECT continuity,last_accepted_at,unknown_since_period,review_block FROM ai_accounting_state WHERE id=1;");
+        await using SqliteCommand command = AiCommand(connection, transaction, "SELECT continuity,last_accepted_at,unknown_since_period,review_block,review_causes FROM ai_accounting_state WHERE id=1;");
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) || !TryName(reader.GetValue(0), out AdvisoryAiContinuity continuity) ||
             !TryLong(reader, 3, out long review) || review is not (0 or 1))
@@ -664,7 +677,9 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             if (!TryLong(reader, 2, out long key) || !AdvisoryAiPeriod.TryParseKey(key, out AdvisoryAiPeriod parsed)) return null;
             since = parsed;
         }
-        return new(continuity, last, since, review == 1);
+        // The cause only explains the pause; a value that isn't a valid set of flags is shown as the general explanation, never trusted.
+        AdvisoryAiReviewCause causes = TryLong(reader, 4, out long stored) && stored is >= 0 and <= (long)AdvisoryAiReviewCause.All ? (AdvisoryAiReviewCause)stored : AdvisoryAiReviewCause.None;
+        return new(continuity, last, since, review == 1) { ReviewCauses = review == 1 ? causes : AdvisoryAiReviewCause.None };
     }
 
     public Task<AdvisoryAiAccountingWrite> DeclareContinuityAsync(AdvisoryAiContinuity answer, DateTimeOffset nowUtc, CancellationToken cancellationToken)
@@ -709,14 +724,14 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
     public Task<AdvisoryAiAccountingWrite> FlagClockJumpAsync(CancellationToken cancellationToken) =>
         AiWriteAsync(async (connection, transaction) =>
         {
-            int changed = await AiExecuteAsync(connection, transaction, "UPDATE ai_accounting_state SET review_block=1 WHERE id=1;", cancellationToken).ConfigureAwait(false);
+            int changed = await AiExecuteAsync(connection, transaction, SetReviewBlockSql, cancellationToken, ("$cause", (long)AdvisoryAiReviewCause.ClockJump)).ConfigureAwait(false);
             return changed == 1 ? AdvisoryAiAccountingWrite.Done : AdvisoryAiAccountingWrite.NotApplicable;
         }, AdvisoryAiAccountingWrite.StorageFailed, cancellationToken);
 
     public Task<AdvisoryAiAccountingWrite> AcknowledgeReviewAsync(CancellationToken cancellationToken) =>
         AiWriteAsync(async (connection, transaction) =>
         {
-            int changed = await AiExecuteAsync(connection, transaction, "UPDATE ai_accounting_state SET review_block=0 WHERE id=1 AND review_block=1;", cancellationToken).ConfigureAwait(false);
+            int changed = await AiExecuteAsync(connection, transaction, "UPDATE ai_accounting_state SET review_block=0,review_causes=0 WHERE id=1 AND review_block=1;", cancellationToken).ConfigureAwait(false);
             return changed == 1 ? AdvisoryAiAccountingWrite.Done : AdvisoryAiAccountingWrite.NotApplicable;
         }, AdvisoryAiAccountingWrite.StorageFailed, cancellationToken);
 
@@ -741,8 +756,16 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
         return new(period, snapshot.SettledInPeriod, snapshot.OutstandingInPeriod, new(earlier), snapshot.TestSettled, snapshot.TestOutstanding, rows, snapshot.ReviewBlock);
     }
 
-    private static async Task SetReviewBlockAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken cancellationToken) =>
-        await AiExecuteAsync(connection, transaction, "UPDATE ai_accounting_state SET review_block=1 WHERE id=1;", cancellationToken).ConfigureAwait(false);
+    /// <summary>
+    /// First live test: the pause and its cause are set together. A stored cause value that isn't a valid set of flags is replaced by
+    /// every cause rather than allowed to fail the write, so a damaged cause can never stop a pause from being recorded.
+    /// </summary>
+    private const string SetReviewBlockSql =
+        "UPDATE ai_accounting_state SET review_block=1,review_causes=CASE WHEN typeof(review_causes)='integer' AND review_causes BETWEEN 0 AND 31 " +
+        "THEN (review_causes | $cause) ELSE 31 END WHERE id=1;";
+
+    private static async Task SetReviewBlockAsync(SqliteConnection connection, SqliteTransaction transaction, AdvisoryAiReviewCause cause, CancellationToken cancellationToken) =>
+        await AiExecuteAsync(connection, transaction, SetReviewBlockSql, cancellationToken, ("$cause", (long)(cause & AdvisoryAiReviewCause.All))).ConfigureAwait(false);
 
     private static async Task<AdvisoryAiRequestState?> RequestStateAsync(SqliteConnection connection, SqliteTransaction transaction, Guid requestId, CancellationToken cancellationToken)
     {

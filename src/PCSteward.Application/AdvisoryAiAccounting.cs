@@ -116,7 +116,11 @@ public sealed record AdvisoryAiAccountingState(
     AdvisoryAiContinuity Continuity,
     DateTimeOffset? LastAcceptedUtc,
     AdvisoryAiPeriod? UnknownPriorUseSince,
-    bool ReviewBlock);
+    bool ReviewBlock)
+{
+    /// <summary>First live test (Task 71): why paid requests are paused, as recorded with the pause. None for a pause recorded before causes were kept.</summary>
+    public AdvisoryAiReviewCause ReviewCauses { get; init; }
+}
 
 /// <summary>Spending for one UTC month and the separate first-live-test envelope, for the AI limits page. All amounts in micro-USD.</summary>
 public sealed record AdvisoryAiSpendingSummary(

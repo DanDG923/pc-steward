@@ -60,7 +60,7 @@ public sealed class ReviewedUpdateOperationStoreTests
         Assert.AreEqual("DispatchClaimed", await database.ScalarAsync("SELECT state FROM update_dispatch_claims;"));
         await database.ExecuteAsync("DROP TRIGGER reject_twelve;");
         await database.Store.MigrateAsync(CancellationToken.None);
-        Assert.AreEqual(16L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(17L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
         OperationOwnership owner = new(operation.RequestingUserSid, OperationGateContract.NamePrefix + operation.RequestingUserSid, true);
         Assert.IsTrue(await database.Store.HasUnresolvedDispatchesAsync(owner, CancellationToken.None));
         Assert.AreEqual(1, await database.Store.RecoverUnfinishedDispatchesAsync(owner, operation.ReviewedAt.AddMinutes(1), CancellationToken.None));

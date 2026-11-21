@@ -252,9 +252,9 @@ public sealed class DiagnosticSnapshotStoreTests
     public async Task FreshDatabaseIsAtTheCurrentSchemaAndRefusesAFutureSchema()
     {
         await using Fixture fixture = await Fixture.CreateAsync();
-        Assert.AreEqual(16L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(17L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
         await fixture.Store.MigrateAsync(CancellationToken.None);
-        Assert.AreEqual(16L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"), "migration is idempotent");
+        Assert.AreEqual(17L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"), "migration is idempotent");
         await fixture.ExecuteAsync("INSERT INTO schema_migrations(version) VALUES(17);");
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => fixture.Store.SaveDiagnosticSnapshotAsync(Snapshot(Collected, ("x", -1)), Collected, [], CancellationToken.None));
     }

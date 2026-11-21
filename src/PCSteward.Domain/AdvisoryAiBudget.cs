@@ -275,7 +275,7 @@ public static class AdvisoryAiReservationRule
         AdvisoryAiReservationProblem.PaidRequestsDisabledInThisBuild => "Paid AI requests are turned off in this version of PC Steward.",
         AdvisoryAiReservationProblem.PaidRequestsDisabledBySettings => "A spending limit is set to 0, which turns paid requests off.",
         AdvisoryAiReservationProblem.AnotherRequestInFlight => "Another AI request is still running. Only one runs at a time.",
-        AdvisoryAiReservationProblem.LedgerNeedsReview => "PC Steward recorded a charge it can't reconcile, or the clock jumped forward, so paid requests are paused until it is reviewed.",
+        AdvisoryAiReservationProblem.LedgerNeedsReview => "PC Steward paused paid requests after a reply it couldn't trust or price, a charge it can't reconcile, or a clock jump. Settings says which; review it there.",
         AdvisoryAiReservationProblem.LedgerFull => "The AI spending record is full. Paid requests are paused; nothing owed is deleted to make room.",
         AdvisoryAiReservationProblem.ContinuityNotEstablished => "Before the first paid request, PC Steward needs to ask whether it has made AI requests on this PC before.",
         AdvisoryAiReservationProblem.PriorUseUnknown => "Earlier AI spending on this PC may be unknown, so paid requests wait until a new month is confirmed.",
@@ -377,6 +377,34 @@ public enum AdvisoryAiDispatchOutcome
 }
 
 /// <summary>
+/// First live test (Task 71): why paid requests were paused for review, in closed terms, so the owner is told the actual cause. Causes
+/// add up until the owner reviews them. A pause recorded before causes were kept has none, and is explained in general words.
+/// </summary>
+[Flags]
+public enum AdvisoryAiReviewCause
+{
+    None = 0,
+
+    /// <summary>A reply PC Steward couldn't trust or price: another tier, an unknown usage figure, a cache write, cached input on a
+    /// no-cache request, conversation state, or usage above the approved limits. Its whole reservation was kept.</summary>
+    UntrustedReply = 1,
+
+    /// <summary>A charge, trusted or not, came to more than the request's reservation.</summary>
+    ChargeAboveReservation = 2,
+
+    /// <summary>Conflicting results for one request, a provider response used twice, or a result for a request that wasn't sent.</summary>
+    ConflictingResult = 4,
+
+    /// <summary>The spending record couldn't be read or didn't add up.</summary>
+    LedgerProblem = 8,
+
+    /// <summary>The clock jumped forward while PC Steward was running.</summary>
+    ClockJump = 16,
+
+    All = UntrustedReply | ChargeAboveReservation | ConflictingResult | LedgerProblem | ClockJump
+}
+
+/// <summary>
 /// The ledger change after a dispatched request: the new state, the amount that stays committed (the actual cost when settled), and
 /// whether paid requests must stop for review because the charge is above the reservation or usage is above the approved bounds.
 /// </summary>
@@ -387,6 +415,13 @@ public sealed record AdvisoryAiSettlement(
     bool AboveReservation)
 {
     public bool NeedsReview => AboveReservation;
+
+    /// <summary>First live test: why <see cref="NeedsReview"/> is set, as <see cref="AdvisoryAiSettlementRule"/> decided it.</summary>
+    public AdvisoryAiReviewCause ReviewCause { get; init; }
+
+    /// <summary>The causes recorded with the pause: none when no review is needed; a review with no stated cause counts as a charge above the reservation.</summary>
+    public AdvisoryAiReviewCause ReviewCauses => !NeedsReview ? AdvisoryAiReviewCause.None
+        : ReviewCause == AdvisoryAiReviewCause.None ? AdvisoryAiReviewCause.ChargeAboveReservation : ReviewCause & AdvisoryAiReviewCause.All;
 }
 
 /// <summary>
@@ -407,17 +442,26 @@ public static class AdvisoryAiSettlementRule
 
         MicroUsd? reported = ReportedCost(response.Usage, tariff, out bool tooLargeToRecord);
         // Usage whose cost does not even fit the ledger is far above any reservation: keep the reservation and stop for review.
-        if (tooLargeToRecord) return new(AdvisoryAiRequestState.Uncertain, reservation, AdvisoryAiUncertainReason.UsageMissingOrUnreliable, true);
+        if (tooLargeToRecord)
+            return new(AdvisoryAiRequestState.Uncertain, reservation, AdvisoryAiUncertainReason.UsageMissingOrUnreliable, true) { ReviewCause = Untrusted(response) | AdvisoryAiReviewCause.ChargeAboveReservation };
         if (response.UsageReliable && response.Status != AdvisoryAiAnswerStatus.Malformed && reported is MicroUsd actual)
-            return new(AdvisoryAiRequestState.Settled, actual, AdvisoryAiUncertainReason.None, actual > reservation || response.UsageAboveApprovedBounds);
+            return new(AdvisoryAiRequestState.Settled, actual, AdvisoryAiUncertainReason.None, actual > reservation || response.UsageAboveApprovedBounds)
+            {
+                ReviewCause = Untrusted(response) | (actual > reservation ? AdvisoryAiReviewCause.ChargeAboveReservation : AdvisoryAiReviewCause.None)
+            };
 
         AdvisoryAiUncertainReason reason = response.Status == AdvisoryAiAnswerStatus.Malformed
             ? AdvisoryAiUncertainReason.MalformedResponse
             : AdvisoryAiUncertainReason.UsageMissingOrUnreliable;
         // Untrusted usage never lowers a commitment, but a larger figure is kept in full and stops paid requests for review.
-        if (reported is MicroUsd larger && larger > reservation) return new(AdvisoryAiRequestState.Uncertain, larger, reason, true);
-        return new(AdvisoryAiRequestState.Uncertain, reservation, reason, response.UsageAboveApprovedBounds);
+        if (reported is MicroUsd larger && larger > reservation)
+            return new(AdvisoryAiRequestState.Uncertain, larger, reason, true) { ReviewCause = Untrusted(response) | AdvisoryAiReviewCause.ChargeAboveReservation };
+        return new(AdvisoryAiRequestState.Uncertain, reservation, reason, response.UsageAboveApprovedBounds) { ReviewCause = Untrusted(response) };
     }
+
+    /// <summary>A reply that departed from the approved request, or reported usage above its approved bounds, is an untrusted reply.</summary>
+    private static AdvisoryAiReviewCause Untrusted(AdvisoryAiResponse response) =>
+        response.UsageAboveApprovedBounds ? AdvisoryAiReviewCause.UntrustedReply : AdvisoryAiReviewCause.None;
 
     /// <summary>The settlement a restart records for a request found in <see cref="AdvisoryAiRequestState.DispatchClaimed"/>.</summary>
     public static AdvisoryAiSettlement Interrupted(MicroUsd reservation) => Uncertain(reservation, AdvisoryAiUncertainReason.Interrupted);
