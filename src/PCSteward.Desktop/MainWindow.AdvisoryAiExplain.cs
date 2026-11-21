@@ -297,11 +297,25 @@ public sealed partial class MainWindow
             paragraph.Margin = new Thickness(indent, block.Kind == AdvisoryAiAnswerBlockKind.Heading && index > 0 ? StewardSpacing.Small : 0, 0,
                 listItem && nextIsListItem ? StewardSpacing.XSmall : StewardSpacing.Small);
             if (listItem) paragraph.Inlines.Add(new Run { Text = block.Marker + "\u00A0" });
-            foreach (AdvisoryAiAnswerSpan span in block.Spans)
+            if (block.Kind == AdvisoryAiAnswerBlockKind.Literal)
             {
-                Run run = new() { Text = span.Text };
-                if (span.Bold || block.Kind == AdvisoryAiAnswerBlockKind.Heading) run.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
-                paragraph.Inlines.Add(run);
+                // Code is shown line for line as written, in a fixed-width font, with nothing in it read as formatting.
+                paragraph.FontFamily = new FontFamily("Consolas");
+                string[] lines = block.PlainText.Split('\n');
+                for (int line = 0; line < lines.Length; line++)
+                {
+                    if (line > 0) paragraph.Inlines.Add(new LineBreak());
+                    paragraph.Inlines.Add(new Run { Text = lines[line] });
+                }
+            }
+            else
+            {
+                foreach (AdvisoryAiAnswerSpan span in block.Spans)
+                {
+                    Run run = new() { Text = span.Text };
+                    if (span.Bold || block.Kind == AdvisoryAiAnswerBlockKind.Heading) run.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+                    paragraph.Inlines.Add(run);
+                }
             }
             if (truncated && index == blocks.Count - 1) paragraph.Inlines.Add(new Run { Text = " …" });
             text.Blocks.Add(paragraph);

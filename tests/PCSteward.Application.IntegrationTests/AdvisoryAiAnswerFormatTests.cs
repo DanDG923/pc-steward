@@ -74,6 +74,53 @@ public sealed class AdvisoryAiAnswerFormatTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    [DataRow("Pattern: `**/logs/**`", DisplayName = "stars in inline code")]
+    [DataRow("Use ``__init__ and `x` __`` here", DisplayName = "underscores in a double-backtick span")]
+    [DataRow("An unmatched ` backtick and **bold** stay apart", DisplayName = "an unmatched backtick")]
+    public void MarksInsideInlineCodeStayAsWritten(string text)
+    {
+        IReadOnlyList<AdvisoryAiAnswerBlock> blocks = AdvisoryAiAnswerFormat.Parse(text);
+        Assert.HasCount(1, blocks);
+        bool hasBold = text.Contains("**bold**", StringComparison.Ordinal);
+        Assert.AreEqual(hasBold ? text.Replace("**bold**", "bold", StringComparison.Ordinal) : text, blocks[0].PlainText);
+        Assert.AreEqual(hasBold, blocks[0].Spans.Any(span => span.Bold));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void BoldAroundInlineCodeKeepsTheCode()
+    {
+        IReadOnlyList<AdvisoryAiAnswerBlock> blocks = AdvisoryAiAnswerFormat.Parse("Run **`sfc /scannow` first** then wait");
+        Assert.AreEqual("Run `sfc /scannow` first then wait", blocks[0].PlainText);
+        Assert.AreEqual("`sfc /scannow` first", blocks[0].Spans.Single(span => span.Bold).Text);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void AFencedBlockIsShownLineForLineExactlyAsWritten()
+    {
+        const string Fenced = "```text\n---\n# not a heading\n- not a bullet\n**not bold**\n\n  indented\n````";
+        IReadOnlyList<AdvisoryAiAnswerBlock> blocks = AdvisoryAiAnswerFormat.Parse("Before **it**\n" + Fenced + "\nAfter **it**");
+        Assert.HasCount(3, blocks);
+        Assert.AreEqual(AdvisoryAiAnswerBlockKind.Literal, blocks[1].Kind);
+        Assert.AreEqual(Fenced, blocks[1].PlainText, "fences, rule, marks, the blank line and indentation all stay");
+        Assert.IsFalse(blocks[1].Spans.Any(span => span.Bold));
+        Assert.IsTrue(blocks[2].Spans.Any(span => span.Bold), "formatting resumes after the closing fence");
+        StringAssert.Contains(AdvisoryAiAnswerFormat.ToPlainText(blocks), Fenced);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void AnUnclosedFenceKeepsTheRestOfTheAnswerAsWritten()
+    {
+        IReadOnlyList<AdvisoryAiAnswerBlock> blocks = AdvisoryAiAnswerFormat.Parse("~~~\n**a**\n```\n---\n- b");
+        Assert.HasCount(1, blocks);
+        Assert.AreEqual(AdvisoryAiAnswerBlockKind.Literal, blocks[0].Kind);
+        Assert.AreEqual("~~~\n**a**\n```\n---\n- b", blocks[0].PlainText, "a fence of the other kind doesn't close it");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     public void NoAnswerIsNoBlocks()
     {
         Assert.HasCount(0, AdvisoryAiAnswerFormat.Parse(null));
