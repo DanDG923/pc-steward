@@ -319,6 +319,7 @@ public static class AdvisoryAiExplainText
         AdvisoryAiMalformedReason.UnexpectedOutputItem => "it held output other than a message",
         AdvisoryAiMalformedReason.InvalidOutputText => "its message text wasn't plain text",
         AdvisoryAiMalformedReason.UnexpectedState => "it carried background or conversation state",
+        AdvisoryAiMalformedReason.UndecodableText => "a name or text in it couldn't be decoded, so PC Steward couldn't check what it charged. Paid requests are paused until you review it in Settings",
         _ => "of an unknown problem"
     };
 

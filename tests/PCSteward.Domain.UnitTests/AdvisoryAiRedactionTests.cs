@@ -137,6 +137,20 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    public void AnAnswerKeepsEachLinesIndentationSoCodeKeepsItsMeaning()
+    {
+        // Task 71C review 71C-04: leading spaces survive redaction (spaces inside a line still collapse), capped, and the result is
+        // unchanged when it is sanitized again, as a saved answer is on every read.
+        const string answer = "Try this:\n```python\nif ready:\n    run(  1 )\n        log(\"C:\\Users\\alex\\x.log\")\n```";
+        string? clean = AdvisoryAiRedaction.SanitizeAnswer(answer, 4000, Identity).Value;
+        Assert.AreEqual("Try this:\n```python\nif ready:\n    run( 1 )\n        log(\"[path]\")\n```", clean);
+        Assert.AreEqual(clean, AdvisoryAiRedaction.SanitizeAnswer(clean, 4000, Identity).Value);
+        string deep = AdvisoryAiRedaction.SanitizeAnswer(new string(' ', 500) + "x", 4000).Value!;
+        Assert.AreEqual(new string(' ', AdvisoryAiRedaction.MaximumAnswerIndentation) + "x", deep);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     public void AnAnswerKeepsItsParagraphsAndIsRedactedLineByLine()
     {
         const string answer = "What the evidence shows:\r\n\r\n\r\nThe log at C:\\Users\\alex\\setup.log failed.\nRun this: password=abc\u202E\n\n";
@@ -166,7 +180,7 @@ public sealed class AdvisoryAiRedactionTests
     [TestMethod]
     [TestCategory("FR-AI-05")]
     [DataRow("Use this:\npassword:\nhunter2\nthen restart.", "Use this:\npassword:\n[secret]\nthen restart.")]
-    [DataRow("token =\r\n  hunter2", "token =\n[secret]")]
+    [DataRow("token =\r\n  hunter2", "token =\n  [secret]")]
     [DataRow("{\"password\": \"line one\nhunter2 line two\"}\nNext.", "{\"password\": \"[secret]\"}\nNext.")]
     [DataRow("Authorization: Bearer\nabcDEF123456xyz", "Authorization: Bearer [secret]")]
     [DataRow("pass\u200Bword:\nhunter2", "password:\n[secret]")]

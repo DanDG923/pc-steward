@@ -53,10 +53,18 @@ public sealed class AdvisoryAiAdapterBoundaryTests
         StringAssert.Contains(code, "is not AdvisoryAiProvider registered || !ReferenceEquals(registered, provider)");
         StringAssert.Contains(code, "private const int TypeGeneric = 1;");
         StringAssert.Contains(code, "private const int PersistLocalMachine = 2;");
-        // Mythos whole-app review MY-03: Windows' copy of the key is overwritten before CredFree releases it.
-        int clear = code.IndexOf("Marshal.Copy(new byte[returned.CredentialBlobSize], 0, returned.CredentialBlob, returned.CredentialBlobSize);", StringComparison.Ordinal);
+        // Mythos whole-app review MY-03: Windows' copy of the key is overwritten before CredFree releases it. Task 71C review 71C-02:
+        // the wipe allocates nothing, and the free sits in its own finally so a failed wipe can't skip it.
+        int clear = code.IndexOf("if (returnedBlob != IntPtr.Zero && returnedSize > 0) Wipe(returnedBlob, returnedSize);", StringComparison.Ordinal);
         Assert.IsGreaterThan(0, clear, "the native copy is cleared");
-        Assert.IsLessThan(code.IndexOf("CredFree(pointer);", StringComparison.Ordinal), clear, "and cleared before it is freed");
+        int free = code.IndexOf("CredFree(pointer);", StringComparison.Ordinal);
+        Assert.IsLessThan(free, clear, "and cleared before it is freed");
+        StringAssert.Contains(code[clear..free], "finally", "the free runs even if the wipe fails");
+        StringAssert.Contains(code, "for (int offset = 0; offset < length; offset++) Marshal.WriteByte(data, offset, 0);");
+        Assert.IsFalse(code.Contains("Marshal.Copy(new byte[", StringComparison.Ordinal), "no wipe allocates");
+        int written = code.IndexOf("if (data != IntPtr.Zero) Wipe(data, blob.Length);", StringComparison.Ordinal);
+        Assert.IsGreaterThan(0, written, "the written copy is cleared");
+        StringAssert.Contains(code[written..code.IndexOf("Marshal.FreeHGlobal(data);", StringComparison.Ordinal)], "finally");
     }
 
     [TestMethod]

@@ -79,7 +79,7 @@ public static class AdvisoryAiRedaction
 
     /// <summary>
     /// FR-AI-05 (ADR-028): redacts an answer for display and saving. The same classes as evidence are removed, line by line, so the
-    /// answer keeps its paragraphs; runs of blank lines become one. The result is plain text: it is never parsed as markup, links are
+    /// answer keeps its paragraphs and each line's leading spaces (Task 71C review 71C-04); runs of blank lines become one. The result is plain text: it is never parsed as markup, links are
     /// already replaced and nothing in it is ever run or opened.
     /// </summary>
     public static DiagnosticSanitizedText SanitizeAnswer(string? text, int maximumScalars, DiagnosticRedactionContext? context = null)
@@ -108,11 +108,25 @@ public static class AdvisoryAiRedaction
             }
             if (blankPending) lines.Add(string.Empty);
             blankPending = false;
-            lines.Add(clean.Value);
+            lines.Add(Indentation(line) + clean.Value);
         }
         if (lines.Count == 0) return new(null, false);
         DiagnosticSanitizedText joined = Truncate(string.Join('\n', lines), maximumScalars);
         return joined with { Truncated = joined.Truncated || truncated };
+    }
+
+    /// <summary>The most leading spaces an answer line keeps (Task 71C review 71C-04), enough for code nested sixteen levels deep.</summary>
+    public const int MaximumAnswerIndentation = 64;
+
+    /// <summary>
+    /// Task 71C review 71C-04: an answer line's leading spaces, so indented code keeps its meaning. Only spaces are kept (a tab has
+    /// already become one space), at most <see cref="MaximumAnswerIndentation"/>; nothing else in the line is kept unredacted.
+    /// </summary>
+    private static string Indentation(string line)
+    {
+        int spaces = 0;
+        while (spaces < line.Length && spaces < MaximumAnswerIndentation && line[spaces] == ' ') spaces++;
+        return new string(' ', spaces);
     }
 
     /// <summary>Sanitizes, redacts and collapses spaces in one line of text, then cuts it to <paramref name="maximumScalars"/>.</summary>

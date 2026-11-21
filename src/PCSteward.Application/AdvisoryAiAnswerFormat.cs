@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -40,29 +41,78 @@ public static partial class AdvisoryAiAnswerFormat
 {
     public const int MaximumLevel = 3;
 
+    /// <summary>
+    /// Task 71C review 71C-03: the longest answer that is formatted. A complete answer within the reviewed output limit is far shorter;
+    /// anything longer is shown as plain text, cut to this length, with <see cref="TooComplexNotice"/>.
+    /// </summary>
+    public const int MaximumFormattedCharacters = 65_536;
+
+    /// <summary>Task 71C review 71C-03: the most display blocks, and runs of text across them, one formatted answer may make.</summary>
+    public const int MaximumBlocks = 1_000;
+
+    public const int MaximumRuns = 4_000;
+
+    /// <summary>Task 71C review 71C-03: the time formatting may take in all, on top of each pattern's own match timeout.</summary>
+    public static TimeSpan FormattingBudget { get; } = TimeSpan.FromMilliseconds(250);
+
+    public const string TooComplexNotice = "This answer is too long or too complex to format, so it's shown as plain text.";
+
+    public static string ShortenedNotice { get; } = string.Create(CultureInfo.InvariantCulture,
+        $" Only its first {MaximumFormattedCharacters:N0} characters are shown here.");
+
     public static IReadOnlyList<AdvisoryAiAnswerBlock> Parse(string? answer)
     {
         if (string.IsNullOrEmpty(answer)) return [];
+        if (answer.Length > MaximumFormattedCharacters) return AsPlainText(answer);
         try
         {
-            return Blocks(answer);
+            return Blocks(answer, Stopwatch.GetTimestamp() + (long)(FormattingBudget.TotalSeconds * Stopwatch.Frequency));
         }
         catch (RegexMatchTimeoutException)
         {
             // Formatting is only a convenience: the whole answer is shown as written rather than lost.
-            return [new(AdvisoryAiAnswerBlockKind.Paragraph, [new(answer, false)])];
+            return AsPlainText(answer);
+        }
+        catch (TimeoutException)
+        {
+            // Task 71C review 71C-03: over the time, block or run budget. The dialog then makes a few runs, never thousands.
+            return AsPlainText(answer);
         }
     }
 
-    private static List<AdvisoryAiAnswerBlock> Blocks(string answer)
+    /// <summary>
+    /// Task 71C review 71C-03: the answer as written, in one run after a notice that says why it isn't formatted, cut to
+    /// <see cref="MaximumFormattedCharacters"/> (the notice says so when it is).
+    /// </summary>
+    private static List<AdvisoryAiAnswerBlock> AsPlainText(string answer)
+    {
+        bool shortened = answer.Length > MaximumFormattedCharacters;
+        string shown = shortened ? answer[..MaximumFormattedCharacters] : answer;
+        if (shortened && char.IsHighSurrogate(shown[^1])) shown = shown[..^1];
+        return
+        [
+            new(AdvisoryAiAnswerBlockKind.Paragraph, [new(TooComplexNotice + (shortened ? ShortenedNotice : string.Empty), true)]),
+            new(AdvisoryAiAnswerBlockKind.Paragraph, [new(shown, false)])
+        ];
+    }
+
+    private static List<AdvisoryAiAnswerBlock> Blocks(string answer, long deadline)
     {
         List<AdvisoryAiAnswerBlock> blocks = [];
         StringBuilder paragraph = new();
+        int runs = 0;
+
+        void Add(AdvisoryAiAnswerBlock block)
+        {
+            blocks.Add(block);
+            runs += block.Spans.Count + (block.Marker is null ? 0 : 1) + (block.Kind == AdvisoryAiAnswerBlockKind.Literal ? block.PlainText.Count(character => character == '\n') : 0);
+            if (blocks.Count > MaximumBlocks || runs > MaximumRuns) throw new TimeoutException("The answer has too many blocks to format.");
+        }
 
         void FlushParagraph()
         {
             if (paragraph.Length == 0) return;
-            blocks.Add(new(AdvisoryAiAnswerBlockKind.Paragraph, Inline(paragraph.ToString())));
+            Add(new(AdvisoryAiAnswerBlockKind.Paragraph, Inline(paragraph.ToString(), deadline)));
             paragraph.Clear();
         }
 
@@ -73,12 +123,13 @@ public static partial class AdvisoryAiAnswerFormat
         void FlushLiteral()
         {
             if (literal is null) return;
-            blocks.Add(new(AdvisoryAiAnswerBlockKind.Literal, [new(string.Join("\n", literal), false)]));
+            Add(new(AdvisoryAiAnswerBlockKind.Literal, [new(string.Join("\n", literal), false)]));
             literal = null;
         }
 
         foreach (string raw in answer.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n'))
         {
+            CheckTime(deadline);
             if (literal is not null)
             {
                 literal.Add(raw);
@@ -104,7 +155,7 @@ public static partial class AdvisoryAiAnswerFormat
             if (heading.Success)
             {
                 FlushParagraph();
-                blocks.Add(new(AdvisoryAiAnswerBlockKind.Heading, Inline(heading.Groups["text"].Value)));
+                Add(new(AdvisoryAiAnswerBlockKind.Heading, Inline(heading.Groups["text"].Value, deadline)));
                 continue;
             }
             if (RuleLine().IsMatch(line))
@@ -116,7 +167,7 @@ public static partial class AdvisoryAiAnswerFormat
             if (bullet.Success)
             {
                 FlushParagraph();
-                blocks.Add(new(AdvisoryAiAnswerBlockKind.Bullet, Inline(bullet.Groups["text"].Value), "•", LevelOf(bullet.Groups["indent"].Value)));
+                Add(new(AdvisoryAiAnswerBlockKind.Bullet, Inline(bullet.Groups["text"].Value, deadline), "•", LevelOf(bullet.Groups["indent"].Value)));
                 continue;
             }
             Match numbered = NumberedLine().Match(line);
@@ -124,7 +175,7 @@ public static partial class AdvisoryAiAnswerFormat
             {
                 FlushParagraph();
                 string number = int.Parse(numbered.Groups["number"].Value, NumberStyles.None, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);
-                blocks.Add(new(AdvisoryAiAnswerBlockKind.Numbered, Inline(numbered.Groups["text"].Value), number + ".", LevelOf(numbered.Groups["indent"].Value)));
+                Add(new(AdvisoryAiAnswerBlockKind.Numbered, Inline(numbered.Groups["text"].Value, deadline), number + ".", LevelOf(numbered.Groups["indent"].Value)));
                 continue;
             }
             if (paragraph.Length > 0) paragraph.Append(' ');
@@ -133,6 +184,11 @@ public static partial class AdvisoryAiAnswerFormat
         FlushParagraph();
         FlushLiteral(); // an unclosed fence runs to the end of the answer, as in CommonMark: nothing after it is read for marks
         return blocks;
+    }
+
+    private static void CheckTime(long deadline)
+    {
+        if (Stopwatch.GetTimestamp() > deadline) throw new TimeoutException("Formatting the answer took too long.");
     }
 
     private static bool IsClosingFence(string line, char character, int length)
@@ -162,12 +218,14 @@ public static partial class AdvisoryAiAnswerFormat
     /// Bold runs marked by a matching pair of ** or __ on one line. An unmatched mark stays as literal text, and so does any mark inside
     /// an inline code span: the code is masked before bold is matched, so its stars and underscores can neither open, close nor be lost.
     /// </summary>
-    private static List<AdvisoryAiAnswerSpan> Inline(string text)
+    private static List<AdvisoryAiAnswerSpan> Inline(string text, long deadline)
     {
         List<AdvisoryAiAnswerSpan> spans = [];
         int position = 0;
         foreach (Match bold in BoldRun().Matches(MaskCodeSpans(text)))
         {
+            CheckTime(deadline);
+            if (spans.Count > MaximumRuns) throw new TimeoutException("The answer has too many runs to format.");
             if (bold.Index > position) spans.Add(new(text[position..bold.Index], false));
             Group inner = bold.Groups["text"];
             spans.Add(new(text.Substring(inner.Index, inner.Length), true));
@@ -179,29 +237,34 @@ public static partial class AdvisoryAiAnswerFormat
 
     /// <summary>
     /// A copy of the text, the same length, with the contents of each inline code span (a run of N backticks closed by the next run of
-    /// exactly N) replaced by a letter, so no mark inside code is matched. Backticks with no matching run stay as they are.
+    /// exactly N) replaced by a letter, so no mark inside code is matched. Backticks with no matching run stay as they are. Task 71C
+    /// review 71C-03: each run's closing partner is found in one backward pass, so this takes time in proportion to the text.
     /// </summary>
     private static string MaskCodeSpans(string text)
     {
         if (!text.Contains('`', StringComparison.Ordinal)) return text;
-        char[] masked = text.ToCharArray();
-        int index = 0;
-        while (index < text.Length)
+        List<(int Start, int Length)> runs = [];
+        for (int index = 0; index < text.Length;)
         {
             if (text[index] != '`') { index++; continue; }
-            int open = RunLength(text, index);
-            int search = index + open;
-            int close = -1;
-            while (search < text.Length)
-            {
-                if (text[search] != '`') { search++; continue; }
-                int run = RunLength(text, search);
-                if (run == open) { close = search; break; }
-                search += run;
-            }
-            if (close < 0) { index += open; continue; }
-            for (int inside = index + open; inside < close; inside++) masked[inside] = 'x';
-            index = close + open;
+            int length = RunLength(text, index);
+            runs.Add((index, length));
+            index += length;
+        }
+        int[] next = new int[runs.Count];
+        Dictionary<int, int> following = [];
+        for (int run = runs.Count - 1; run >= 0; run--)
+        {
+            next[run] = following.TryGetValue(runs[run].Length, out int partner) ? partner : -1;
+            following[runs[run].Length] = run;
+        }
+        char[] masked = text.ToCharArray();
+        for (int run = 0; run < runs.Count;)
+        {
+            if (next[run] < 0) { run++; continue; }
+            (int start, int length) = runs[run];
+            for (int inside = start + length; inside < runs[next[run]].Start; inside++) masked[inside] = 'x';
+            run = next[run] + 1;
         }
         return new string(masked);
     }
@@ -213,21 +276,21 @@ public static partial class AdvisoryAiAnswerFormat
         return end - start;
     }
 
-    [GeneratedRegex(@"^ {0,3}(?<fence>`{3,}|~{3,})", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    [GeneratedRegex(@"^ {0,3}(?<fence>`{3,}|~{3,})", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex FenceLine();
 
-    [GeneratedRegex(@"^ {0,3}#{1,6}[ \t]+(?<text>.*?)(?:[ \t]+#+)?[ \t]*$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    [GeneratedRegex(@"^ {0,3}#{1,6}[ \t]+(?<text>.*?)(?:[ \t]+#+)?[ \t]*$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex HeadingLine();
 
-    [GeneratedRegex(@"^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    [GeneratedRegex(@"^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex RuleLine();
 
-    [GeneratedRegex(@"^(?<indent>[ \t]*)[-*+][ \t]+(?<text>.+)$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    [GeneratedRegex(@"^(?<indent>[ \t]*)[-*+][ \t]+(?<text>.+)$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex BulletLine();
 
-    [GeneratedRegex(@"^(?<indent>[ \t]*)(?<number>[0-9]{1,3})[.)][ \t]+(?<text>.+)$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    [GeneratedRegex(@"^(?<indent>[ \t]*)(?<number>[0-9]{1,3})[.)][ \t]+(?<text>.+)$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex NumberedLine();
 
-    [GeneratedRegex(@"(?<mark>\*\*|__)(?<text>\S(?:.*?\S)?)\k<mark>", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    [GeneratedRegex(@"(?<mark>\*\*|__)(?<text>\S(?:.*?\S)?)\k<mark>", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex BoldRun();
 }

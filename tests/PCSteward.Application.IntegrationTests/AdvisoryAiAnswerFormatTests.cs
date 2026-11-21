@@ -121,6 +121,50 @@ public sealed class AdvisoryAiAnswerFormatTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    public void AnAnswerWithTooManyBlocksIsShownAsPlainTextWithANotice()
+    {
+        // Task 71C review 71C-03: 4,096 one-word list items would make over 12,000 runs in the dialog. Past the block budget the
+        // answer is two blocks: the notice, then the whole answer as written in one run.
+        string answer = string.Join("\n", Enumerable.Range(0, 4_096).Select(item => "- item " + item));
+        IReadOnlyList<AdvisoryAiAnswerBlock> blocks = AdvisoryAiAnswerFormat.Parse(answer);
+        Assert.HasCount(2, blocks);
+        Assert.AreEqual(AdvisoryAiAnswerFormat.TooComplexNotice, blocks[0].PlainText);
+        Assert.IsTrue(blocks[0].Spans.Single().Bold);
+        Assert.AreEqual(answer, blocks[1].PlainText);
+        Assert.HasCount(1, blocks[1].Spans);
+        Assert.HasCount(AdvisoryAiAnswerFormat.MaximumBlocks, AdvisoryAiAnswerFormat.Parse(string.Join("\n", Enumerable.Repeat("- x", AdvisoryAiAnswerFormat.MaximumBlocks))),
+            "an answer at the budget is still formatted");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void AnOverlongAnswerIsCutForDisplayAndSaysSo()
+    {
+        string answer = new('a', AdvisoryAiAnswerFormat.MaximumFormattedCharacters + 10);
+        IReadOnlyList<AdvisoryAiAnswerBlock> blocks = AdvisoryAiAnswerFormat.Parse(answer);
+        Assert.HasCount(2, blocks);
+        Assert.AreEqual(AdvisoryAiAnswerFormat.TooComplexNotice + AdvisoryAiAnswerFormat.ShortenedNotice, blocks[0].PlainText);
+        StringAssert.Contains(blocks[0].PlainText, "65,536");
+        Assert.AreEqual(AdvisoryAiAnswerFormat.MaximumFormattedCharacters, blocks[1].PlainText.Length);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void UnmatchedBackticksAreReadInTimeProportionalToTheText()
+    {
+        // Task 71C review 71C-03: runs of every length from 1 to 300 backticks, none closed, once took time in the square of the text.
+        string line = string.Concat(Enumerable.Range(1, 300).Select(length => new string('`', length) + "a"));
+        System.Diagnostics.Stopwatch timer = System.Diagnostics.Stopwatch.StartNew();
+        IReadOnlyList<AdvisoryAiAnswerBlock> blocks = AdvisoryAiAnswerFormat.Parse(line + " **bold**");
+        timer.Stop();
+        Assert.HasCount(1, blocks);
+        Assert.AreEqual(line + " bold", blocks[0].PlainText);
+        Assert.IsTrue(blocks[0].Spans[^1].Bold);
+        Assert.IsLessThan(2_000, timer.ElapsedMilliseconds);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     public void NoAnswerIsNoBlocks()
     {
         Assert.HasCount(0, AdvisoryAiAnswerFormat.Parse(null));
