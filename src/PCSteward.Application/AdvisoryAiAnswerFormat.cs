@@ -195,7 +195,8 @@ public static partial class AdvisoryAiAnswerFormat
     {
         string trimmed = line.TrimEnd();
         int start = 0;
-        while (start < trimmed.Length && start < 3 && trimmed[start] == ' ') start++;
+        // Codex review of #140: answers now keep their indentation, so a fence inside a list item may be indented by any amount.
+        while (start < trimmed.Length && trimmed[start] is ' ' or '\t') start++;
         int run = 0;
         while (start + run < trimmed.Length && trimmed[start + run] == character) run++;
         return run >= length && start + run == trimmed.Length;
@@ -276,7 +277,7 @@ public static partial class AdvisoryAiAnswerFormat
         return end - start;
     }
 
-    [GeneratedRegex(@"^ {0,3}(?<fence>`{3,}|~{3,})", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
+    [GeneratedRegex(@"^[ \t]*(?<fence>`{3,}|~{3,})", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex FenceLine();
 
     [GeneratedRegex(@"^ {0,3}#{1,6}[ \t]+(?<text>.*?)(?:[ \t]+#+)?[ \t]*$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]

@@ -165,6 +165,23 @@ public sealed class AdvisoryAiAnswerFormatTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    public void AnIndentedFenceInAListStaysCodeAfterRedaction()
+    {
+        // Codex review of #140: redaction now keeps each line's indentation, so a fence nested in a list item is indented by four
+        // spaces. It is still read as a fence, and nothing in it is read as a list item.
+        const string answer = "1. Run this:\n    ```bash\n    - keep-this\n        echo  hi\n    ```\n2. Done.";
+        string redacted = PCSteward.Domain.AdvisoryAiRedaction.SanitizeAnswer(answer, 4000).Value!;
+        IReadOnlyList<AdvisoryAiAnswerBlock> blocks = AdvisoryAiAnswerFormat.Parse(redacted);
+        CollectionAssert.AreEqual(IndentedFenceKinds, blocks.Select(block => block.Kind).ToArray());
+        Assert.AreEqual("    ```bash\n    - keep-this\n        echo hi\n    ```", blocks[1].PlainText);
+        Assert.AreEqual("2.", blocks[2].Marker);
+    }
+
+    private static readonly AdvisoryAiAnswerBlockKind[] IndentedFenceKinds =
+        [AdvisoryAiAnswerBlockKind.Numbered, AdvisoryAiAnswerBlockKind.Literal, AdvisoryAiAnswerBlockKind.Numbered];
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     public void NoAnswerIsNoBlocks()
     {
         Assert.HasCount(0, AdvisoryAiAnswerFormat.Parse(null));
