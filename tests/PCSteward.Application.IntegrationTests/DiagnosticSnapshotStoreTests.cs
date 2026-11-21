@@ -255,7 +255,7 @@ public sealed class DiagnosticSnapshotStoreTests
         Assert.AreEqual(17L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
         await fixture.Store.MigrateAsync(CancellationToken.None);
         Assert.AreEqual(17L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"), "migration is idempotent");
-        await fixture.ExecuteAsync("INSERT INTO schema_migrations(version) VALUES(17);");
+        await fixture.ExecuteAsync("INSERT INTO schema_migrations(version) VALUES(18);");
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => fixture.Store.SaveDiagnosticSnapshotAsync(Snapshot(Collected, ("x", -1)), Collected, [], CancellationToken.None));
     }
 

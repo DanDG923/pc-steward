@@ -221,7 +221,7 @@ public sealed class ReviewedUpdateOperationStoreTests
         Assert.AreEqual(legacy.Digest, (await database.Store.GetApprovedJobAsync(legacy.Id, CancellationToken.None))!.Digest);
         Assert.HasCount(1, await database.Store.GetHistoryForProductAsync(legacy.Selection.StableProductKey, CancellationToken.None));
         Assert.IsNull(await database.Store.GetReviewedOperationAsync(legacy.Id, CancellationToken.None));
-        Assert.AreEqual(16L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(17L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
     }
 
     [TestMethod]
@@ -280,10 +280,10 @@ public sealed class ReviewedUpdateOperationStoreTests
     public async Task FutureSchemaIsRefusedBeforeMigrationMutation()
     {
         await using Fixture database = await Fixture.CreateAsync();
-        await database.ExecuteAsync("INSERT INTO schema_migrations(version) VALUES(17);");
+        await database.ExecuteAsync("INSERT INTO schema_migrations(version) VALUES(18);");
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => database.Store.MigrateAsync(CancellationToken.None));
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => database.Store.SaveReviewedOperationAsync(Operation(), CancellationToken.None));
-        Assert.AreEqual(17L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(18L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
         Assert.IsNull(await database.Store.GetReviewedOperationAsync(Guid.NewGuid(), CancellationToken.None));
     }
 
@@ -293,7 +293,7 @@ public sealed class ReviewedUpdateOperationStoreTests
         await using Fixture database = await Fixture.CreateAsync();
         await database.ExecuteAsync("DROP TABLE reviewed_update_operations;");
         await Assert.ThrowsExactlyAsync<SqliteException>(() => database.Store.MigrateAsync(CancellationToken.None));
-        Assert.AreEqual(16L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(17L, await database.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
     }
 
     [TestMethod]
@@ -329,8 +329,8 @@ public sealed class ReviewedUpdateOperationStoreTests
             await fixture.Store.MigrateAsync(CancellationToken.None);
             return fixture;
         }
-        internal Task RemoveNineAsync() => ExecuteAsync("DROP TABLE update_dispatch_claims; DROP TABLE reviewed_update_operations; DROP TABLE diagnostic_records; DROP TABLE diagnostic_source_results; DROP TABLE diagnostic_snapshots; DROP TABLE ai_compacted_requests; DROP TABLE ai_monthly_totals; DROP TABLE ai_explanations; DROP TABLE ai_requests; DROP TABLE ai_tariffs; DROP TABLE ai_accounting_state; DROP TABLE ai_settings; ALTER TABLE source_package_cache DROP COLUMN installer_fit; DELETE FROM schema_migrations WHERE version IN (9,10,11,12,13,14,15,16);");
-        internal Task RemoveTenAsync() => ExecuteAsync("DROP TABLE update_dispatch_claims; ALTER TABLE reviewed_update_operations DROP COLUMN draft_generation; DROP TABLE diagnostic_records; DROP TABLE diagnostic_source_results; DROP TABLE diagnostic_snapshots; DROP TABLE ai_compacted_requests; DROP TABLE ai_monthly_totals; DROP TABLE ai_explanations; DROP TABLE ai_requests; DROP TABLE ai_tariffs; DROP TABLE ai_accounting_state; DROP TABLE ai_settings; ALTER TABLE source_package_cache DROP COLUMN installer_fit; DELETE FROM schema_migrations WHERE version IN (10,11,12,13,14,15,16);");
+        internal Task RemoveNineAsync() => ExecuteAsync("DROP TABLE update_dispatch_claims; DROP TABLE reviewed_update_operations; DROP TABLE diagnostic_records; DROP TABLE diagnostic_source_results; DROP TABLE diagnostic_snapshots; DROP TABLE ai_compacted_requests; DROP TABLE ai_monthly_totals; DROP TABLE ai_explanations; DROP TABLE ai_requests; DROP TABLE ai_tariffs; DROP TABLE ai_accounting_state; DROP TABLE ai_settings; ALTER TABLE source_package_cache DROP COLUMN installer_fit; DELETE FROM schema_migrations WHERE version IN (9,10,11,12,13,14,15,16,17);");
+        internal Task RemoveTenAsync() => ExecuteAsync("DROP TABLE update_dispatch_claims; ALTER TABLE reviewed_update_operations DROP COLUMN draft_generation; DROP TABLE diagnostic_records; DROP TABLE diagnostic_source_results; DROP TABLE diagnostic_snapshots; DROP TABLE ai_compacted_requests; DROP TABLE ai_monthly_totals; DROP TABLE ai_explanations; DROP TABLE ai_requests; DROP TABLE ai_tariffs; DROP TABLE ai_accounting_state; DROP TABLE ai_settings; ALTER TABLE source_package_cache DROP COLUMN installer_fit; DELETE FROM schema_migrations WHERE version IN (10,11,12,13,14,15,16,17);");
         internal Task RevertToElevenAsync() => ExecuteAsync("""
             CREATE TABLE reviewed_update_operations_old (
                 job_id TEXT NOT NULL PRIMARY KEY CHECK(length(job_id)=36),
@@ -345,7 +345,7 @@ public sealed class ReviewedUpdateOperationStoreTests
             DROP TABLE diagnostic_records; DROP TABLE diagnostic_source_results; DROP TABLE diagnostic_snapshots;
             DROP TABLE ai_compacted_requests; DROP TABLE ai_monthly_totals; DROP TABLE ai_explanations; DROP TABLE ai_requests; DROP TABLE ai_tariffs; DROP TABLE ai_accounting_state; DROP TABLE ai_settings;
             ALTER TABLE source_package_cache DROP COLUMN installer_fit;
-            DELETE FROM schema_migrations WHERE version IN (12,13,14,15,16);
+            DELETE FROM schema_migrations WHERE version IN (12,13,14,15,16,17);
             """);
         internal async Task ExecuteAsync(string sql, params (string Name, object Value)[] parameters)
         {
