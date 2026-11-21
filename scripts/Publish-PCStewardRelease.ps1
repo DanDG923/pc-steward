@@ -12,7 +12,7 @@ param(
 # owner's PC without editing it in the browser. Run it in Windows PowerShell 5.1 as the owner, not elevated, from a clean
 # clone at -Commit. With a fine-grained GitHub token limited to this repository (Contents: read and write, Actions: read),
 # kept encrypted for the owner's Windows account (DPAPI) under %LOCALAPPDATA%\PCSteward-Release:
-#   1. GitHub: the run is a green, hand-started release-payload run on phase/4-beta or main at -Commit, and the draft
+#   1. GitHub: the run is a green, hand-started release-payload run on phase/4-beta at -Commit, and the draft
 #      release v<msiVersion> that publish-release.yml made from it is still a draft at -Commit holding only that run's
 #      check file (an MSI left by an earlier attempt of this script is removed).
 #   2. The run's payload artefact is downloaded and must have the SHA-256 GitHub records for it.
@@ -39,7 +39,7 @@ $workflowPath = '.github/workflows/release-payload.yml'
 $payloadArtifactName = 'pc-steward-release-payload'
 $checkArtifactName = 'pc-steward-release-check'
 $checkAssetName = 'pc-steward-release-check.zip'
-$allowedBranches = @('phase/4-beta', 'main')
+$allowedBranches = @('phase/4-beta')
 $maxPayloadBytes = 1GB
 $tokenFolder = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'PCSteward-Release'
 $tokenFile = Join-Path $tokenFolder 'github-token.dat'

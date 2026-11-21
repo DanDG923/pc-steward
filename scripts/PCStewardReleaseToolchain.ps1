@@ -52,6 +52,13 @@ function ConvertFrom-PCStewardReleaseToolchainPins {
     if ([string]$zip.url -cne $expectedUrl) { throw "The pinned SDK zip must be Microsoft's official $expectedUrl." }
     if ([string]$zip.sha512 -cnotmatch '\A[0-9a-f]{128}\z') { throw 'The pinned SDK zip has no SHA-512.' }
     if ([long]$zip.bytes -lt 1MB -or [long]$zip.bytes -gt 1GB) { throw 'The pinned SDK zip size is outside its bound.' }
+    # Mythos whole-app review MY-01: the WiX SDK that builds the MSI (New-PCStewardMsi.ps1 checks the downloaded file against it).
+    $msi = $document.msiSdk
+    if (!$msi -or [string]$msi.id -cne 'WixToolset.Sdk' -or [string]$msi.version -cnotmatch '\A\d+\.\d+\.\d+\z') { throw 'release-toolchain-pins.json has no WiX SDK pin.' }
+    $msiId = ([string]$msi.id).ToLowerInvariant()
+    if ([string]$msi.url -cne "https://api.nuget.org/v3-flatcontainer/$msiId/$($msi.version)/$msiId.$($msi.version).nupkg") { throw "The pinned WiX SDK must be nuget.org's own package address." }
+    if ([string]$msi.sha512 -cnotmatch '\A[A-Za-z0-9+/]{86}==\z') { throw 'The pinned WiX SDK has no SHA-512.' }
+    if ([long]$msi.bytes -lt 1MB -or [long]$msi.bytes -gt 256MB) { throw 'The pinned WiX SDK size is outside its bound.' }
     $map = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
     foreach ($package in @($document.packages)) {
         if (!$package) { continue }
@@ -63,7 +70,7 @@ function ConvertFrom-PCStewardReleaseToolchainPins {
         if ($map.ContainsKey($key)) { throw "Package $key is pinned twice." }
         $map.Add($key, $package)
     }
-    [pscustomobject]@{ Document = $document; SdkVersion = $version; SdkZip = $zip; Packages = $map }
+    [pscustomobject]@{ Document = $document; SdkVersion = $version; SdkZip = $zip; MsiSdk = $msi; Packages = $map }
 }
 
 # Reads scripts\release-toolchain-pins.json and global.json of a checkout. Sha256 is over the file's exact bytes (the file is
@@ -238,6 +245,7 @@ function ConvertTo-PCStewardReleaseToolchainPinsJson {
         schema = $script:ReleaseToolchainPinsSchema
         sdkVersion = $Pins.SdkVersion
         sdkZip = [ordered]@{ url = [string]$Pins.SdkZip.url; sha512 = [string]$Pins.SdkZip.sha512; bytes = [long]$Pins.SdkZip.bytes }
+        msiSdk = [ordered]@{ id = [string]$Pins.MsiSdk.id; version = [string]$Pins.MsiSdk.version; url = [string]$Pins.MsiSdk.url; sha512 = [string]$Pins.MsiSdk.sha512; bytes = [long]$Pins.MsiSdk.bytes }
         projects = $script:ReleaseToolchainProjects
         packages = $packages
     }

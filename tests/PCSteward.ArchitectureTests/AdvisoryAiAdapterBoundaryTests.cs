@@ -53,6 +53,10 @@ public sealed class AdvisoryAiAdapterBoundaryTests
         StringAssert.Contains(code, "is not AdvisoryAiProvider registered || !ReferenceEquals(registered, provider)");
         StringAssert.Contains(code, "private const int TypeGeneric = 1;");
         StringAssert.Contains(code, "private const int PersistLocalMachine = 2;");
+        // Mythos whole-app review MY-03: Windows' copy of the key is overwritten before CredFree releases it.
+        int clear = code.IndexOf("Marshal.Copy(new byte[returned.CredentialBlobSize], 0, returned.CredentialBlob, returned.CredentialBlobSize);", StringComparison.Ordinal);
+        Assert.IsGreaterThan(0, clear, "the native copy is cleared");
+        Assert.IsLessThan(code.IndexOf("CredFree(pointer);", StringComparison.Ordinal), clear, "and cleared before it is freed");
     }
 
     [TestMethod]

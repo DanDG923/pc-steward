@@ -107,9 +107,9 @@ public sealed class PinnedReleaseSignatureTests
     }
 
     [TestMethod]
-    public void ProductionAcceptsNoThrowawayKeyAndTheAdr022RuleStillNeedsWindowsTrust()
+    public void ProductionAcceptsNoThrowawayKeyAndNoOtherSignerRule()
     {
-        // The compiled pins are empty, so the production pair check falls back to the ADR-022 rule, which needs Windows trust.
+        // The throwaway key is not a compiled pin, so the production pair check refuses it; there is no other rule (MY-05).
         SignedFixtures signed = Fixtures();
         Assert.IsFalse(AuthenticodeIdentity.IsTrustedAndSameSigner(signed.PinnedA, signed.SecondPinnedA));
         Assert.IsFalse(AuthenticodeIdentity.HaveSamePinnedSigner(signed.PinnedA, signed.SecondPinnedA, ReleaseSigningPins.Compiled));

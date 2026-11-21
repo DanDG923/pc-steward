@@ -57,11 +57,17 @@ public sealed class AdvisoryAiDesktopSetupBoundaryTests
         Assert.IsTrue(take.IndexOf("TryCreate(box.Password", StringComparison.Ordinal) < take.IndexOf("box.Password = string.Empty;", StringComparison.Ordinal), "the box is cleared after the copy");
         Assert.AreEqual(2, Regex.Count(ai, @"dialog\.Closed \+= \(_, _\) => keyBox\.Password = string\.Empty;"), "both key dialogs clear the box when they close");
         Assert.AreEqual(2, Regex.Count(ai, @"using \(key\)"), "both keys are disposed after use");
-        // The key's text goes nowhere else: no other read of the box than the length check and the one copy.
-        Assert.AreEqual(2, Regex.Count(ai, @"keyBox\.Password\.Length"), "only the length is read to enable the buttons");
+        // The key's text goes nowhere else: the box is read once, for the copy. Mythos whole-app review MY-03: not even its length
+        // is read to enable a button, because each read of Password is another copy of the key that can't be cleared.
+        Assert.AreEqual(0, Regex.Count(ai, @"keyBox\.Password\b(?! = string\.Empty)"), "the dialogs never read the box");
+        Assert.IsFalse(ai.Contains("PasswordChanged", StringComparison.Ordinal), "no handler reads the box as it changes");
         Assert.AreEqual(1, Regex.Count(ai, @"\bbox\.Password\b(?! = string\.Empty)"), "the box's text is read once, for the copy");
         foreach (string forbidden in new[] { "Reveal()", "PasswordRevealMode.Peek", "PasswordRevealMode.Visible", "Clipboard", "Debug.", "Trace.", "Console." })
             Assert.IsFalse(ai.Contains(forbidden, StringComparison.Ordinal), $"AI set-up uses {forbidden}");
+        // Mythos whole-app review MY-04: the note beside the box tells the owner to delete the pasted key from clipboard history.
+        string presentation = File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Application", "AdvisoryAiSetupPresentation.cs"));
+        StringAssert.Contains(presentation, "If Windows clipboard history is on, delete the key from it after pasting (Windows key + V).");
+        Assert.AreEqual(2, Regex.Count(ai, @"Text = AdvisoryAiSetupText\.KeyBoxNote"), "both key dialogs show the note");
     }
 
     [TestMethod]

@@ -159,9 +159,12 @@ public sealed class SelfUpdateCheckTests
             Assert.AreEqual(SelfUpdateRefusal.RunNotGenuine, check.Refusal, to);
         }
 
+        // Mythos whole-app review MY-02: main does not exist, so a run on it is not a release run.
         using Fixture main = new();
         main.RunJson = main.RunJson.Replace("\"head_branch\":\"phase/4-beta\"", "\"head_branch\":\"main\"", StringComparison.Ordinal);
-        Assert.AreEqual(SelfUpdateCheckStatus.NewerRelease, (await main.CheckAsync()).Status);
+        SelfUpdateCheck onMain = await main.CheckAsync();
+        Assert.AreEqual(SelfUpdateCheckStatus.NotTrusted, onMain.Status);
+        Assert.AreEqual(SelfUpdateRefusal.RunNotGenuine, onMain.Refusal);
 
         using Fixture missing = new();
         missing.Handler.Override[Run] = () => new HttpResponseMessage(HttpStatusCode.NotFound);

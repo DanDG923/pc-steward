@@ -202,8 +202,11 @@ public static class AdvisoryAiSetupText
     /// <summary>Stage 4b: shown when the AI settings couldn't be read.</summary>
     public const string LoadFailed = "PC Steward couldn't read its AI settings. AI explanations stay off.";
 
-    /// <summary>Stage 4b: beside the masked key box in the connect and replace dialogs.</summary>
-    public const string KeyBoxNote = "The key is masked and never shown again. Saving it makes no request and costs nothing.";
+    /// <summary>
+    /// Stage 4b: beside the masked key box in the connect and replace dialogs. Mythos whole-app review MY-04: Windows' clipboard
+    /// history keeps a pasted key (and clipboard sync sends it to the account's other devices), which PC Steward can't see or clear.
+    /// </summary>
+    public const string KeyBoxNote = "The key is masked and never shown again. Saving it makes no request and costs nothing. If Windows clipboard history is on, delete the key from it after pasting (Windows key + V).";
 
     public static string ReplaceResult(AdvisoryAiKeyReplaceOutcome outcome) => outcome switch
     {

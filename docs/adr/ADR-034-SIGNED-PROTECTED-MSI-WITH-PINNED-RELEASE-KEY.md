@@ -197,7 +197,7 @@ The ADR-022 test install stops offering machine-wide updates on 2026-11-24 unles
   CI never sees a release key.
 - **`scripts/New-PCStewardRelease.ps1`** (owner's PC, Windows PowerShell 5.1, not elevated):
   - **Before signing, it checks:**
-    - through GitHub's public API, with no sign-in, that the run is this repository's hand-started `release-payload.yml` run on `phase/4-beta` or `main`, and that it finished green;
+    - through GitHub's public API, with no sign-in, that the run is this repository's hand-started `release-payload.yml` run on `phase/4-beta` (not `main`, which does not exist: Mythos whole-app review MY-02), and that it finished green;
     - that the downloaded zip's SHA-256 equals the artefact digest GitHub publishes;
     - that the local clone is at the run's commit with no changes to tracked files, and no untracked or ignored files under `scripts` or `packaging`;
     - that `release-payload.json` names that run and commit;
@@ -227,6 +227,7 @@ The ADR-022 test install stops offering machine-wide updates on 2026-11-24 unles
   - Windows refused to attach the smart-card key to the new certificate object (`CopyWithPrivateKey`, 0x80090027), so the certificate is now made with `CertificateRequest.Create` (PR #50).
   - `-DiscardUnfinished` removed the unfinished attempts, which were one-day placeholders for the slot's own key.
 - Both pins are now compiled in `ReleaseSigningPins.cs`. Launch trust still also accepts the ADR-022 rule during the transition (until step 7), so the owner's current test deployment keeps working.
+  - **2026-11-21 (Mythos whole-app review MY-05):** the transition rule is removed. Launch trust and both peer checks accept only a pair that carries the same compiled pin. The owner-only test deployment was removed when 0.1.0 was installed. The reader rename in step 7 is still to do.
 
 ### Build order step 6, part 2 — the first signed release (2026-11-11)
 

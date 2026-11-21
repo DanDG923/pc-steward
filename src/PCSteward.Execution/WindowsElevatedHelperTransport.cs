@@ -67,14 +67,14 @@ internal static class InstalledHelperLaunchTrust
                 ProtectedLaunchLayout.HasNoReparseComponents(installedRoot, expectedDesktop, expectedHelper);
             bool callerCannotModify = noReparse &&
                 ProtectedLaunchLayout.CallerCannotModify(installedRoot, expectedDesktop, expectedHelper);
-            // ADR-034 §3: both images carry the same compiled release pin; otherwise the ADR-022 rule (trusted by Windows,
-            // same raw signer certificate) applies until the owner-only test route is retired.
+            // ADR-034 §3: both images carry the same compiled release pin, and nothing else is trusted. The transition's ADR-022
+            // rule (any certificate Windows trusts, the same raw signer on both) went with the owner-only test route (Mythos
+            // whole-app review MY-05).
             bool samePin = desktopPresent && helperPresent &&
                 AuthenticodeIdentity.HaveSamePinnedSigner(expectedDesktop, expectedHelper, ReleaseSigningPins.Compiled);
-            bool desktopTrusted = desktopPresent && (samePin || AuthenticodeIdentity.IsTrusted(expectedDesktop));
-            bool helperTrusted = helperPresent && (samePin || AuthenticodeIdentity.IsTrusted(expectedHelper));
-            bool sameSigner = samePin || (desktopTrusted && helperTrusted &&
-                AuthenticodeIdentity.HaveSameSigner(expectedDesktop, expectedHelper));
+            bool desktopTrusted = desktopPresent && AuthenticodeIdentity.TryReadPinnedSigner(expectedDesktop, ReleaseSigningPins.Compiled, out _);
+            bool helperTrusted = helperPresent && AuthenticodeIdentity.TryReadPinnedSigner(expectedHelper, ReleaseSigningPins.Compiled, out _);
+            bool sameSigner = samePin;
             return Evaluate(new(
                 fixedLayout,
                 desktopPresent,
@@ -399,9 +399,9 @@ internal static partial class WindowsPeerIdentityVerifier
 }
 
 /// <summary>
-/// ADR-018 signer checks for PC Steward's own executables, amended by ADR-034 §3. A pair of images is accepted when both
-/// carry the same compiled release pin (<see cref="ReleaseSigningPins"/>), or, while the ADR-022 owner-only test route still
-/// exists (ADR-034 build order step 7 removes it), when Windows trusts both and they carry the same raw signer certificate.
+/// ADR-018 signer checks for PC Steward's own executables, amended by ADR-034 §3. A pair of images is accepted only when both
+/// carry the same compiled release pin (<see cref="ReleaseSigningPins"/>). The transition's second rule (Windows trusts both and
+/// they carry the same raw signer certificate) was removed with the ADR-022 owner-only test route (Mythos whole-app review MY-05).
 /// Every <c>WinVerifyTrust</c> call goes through <see cref="VerifyTrust"/>: no UI, no revocation check, cache-only URL
 /// retrieval, so no check here does network I/O.
 /// </summary>
@@ -411,20 +411,9 @@ internal static class AuthenticodeIdentity
     internal const int CertUntrustedRoot = unchecked((int)0x800B0109);
     private static readonly Guid ActionGenericVerifyV2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
 
-    internal static bool IsTrustedAndSameSigner(string firstPath, string secondPath)
-    {
-        if (HaveSamePinnedSigner(firstPath, secondPath, ReleaseSigningPins.Compiled))
-        {
-            return true;
-        }
-
-        if (!IsTrusted(firstPath) || !IsTrusted(secondPath))
-        {
-            return false;
-        }
-
-        return HaveSameSigner(firstPath, secondPath);
-    }
+    /// <summary>The peer checks' pair rule: both images carry the same compiled release pin. Nothing else is accepted.</summary>
+    internal static bool IsTrustedAndSameSigner(string firstPath, string secondPath) =>
+        HaveSamePinnedSigner(firstPath, secondPath, ReleaseSigningPins.Compiled);
 
     internal static bool IsTrusted(string path) => VerifyTrust(path, out _) == 0;
 
@@ -467,22 +456,6 @@ internal static class AuthenticodeIdentity
         }
 
         return false;
-    }
-
-    internal static bool HaveSameSigner(string firstPath, string secondPath)
-    {
-        try
-        {
-#pragma warning disable SYSLIB0057
-            using X509Certificate first = X509Certificate.CreateFromSignedFile(firstPath);
-            using X509Certificate second = X509Certificate.CreateFromSignedFile(secondPath);
-#pragma warning restore SYSLIB0057
-            return first.GetRawCertData().AsSpan().SequenceEqual(second.GetRawCertData());
-        }
-        catch (CryptographicException)
-        {
-            return false;
-        }
     }
 
     /// <summary>

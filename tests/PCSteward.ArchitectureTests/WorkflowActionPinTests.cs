@@ -38,6 +38,44 @@ public sealed class WorkflowActionPinTests
     }
 
     [TestMethod]
+    public void EveryCheckoutDropsItsTokenAndEverySdkComesFromGlobalJson()
+    {
+        // Mythos whole-app review MY-07: no checkout keeps the job's token in its Git settings while repository code runs, and no
+        // job picks a .NET SDK by a floating version instead of global.json.
+        string folder = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), ".github", "workflows");
+        int checkouts = 0, sdks = 0;
+        foreach (string path in Directory.GetFiles(folder, "*.yml").Concat(Directory.GetFiles(folder, "*.yaml")))
+        {
+            string text = File.ReadAllText(path).Replace("\r\n", "\n", StringComparison.Ordinal);
+            Assert.IsFalse(text.Contains("dotnet-version:", StringComparison.Ordinal), $"{Path.GetFileName(path)} picks an SDK by version");
+            foreach (Match use in Uses.Matches(text))
+            {
+                string reference = use.Groups["reference"].Value;
+                string step = StepAfter(text, use.Index + use.Length);
+                if (reference.StartsWith("actions/checkout@", StringComparison.Ordinal))
+                {
+                    StringAssert.Contains(step, "persist-credentials: false", $"{Path.GetFileName(path)}: a checkout keeps its token");
+                    checkouts++;
+                }
+                else if (reference.StartsWith("actions/setup-dotnet@", StringComparison.Ordinal))
+                {
+                    StringAssert.Contains(step, "global-json-file:", $"{Path.GetFileName(path)}: setup-dotnet without global.json");
+                    sdks++;
+                }
+            }
+        }
+        Assert.IsGreaterThan(0, checkouts);
+        Assert.IsGreaterThan(0, sdks);
+    }
+
+    // The rest of one step: from the end of its uses: line up to the next step (a line whose first non-space character is "-").
+    private static string StepAfter(string text, int start)
+    {
+        Match next = Regex.Match(text[start..], @"\n\s*-\s");
+        return next.Success ? text[start..(start + next.Index)] : text[start..];
+    }
+
+    [TestMethod]
     public void TheSameActionIsPinnedToTheSameCommitEverywhere()
     {
         string folder = Path.Combine(CompiledIlScanner.FindRepositoryRoot(), ".github", "workflows");

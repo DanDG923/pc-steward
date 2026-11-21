@@ -224,7 +224,7 @@ public sealed class SelfUpdateBoundaryTests
         {
             "[[ \"$RUN_ID\" =~ ^[1-9][0-9]{0,19}$ ]]",
             ".path == \".github/workflows/release-payload.yml\" and .event == \"workflow_dispatch\"",
-            ".status == \"completed\" and .conclusion == \"success\" and (.head_branch == \"phase/4-beta\" or .head_branch == \"main\")",
+            ".status == \"completed\" and .conclusion == \"success\" and .head_branch == \"phase/4-beta\" and",
             "[[ \"$actual\" == \"$digest\" ]]",
             "[[ \"$entries\" == \"release-check.json\" ]]",
             ".runId == $id and .sourceCommit == $commit",

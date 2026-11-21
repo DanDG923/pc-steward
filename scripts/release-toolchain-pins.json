@@ -6,6 +6,13 @@
     "sha512": "7a114c318fa7f1d9822991b534b2814d0e78386ceda816b371f5141acefe741d87ccb606ede06cadac8f9ac5070e32b708a67bbd1619ff5e5a7858a27874ef48",
     "bytes": 300745255
   },
+  "msiSdk": {
+    "id": "WixToolset.Sdk",
+    "version": "5.0.2",
+    "url": "https://api.nuget.org/v3-flatcontainer/wixtoolset.sdk/5.0.2/wixtoolset.sdk.5.0.2.nupkg",
+    "sha512": "V6RzTWKEi35XdXySYygQ6YSuai9eaF3dPN+ADLN6+dORyqOdJ2uGOA0R/velRLtbiRHdOp+cYwHtKt2zM0396w==",
+    "bytes": 20063791
+  },
   "projects": [
     "src/PCSteward.ScheduledHost/PCSteward.ScheduledHost.csproj",
     "src/PCSteward.Desktop/PCSteward.Desktop.csproj",

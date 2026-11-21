@@ -73,6 +73,10 @@ Do this once, signed in as the repository owner. Each ruleset takes about two mi
 
 **Settings** → **Rules** → **Rulesets** lists the three rulesets, each **Active**. The next pull request into `phase/4-beta` shows "Merging is blocked" until its three checks pass, then merges normally.
 
+### `main` is not a release branch yet (2026-11-21)
+
+The rulesets still name `main`, which is harmless, but the release checks no longer accept it: `release-payload.yml`, `publish-release.yml`, the signing and publishing scripts and the app accept a run on `phase/4-beta` only (Mythos whole-app review MY-02). The release-branch ruleset doesn't restrict creations, so a `main` created at any commit would otherwise have counted as a release branch. Before `main` is used for releases, add **Restrict creations** to the release-branch ruleset (or create `main` by a reviewed pull request first) and add it back to those five lists in one pull request.
+
 ### If something needs an emergency change
 
 Open the ruleset, set **Enforcement status** to `Disabled`, make the change, then set it back to `Active`. Only the owner can do this, and GitHub records it in the ruleset's history.

@@ -14,7 +14,7 @@ param(
 # ADR-034 §5 (FR-UPD-04/15, TM-03/04/13): turn a CI-built release payload into a signed PC Steward MSI on the owner's PC.
 # Run it in Windows PowerShell 5.1 as the owner, not elevated, from a clone of the repository at the payload's commit.
 #   1. GitHub (read-only, no sign-in): the run is this repository's release-payload workflow, started by hand on
-#      phase/4-beta or main, finished green; its one pc-steward-release-payload artefact's SHA-256 digest equals the
+#      phase/4-beta, finished green; its one pc-steward-release-payload artefact's SHA-256 digest equals the
 #      downloaded zip.
 #   2. The payload: release-payload.json names that run and commit and the toolchain pin file of this commit (Codex security
 #      scan finding 1); the candidate manifest re-validates from disk with the
@@ -36,7 +36,7 @@ if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
 $repository = 'DanDG923/pc-steward'
 $workflowPath = '.github/workflows/release-payload.yml'
 $artifactName = 'pc-steward-release-payload'
-$allowedBranches = @('phase/4-beta', 'main')
+$allowedBranches = @('phase/4-beta')
 $primarySubject = 'CN=PC Steward Release Signing'
 $timestampServer = 'http://timestamp.digicert.com'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
