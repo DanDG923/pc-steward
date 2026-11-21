@@ -84,7 +84,28 @@ public static class AdvisoryAiSetupText
     /// <summary>ADR-029 "External file restores": the limitation disclosed in AI set-up.</summary>
     public const string ExternalRestoreLimitation = "PC Steward can't tell when its files are put back from a backup, OneDrive or a system restore. After one, its spending record may be out of date.";
 
-    public const string ReviewBlockNotice = "A recorded charge was more than PC Steward reserved for it or didn't add up, or the clock jumped forward while PC Steward was running, so paid requests are paused. Check the time; the recorded amounts stay as they are.";
+    /// <summary>The pause explained in general words, for a pause recorded before PC Steward kept its cause.</summary>
+    public const string ReviewBlockNotice = "An AI reply couldn't be trusted or priced, a recorded charge was more than PC Steward reserved for it or didn't add up, or the clock jumped forward while PC Steward was running, so paid requests are paused. Check the time; the recorded amounts stay as they are.";
+
+    /// <summary>
+    /// First live test (Task 71): the pause explained by its recorded causes, in PC Steward's own fixed words. With no recorded cause
+    /// (a pause from before causes were kept) it is <see cref="ReviewBlockNotice"/>.
+    /// </summary>
+    public static string ReviewBlockNoticeFor(AdvisoryAiReviewCause causes)
+    {
+        causes &= AdvisoryAiReviewCause.All;
+        if (causes == AdvisoryAiReviewCause.None) return ReviewBlockNotice;
+        List<string> why = [];
+        if (causes.HasFlag(AdvisoryAiReviewCause.UntrustedReply))
+            why.Add("An AI reply included something PC Steward couldn't trust or price, so it kept that request's whole reservation. The reply details were shown with the answer.");
+        if (causes.HasFlag(AdvisoryAiReviewCause.ChargeAboveReservation)) why.Add("A recorded charge was more than PC Steward reserved for it.");
+        if (causes.HasFlag(AdvisoryAiReviewCause.ConflictingResult)) why.Add("A request got conflicting results, or a result arrived for a request PC Steward didn't send.");
+        if (causes.HasFlag(AdvisoryAiReviewCause.LedgerProblem)) why.Add("PC Steward's spending record couldn't be read or didn't add up.");
+        if (causes.HasFlag(AdvisoryAiReviewCause.ClockJump)) why.Add("The clock jumped forward while PC Steward was running, so check the time.");
+        bool charged = causes.HasFlag(AdvisoryAiReviewCause.UntrustedReply) || causes.HasFlag(AdvisoryAiReviewCause.ChargeAboveReservation);
+        return string.Join(" ", why) + " Paid requests are paused until you review this. The recorded amounts stay as they are" +
+            (charged ? ", and your AI service's usage page shows what it actually charged." : ".");
+    }
 
     public const string ReviewBlockAction = "I've reviewed this";
 
@@ -337,7 +358,7 @@ public static class AdvisoryAiSettingsPresenter
     {
         AdvisoryAiAccountingState accounting = snapshot.Accounting;
         if (accounting.ReviewBlock || snapshot.Spending?.ReviewBlock == true)
-            notices.Add(new(AdvisoryAiSetupText.ReviewBlockNotice, AdvisoryAiNoticeAction.AcknowledgeReview, AdvisoryAiSetupText.ReviewBlockAction));
+            notices.Add(new(AdvisoryAiSetupText.ReviewBlockNoticeFor(accounting.ReviewCauses), AdvisoryAiNoticeAction.AcknowledgeReview, AdvisoryAiSetupText.ReviewBlockAction));
 
         switch (accounting.Continuity)
         {

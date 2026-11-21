@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
 using PCSteward.Application;
 using PCSteward.Domain;
@@ -273,9 +274,54 @@ public sealed partial class MainWindow
         if (outcome.AnswerText is string answer)
         {
             body.Children.Add(StewardVisuals.InformationBanner("Advice only", AdvisoryAiExplainText.AdviceOnly, "neutral"));
-            body.Children.Add(new TextBlock { Text = answer + (outcome.AnswerTruncated ? " …" : string.Empty), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+            body.Children.Add(AnswerText(answer, outcome.AnswerTruncated));
         }
         await new ContentDialog { XamlRoot = Content.XamlRoot, Title = $"AI explanation: {subject}", Content = new ScrollViewer { Content = body }, CloseButtonText = "Close" }.ShowAsync();
+    }
+
+    /// <summary>
+    /// First live test (Task 71): the redacted answer with its headings, lists and bold text formatted. Only runs of plain text are
+    /// made, never a hyperlink or anything else that acts: what the formatter doesn't recognise is shown exactly as written.
+    /// </summary>
+    private static RichTextBlock AnswerText(string answer, bool truncated)
+    {
+        RichTextBlock text = new() { TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
+        IReadOnlyList<AdvisoryAiAnswerBlock> blocks = AdvisoryAiAnswerFormat.Parse(answer);
+        for (int index = 0; index < blocks.Count; index++)
+        {
+            AdvisoryAiAnswerBlock block = blocks[index];
+            Paragraph paragraph = new();
+            bool listItem = block.Marker is not null;
+            bool nextIsListItem = index + 1 < blocks.Count && blocks[index + 1].Marker is not null;
+            double indent = listItem ? StewardSpacing.Medium * block.Level : 0;
+            paragraph.Margin = new Thickness(indent, block.Kind == AdvisoryAiAnswerBlockKind.Heading && index > 0 ? StewardSpacing.Small : 0, 0,
+                listItem && nextIsListItem ? StewardSpacing.XSmall : StewardSpacing.Small);
+            if (listItem) paragraph.Inlines.Add(new Run { Text = block.Marker + "\u00A0" });
+            if (block.Kind == AdvisoryAiAnswerBlockKind.Literal)
+            {
+                // Code is shown line for line as written, in a fixed-width font, with nothing in it read as formatting.
+                paragraph.FontFamily = new FontFamily("Consolas");
+                string[] lines = block.PlainText.Split('\n');
+                for (int line = 0; line < lines.Length; line++)
+                {
+                    if (line > 0) paragraph.Inlines.Add(new LineBreak());
+                    paragraph.Inlines.Add(new Run { Text = lines[line] });
+                }
+            }
+            else
+            {
+                foreach (AdvisoryAiAnswerSpan span in block.Spans)
+                {
+                    Run run = new() { Text = span.Text };
+                    if (span.Bold || block.Kind == AdvisoryAiAnswerBlockKind.Heading) run.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+                    paragraph.Inlines.Add(run);
+                }
+            }
+            if (truncated && index == blocks.Count - 1) paragraph.Inlines.Add(new Run { Text = " …" });
+            text.Blocks.Add(paragraph);
+        }
+        AutomationProperties.SetName(text, AdvisoryAiAnswerFormat.ToPlainText(blocks) + (truncated ? " …" : string.Empty));
+        return text;
     }
 
     /// <summary>FR-AI-06: earlier answers for this record, newest first, each with Delete. Deleting asks nothing more of the provider.</summary>
@@ -287,7 +333,7 @@ public sealed partial class MainWindow
         {
             StackPanel item = new() { Spacing = StewardSpacing.XSmall };
             item.Children.Add(new TextBlock { Text = AdvisoryAiExplainText.SavedHeading(answer), Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
-            item.Children.Add(new TextBlock { Text = (answer.Text ?? "No answer text was saved.") + (answer.TextTruncated ? " …" : string.Empty), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+            item.Children.Add(answer.Text is string text ? (UIElement)AnswerText(text, answer.TextTruncated) : new TextBlock { Text = "No answer text was saved.", TextWrapping = TextWrapping.Wrap });
             Button delete = StewardVisuals.ActionButton("Delete this answer", "(removes it from this PC)");
             TextBlock deleted = Wrapped(string.Empty);
             AutomationProperties.SetLiveSetting(deleted, AutomationLiveSetting.Polite);

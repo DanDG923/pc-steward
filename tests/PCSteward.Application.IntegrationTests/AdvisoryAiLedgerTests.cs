@@ -32,7 +32,7 @@ public sealed class AdvisoryAiLedgerTests
         Assert.AreEqual(AdvisoryAiSettings.Initial, settings);
         AdvisoryAiAccountingState state = await fixture.Store.GetAccountingStateAsync(CancellationToken.None);
         Assert.AreEqual(new AdvisoryAiAccountingState(AdvisoryAiContinuity.NotEstablished, null, null, false), state);
-        Assert.AreEqual(16L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
+        Assert.AreEqual(17L, await fixture.ScalarAsync("SELECT MAX(version) FROM schema_migrations;"));
     }
 
     [TestMethod]
@@ -305,7 +305,10 @@ public sealed class AdvisoryAiLedgerTests
         Assert.AreEqual(AdvisoryAiLedgerWrite.Conflict, await fixture.Store.SettleAsync(request.RequestId, settled with { Committed = new(1) }, usage, "resp_one", Now, CancellationToken.None));
         Assert.AreEqual(4_200, (await fixture.Store.GetSummaryAsync(AdvisoryAiPeriod.Of(Now), CancellationToken.None)).Settled.Value, "a conflicting repeat changes nothing");
         Assert.AreEqual(AdvisoryAiReservationProblem.LedgerNeedsReview, (await fixture.ReserveAsync(tariff, Now.AddMinutes(2))).Problem);
+        Assert.AreEqual(AdvisoryAiReviewCause.ConflictingResult, (await fixture.Store.GetAccountingStateAsync(CancellationToken.None)).ReviewCauses);
         Assert.AreEqual(AdvisoryAiAccountingWrite.Done, await fixture.Store.AcknowledgeReviewAsync(CancellationToken.None));
+        Assert.AreEqual(AdvisoryAiReviewCause.None, (await fixture.Store.GetAccountingStateAsync(CancellationToken.None)).ReviewCauses, "reviewing clears the causes with the pause");
+        Assert.AreEqual(0L, await fixture.ScalarAsync("SELECT review_causes FROM ai_accounting_state;"));
         Assert.IsTrue((await fixture.ReserveAsync(tariff, Now.AddMinutes(3))).Reserved);
     }
 
@@ -349,7 +352,55 @@ public sealed class AdvisoryAiLedgerTests
         Assert.AreEqual(AdvisoryAiLedgerWrite.Done, await fixture.Store.SettleAsync(request.RequestId, new(AdvisoryAiRequestState.Settled, new(above), AdvisoryAiUncertainReason.None, true), usage, null, Now, CancellationToken.None));
         Assert.AreEqual(above, (await fixture.Store.GetSummaryAsync(AdvisoryAiPeriod.Of(Now), CancellationToken.None)).Settled.Value);
         Assert.IsTrue((await fixture.Store.GetAccountingStateAsync(CancellationToken.None)).ReviewBlock);
+        Assert.AreEqual(AdvisoryAiReviewCause.ChargeAboveReservation, (await fixture.Store.GetAccountingStateAsync(CancellationToken.None)).ReviewCauses,
+            "a review with no stated cause is explained as a charge above the reservation");
         Assert.AreEqual(1L, await fixture.ScalarAsync("SELECT above_reservation FROM ai_requests;"));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-02")]
+    public async Task EachPauseRecordsItsCauseAndTheCausesAddUpUntilReviewed()
+    {
+        // First live test (Task 71): the banner names the actual cause, so the ledger keeps it beside the pause.
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        AdvisoryAiTariff tariff = await fixture.TariffAsync();
+        AdvisoryAiReservationRequest request = await fixture.ClaimedAsync(tariff, Now.AddMinutes(1));
+        AdvisoryAiSettlement untrusted = new(AdvisoryAiRequestState.Uncertain, request.Reservation, AdvisoryAiUncertainReason.UsageMissingOrUnreliable, true)
+        {
+            ReviewCause = AdvisoryAiReviewCause.UntrustedReply
+        };
+        Assert.AreEqual(AdvisoryAiLedgerWrite.Done, await fixture.Store.SettleAsync(request.RequestId, untrusted, new(491, 0, 321, 0, 812), "resp_live", Now, CancellationToken.None));
+        AdvisoryAiAccountingState state = await fixture.NewStore().GetAccountingStateAsync(CancellationToken.None);
+        Assert.IsTrue(state.ReviewBlock);
+        Assert.AreEqual(AdvisoryAiReviewCause.UntrustedReply, state.ReviewCauses, "the cause survives a restart");
+        Assert.AreEqual(request.Reservation.Value, await fixture.ScalarAsync("SELECT committed FROM ai_requests;"), "the whole reservation stays counted");
+
+        Assert.AreEqual(AdvisoryAiAccountingWrite.Done, await fixture.Store.FlagClockJumpAsync(CancellationToken.None));
+        Assert.AreEqual(AdvisoryAiReviewCause.UntrustedReply | AdvisoryAiReviewCause.ClockJump, (await fixture.Store.GetAccountingStateAsync(CancellationToken.None)).ReviewCauses);
+        StringAssert.Contains(AdvisoryAiSetupText.ReviewBlockNoticeFor(AdvisoryAiReviewCause.UntrustedReply | AdvisoryAiReviewCause.ClockJump), "couldn't trust or price");
+
+        Assert.AreEqual(AdvisoryAiAccountingWrite.Done, await fixture.Store.AcknowledgeReviewAsync(CancellationToken.None));
+        state = await fixture.Store.GetAccountingStateAsync(CancellationToken.None);
+        Assert.IsFalse(state.ReviewBlock);
+        Assert.AreEqual(AdvisoryAiReviewCause.None, state.ReviewCauses);
+        Assert.AreEqual(request.Reservation.Value, await fixture.ScalarAsync("SELECT committed FROM ai_requests;"), "reviewing never changes a recorded amount");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-02")]
+    public async Task ADamagedCauseNeverStopsAPauseFromBeingRecorded()
+    {
+        // The cause only explains the pause. A stored value that isn't a valid set of flags reads as no cause (general words) and is
+        // replaced by every cause on the next pause instead of failing the write that records it.
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        await fixture.ExecuteAsync("PRAGMA ignore_check_constraints=ON; UPDATE ai_accounting_state SET review_block=1, review_causes='junk'; PRAGMA ignore_check_constraints=OFF;");
+        AdvisoryAiAccountingState state = await fixture.Store.GetAccountingStateAsync(CancellationToken.None);
+        Assert.IsTrue(state.ReviewBlock);
+        Assert.AreEqual(AdvisoryAiReviewCause.None, state.ReviewCauses);
+        Assert.AreEqual(AdvisoryAiSetupText.ReviewBlockNotice, AdvisoryAiSetupText.ReviewBlockNoticeFor(state.ReviewCauses));
+
+        Assert.AreEqual(AdvisoryAiAccountingWrite.Done, await fixture.Store.FlagClockJumpAsync(CancellationToken.None));
+        Assert.AreEqual(AdvisoryAiReviewCause.All, (await fixture.Store.GetAccountingStateAsync(CancellationToken.None)).ReviewCauses);
     }
 
     [TestMethod]
@@ -367,6 +418,7 @@ public sealed class AdvisoryAiLedgerTests
         Assert.AreEqual("Uncertain", await fixture.ScalarAsync("SELECT state FROM ai_requests WHERE request_id=$id;", ("$id", second.RequestId.ToString("D"))));
         Assert.AreEqual(second.Reservation.Value, await fixture.ScalarAsync("SELECT committed FROM ai_requests WHERE request_id=$id;", ("$id", second.RequestId.ToString("D"))));
         Assert.IsTrue((await fixture.Store.GetAccountingStateAsync(CancellationToken.None)).ReviewBlock);
+        Assert.AreEqual(AdvisoryAiReviewCause.ConflictingResult, (await fixture.Store.GetAccountingStateAsync(CancellationToken.None)).ReviewCauses);
     }
 
     [TestMethod]
@@ -680,6 +732,7 @@ public sealed class AdvisoryAiLedgerTests
         Assert.AreEqual(0, credentials.Reads, "the key isn't read");
         Assert.AreEqual(0L, await fixture.ScalarAsync("SELECT COUNT(*) FROM ai_requests;"), "nothing is reserved");
         Assert.IsTrue((await fixture.NewStore().GetAccountingStateAsync(CancellationToken.None)).ReviewBlock, "the block is stored for after a restart");
+        Assert.AreEqual(AdvisoryAiReviewCause.ClockJump, (await fixture.NewStore().GetAccountingStateAsync(CancellationToken.None)).ReviewCauses);
     }
 
     [TestMethod]

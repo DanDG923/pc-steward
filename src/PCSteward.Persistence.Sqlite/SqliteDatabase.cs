@@ -94,6 +94,8 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
             await ExecuteAsync(connection, "ALTER TABLE source_package_cache ADD COLUMN installer_fit INTEGER NOT NULL DEFAULT 0 CHECK(installer_fit IN (0,1,2));", cancellationToken, transaction);
             await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (16);", cancellationToken, transaction);
         }
+        if (await MigrationRequiredAsync(connection, transaction, 17, cancellationToken))
+            await CreateAdvisoryAiReviewCauseSchemaAsync(connection, transaction, cancellationToken);
         await ValidateReviewedOperationsSchemaAsync(connection, transaction, cancellationToken);
         await ValidateUpdateDispatchSchemaAsync(connection, transaction, cancellationToken);
         await ValidateDiagnosticSnapshotSchemaAsync(connection, transaction, cancellationToken);

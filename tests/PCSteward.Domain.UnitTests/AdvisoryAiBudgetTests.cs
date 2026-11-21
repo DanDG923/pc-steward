@@ -299,11 +299,11 @@ public sealed class AdvisoryAiBudgetTests
         Assert.AreEqual(new AdvisoryAiSettlement(AdvisoryAiRequestState.Uncertain, new(24_576), AdvisoryAiUncertainReason.MalformedResponse, false), smaller);
 
         AdvisoryAiSettlement larger = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, Response(AdvisoryAiAnswerStatus.Malformed, Usage, false), new(5_000), Tariff);
-        Assert.AreEqual(new AdvisoryAiSettlement(AdvisoryAiRequestState.Uncertain, new(6_000), AdvisoryAiUncertainReason.MalformedResponse, true), larger);
+        Assert.AreEqual(new AdvisoryAiSettlement(AdvisoryAiRequestState.Uncertain, new(6_000), AdvisoryAiUncertainReason.MalformedResponse, true) { ReviewCause = AdvisoryAiReviewCause.ChargeAboveReservation }, larger);
 
         AdvisoryAiSettlement huge = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived,
             Response(AdvisoryAiAnswerStatus.Completed, new(long.MaxValue, 0, long.MaxValue, 0, long.MaxValue), false), new(5_000), Tariff);
-        Assert.AreEqual(new AdvisoryAiSettlement(AdvisoryAiRequestState.Uncertain, new(5_000), AdvisoryAiUncertainReason.UsageMissingOrUnreliable, true), huge);
+        Assert.AreEqual(new AdvisoryAiSettlement(AdvisoryAiRequestState.Uncertain, new(5_000), AdvisoryAiUncertainReason.UsageMissingOrUnreliable, true) { ReviewCause = AdvisoryAiReviewCause.ChargeAboveReservation }, huge);
     }
 
     [TestMethod]
@@ -314,12 +314,28 @@ public sealed class AdvisoryAiBudgetTests
         Assert.AreEqual(AdvisoryAiRequestState.Settled, above.State);
         Assert.AreEqual(6_000, above.Committed.Value, "never clamped to the reservation");
         Assert.IsTrue(above.NeedsReview);
+        Assert.AreEqual(AdvisoryAiReviewCause.ChargeAboveReservation, above.ReviewCauses);
 
         AdvisoryAiSettlement exact = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, Response(AdvisoryAiAnswerStatus.Completed, Usage, true), new(6_000), Tariff);
         Assert.IsFalse(exact.NeedsReview);
+        Assert.AreEqual(AdvisoryAiReviewCause.None, exact.ReviewCauses);
 
         AdvisoryAiSettlement boundsBreached = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived,
             Response(AdvisoryAiAnswerStatus.Completed, Usage, true, above: true), new(24_576), Tariff);
         Assert.IsTrue(boundsBreached.NeedsReview, "usage above the approved token bounds stops paid requests even when the cost fits");
+        Assert.AreEqual(AdvisoryAiReviewCause.UntrustedReply, boundsBreached.ReviewCauses, "first live test: the pause names an untrusted reply, not a charge above the reservation");
+
+        AdvisoryAiSettlement untrustedAndAbove = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived,
+            Response(AdvisoryAiAnswerStatus.Completed, Usage, false, above: true), new(5_000), Tariff);
+        Assert.AreEqual(AdvisoryAiReviewCause.UntrustedReply | AdvisoryAiReviewCause.ChargeAboveReservation, untrustedAndAbove.ReviewCauses);
+
+        AdvisoryAiSettlement untrustedWithin = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived,
+            Response(AdvisoryAiAnswerStatus.Completed, Usage, false, above: true), new(24_576), Tariff);
+        Assert.AreEqual(24_576, untrustedWithin.Committed.Value, "an untrusted reply keeps its whole reservation");
+        Assert.AreEqual(AdvisoryAiReviewCause.UntrustedReply, untrustedWithin.ReviewCauses);
+
+        Assert.AreEqual(AdvisoryAiReviewCause.ChargeAboveReservation,
+            new AdvisoryAiSettlement(AdvisoryAiRequestState.Uncertain, new(1), AdvisoryAiUncertainReason.UsageMissingOrUnreliable, true).ReviewCauses,
+            "a review with no stated cause is still a pause, explained as a charge above the reservation");
     }
 }

@@ -284,7 +284,7 @@ public static class AdvisoryAiExplainText
         if (report.MalformedReason != AdvisoryAiMalformedReason.None) details += $" It wasn't trusted as an answer because {MalformedReasonText(report.MalformedReason)}.";
         List<string> departures = [];
         if (report.Departures.HasFlag(AdvisoryAiResponseDeparture.ServiceTier)) departures.Add("a service tier other than the one requested and priced");
-        if (report.Departures.HasFlag(AdvisoryAiResponseDeparture.UnknownUsageField)) departures.Add("a usage figure PC Steward doesn't know how to price");
+        if (report.Departures.HasFlag(AdvisoryAiResponseDeparture.UnknownUsageField)) departures.Add("a usage figure PC Steward doesn't know how to price" + UnknownUsageWhere(report.UnknownUsageFieldLocations));
         if (report.Departures.HasFlag(AdvisoryAiResponseDeparture.PromptCacheUsed)) departures.Add("cached input although no prompt cache was asked for");
         if (report.Departures.HasFlag(AdvisoryAiResponseDeparture.ConversationState)) departures.Add("background or conversation state that wasn't asked for");
         if (departures.Count > 0) details += $" The reply reported {string.Join("; ", departures)}, so paid requests are paused until you review it in Settings.";
@@ -292,6 +292,17 @@ public static class AdvisoryAiExplainText
         if (report.Departures.HasFlag(AdvisoryAiResponseDeparture.ServiceTier) || report.Departures.HasFlag(AdvisoryAiResponseDeparture.UnknownUsageField))
             details += " The real charge may be more than the amount PC Steward kept, so check the usage page of your AI service's account.";
         return details;
+    }
+
+    /// <summary>First live test: where the unknown usage figure sat, in PC Steward's own fixed words, so it can be traced later.</summary>
+    private static string UnknownUsageWhere(AdvisoryAiUsageFieldLocation locations)
+    {
+        List<string> places = [];
+        if (locations.HasFlag(AdvisoryAiUsageFieldLocation.UsageTotals)) places.Add("the usage totals");
+        if (locations.HasFlag(AdvisoryAiUsageFieldLocation.InputDetails)) places.Add("the input token details");
+        if (locations.HasFlag(AdvisoryAiUsageFieldLocation.OutputDetails)) places.Add("the output token details");
+        if (locations.HasFlag(AdvisoryAiUsageFieldLocation.CacheWriteDetails)) places.Add("the cache-write details");
+        return places.Count == 0 ? string.Empty : $" (in {string.Join(" and ", places)})";
     }
 
     private static string MalformedReasonText(AdvisoryAiMalformedReason reason) => reason switch

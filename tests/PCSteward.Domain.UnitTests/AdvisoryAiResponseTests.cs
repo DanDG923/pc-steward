@@ -282,6 +282,7 @@ public sealed class AdvisoryAiResponseTests
         Assert.AreEqual(AdvisoryAiRequestState.Uncertain, settlement.State, because);
         Assert.AreEqual(45_056, settlement.Committed.Value, because);
         Assert.IsTrue(settlement.NeedsReview, because);
+        Assert.AreEqual(AdvisoryAiReviewCause.UntrustedReply, settlement.ReviewCauses, because);
     }
 
     [TestMethod]
@@ -375,6 +376,84 @@ public sealed class AdvisoryAiResponseTests
         // Independent review F2: a counter the reader doesn't know may be a billing category the owner never priced.
         AdvisoryAiResponse response = ReadAsRequested(Body(usage: Usage.Replace(from, to, StringComparison.Ordinal)));
         Assert.IsTrue(response.Departures.HasFlag(AdvisoryAiResponseDeparture.UnknownUsageField));
+        AssertPausedWithWholeReservation(response, to);
+    }
+
+    /// <summary>The input details as the first live test's reply carried them (Task 71): every cache count zero, with the retention breakdown.</summary>
+    private const string LiveInputDetails = "{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_30m_tokens\":0}}";
+
+    private static string WithInputDetails(string details) => Body(usage: Usage.Replace("{\"cached_tokens\":0}", details, StringComparison.Ordinal));
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow(LiveInputDetails, 0L, DisplayName = "the first live test's shape")]
+    [DataRow("{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":null}", 0L, DisplayName = "a null breakdown")]
+    [DataRow("{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_30m_tokens\":0}}", 0L, DisplayName = "one retention count")]
+    [DataRow("{\"cached_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_30m_tokens\":0}}", null, DisplayName = "a zero breakdown with no total")]
+    public void AZeroCacheWriteBreakdownSettlesNormally(string details, long? shownWrites)
+    {
+        // First live test (Task 71): OpenAI added cache_write_tokens_details after SDK 2.15.0. All-zero counts are no write and no
+        // departure, so the request settles at its actual cost instead of keeping the whole reservation.
+        AdvisoryAiResponse response = ReadAsRequested(WithInputDetails(details));
+        Assert.AreEqual(AdvisoryAiResponseDeparture.None, response.Departures);
+        Assert.AreEqual(AdvisoryAiUsageFieldLocation.None, response.UnknownUsageFieldLocations);
+        Assert.IsFalse(response.CacheWriteUnreadable);
+        Assert.AreEqual(shownWrites, response.CacheWriteTokens);
+        Assert.IsTrue(response.UsageReliable);
+        Assert.IsFalse(response.UsageAboveApprovedBounds);
+        AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+        Assert.AreEqual(AdvisoryAiRequestState.Settled, settlement.State);
+        Assert.AreEqual(4_800, settlement.Committed.Value, "900 input at $2 and 300 output at $10 per million");
+        Assert.IsFalse(settlement.NeedsReview);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("{\"cached_tokens\":0,\"cache_write_tokens\":40,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":40,\"ttl_30m_tokens\":0}}", 40L, false, DisplayName = "a write that adds up")]
+    [DataRow("{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_30m_tokens\":7}}", null, true, DisplayName = "a breakdown write behind a zero total")]
+    [DataRow("{\"cached_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":7,\"ttl_30m_tokens\":0}}", null, true, DisplayName = "a breakdown write with no total")]
+    [DataRow("{\"cached_tokens\":0,\"cache_write_tokens\":40,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_30m_tokens\":0}}", null, true, DisplayName = "a total the breakdown doesn't add up to")]
+    [DataRow("{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":\"0\",\"ttl_30m_tokens\":0}}", null, true, DisplayName = "a count as text")]
+    [DataRow("{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":-1,\"ttl_30m_tokens\":1}}", null, true, DisplayName = "a negative count")]
+    [DataRow("{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0.5,\"ttl_30m_tokens\":0}}", null, true, DisplayName = "a fraction")]
+    [DataRow("{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":{\"x\":0},\"ttl_30m_tokens\":0}}", null, true, DisplayName = "a nested object")]
+    [DataRow("{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":9223372036854775807,\"ttl_30m_tokens\":1}}", null, true, DisplayName = "counts too large to add")]
+    [DataRow("{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_12h_tokens\":5}}", null, true, DisplayName = "a repeated count")]
+    [DataRow("{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":[0,0]}", null, true, DisplayName = "an array")]
+    [DataRow("{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":0}", null, true, DisplayName = "a number")]
+    public void ACacheWriteOrUnreadableBreakdownStopsPaidRequestsForReview(string details, long? shownWrites, bool unreadable)
+    {
+        // A write in the breakdown is a write, whatever the total says, and anything that isn't plain counts that add up is unreadable.
+        AdvisoryAiResponse response = ReadAsRequested(WithInputDetails(details));
+        Assert.AreEqual(shownWrites, response.CacheWriteTokens, details);
+        Assert.AreEqual(unreadable, response.CacheWriteUnreadable, details);
+        AssertPausedWithWholeReservation(response, details);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void ARepeatedBreakdownCanNotHideACacheWrite()
+    {
+        string repeated = "{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_30m_tokens\":0}," +
+            "\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_30m_tokens\":0}}";
+        AdvisoryAiResponse response = ReadAsRequested(WithInputDetails(repeated));
+        Assert.IsTrue(response.CacheWriteUnreadable);
+        AssertPausedWithWholeReservation(response, "a repeated breakdown");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("\"input_tokens\":900,", "\"input_tokens\":900,\"audio_tokens\":5,", AdvisoryAiUsageFieldLocation.UsageTotals, DisplayName = "in the usage totals")]
+    [DataRow("{\"cached_tokens\":0}", "{\"cached_tokens\":0,\"cache_creation_tokens\":40}", AdvisoryAiUsageFieldLocation.InputDetails, DisplayName = "in the input details")]
+    [DataRow("{\"reasoning_tokens\":120}", "{\"reasoning_tokens\":120,\"accepted_prediction_tokens\":3}", AdvisoryAiUsageFieldLocation.OutputDetails, DisplayName = "in the output details")]
+    [DataRow("{\"cached_tokens\":0}", "{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_30m_tokens\":0,\"ttl_24h_tokens\":0}}",
+        AdvisoryAiUsageFieldLocation.CacheWriteDetails, DisplayName = "a new retention class in the breakdown")]
+    public void AnUnknownUsageCounterSaysWhereItWasWithoutItsName(string from, string to, AdvisoryAiUsageFieldLocation where)
+    {
+        // First live test: the location is PC Steward's own closed flag, so an unknown counter can be traced without keeping its name.
+        AdvisoryAiResponse response = ReadAsRequested(Body(usage: Usage.Replace(from, to, StringComparison.Ordinal)));
+        Assert.IsTrue(response.Departures.HasFlag(AdvisoryAiResponseDeparture.UnknownUsageField));
+        Assert.AreEqual(where, response.UnknownUsageFieldLocations);
         AssertPausedWithWholeReservation(response, to);
     }
 
