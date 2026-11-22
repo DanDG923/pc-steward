@@ -196,3 +196,18 @@ The owner's review of the third retest build (commit `ce0eaf3`; run 44966275569,
 | **C6 (Low). A cut that left nothing lost its notice.** | A new or saved answer cut to nothing stays marked cut, and the dialog says "The answer was too long to show safely, so none of it is shown." A genuinely empty cleaned answer still shows no text. | `AdvisoryAiLedgerTests.ASavedRowCutToNothingSaysItWasTooLongToShow`, `ANewAnswerCutToNothingIsMarkedCut` |
 
 The schema stays at 17.
+
+## 16. Independent review of the fourth retest build at `4056e3f`, and fixes
+
+The independent review of the fourth retest build (commit `4056e3f`; run 44973168298, artifact SHA-256 `a0d380bd…a93d`) returned FAIL on two Medium findings of its own. The retest procedure, model and route passed, and the retest's one send can't reach either finding. The report is not committed.
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **G1 (Medium, privacy). The evidence cut could split a path wrapped over a line break.** An owner's edit over 16,384 characters was cut at a space chosen on the raw text, where a path broken over a line is two pieces. Cleaning makes the break a space, so the first words were removed as a shorter path and the next word stayed as plain text. | The evidence cut is chosen on the text as cleaning will see it: whitespace and line or paragraph separators are spaces, and characters cleaning removes join the words beside them. The cut index is the same in both. | `AdvisoryAiRedactionTests.AnEvidenceCutNeverSplitsAPathWrappedOverALineBreak` (four kinds of break, every cut position in the path; fails without the fix) |
+| **G2 (Medium, cost). The §15 C1 check counted answer text only.** A huge refusal or reasoning summary, or an answer in a body refused for another reason, settled at the reported usage with no pause. | Every string under `output`, except the item and part kinds, ids, roles and statuses, is counted before anything else in the output is read. | `AdvisoryAiResponseTests.AnyOutputTextLongerThanTheReportedOutputCouldDecodeToIsNotTrusted` (a refusal, a reasoning summary, an answer beside a function call) |
+| **L2 (Low). A cut between the words of a name kept the first words unless one plain space was between them.** | Any run of whitespace between the words counts (a tab, two spaces, a no-break space or a line break). | `AdvisoryAiRedactionTests.ACutBetweenTheWordsOfANameDropsTheFirstWordsWhateverSpaceIsBetweenThem` |
+| **L3 (Low). An apostrophe inside an HTML tag or comment opened a quote.** | Only a quote just after "=" opens a value. | `AdvisoryAiAnswerFormatTests.MarksInsideAnHtmlTagStayAsWritten` (two new rows) |
+| **L4 (Low). An edit too long to keep any of said names were removed.** | An evidence text cut to nothing stays marked cut, and the edit dialog says "That item is too long to send safely. Shorten it, or leave it out." | `AdvisoryAiRequestTests.AnEditIsRedactedAgainAndRemovalKeepsAtLeastOneItem` |
+| **L1 (Low), not changed.** An answer over its approved output that also has another fault is kept without a pause. | Recorded with §14 F2, which would change ADR-029 and is the owner's choice. | — |
+
+The schema stays at 17.

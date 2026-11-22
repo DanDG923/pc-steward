@@ -75,7 +75,9 @@ public static class AdvisoryAiRedaction
         (string bounded, bool cut) = Bound(text);
         if (cut) bounded = DropPartialIdentity(bounded, context);
         DiagnosticSanitizedText result = Clean(bounded, maximumScalars, context);
-        return result with { Truncated = result.Value is not null && (result.Truncated || cut) };
+        // Task 71C independent review of 4056e3f, L4: a text cut to nothing still says it was cut, so an owner's edit that was too
+        // long to keep any of is reported as too long, not as empty once names were removed.
+        return result with { Truncated = result.Truncated || cut };
     }
 
     /// <summary>
@@ -151,18 +153,37 @@ public static class AdvisoryAiRedaction
             string[] words = token.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
             for (int count = words.Length - 1; count >= 1; count--)
             {
-                string prefix = string.Join(' ', words, 0, count);
-                if (!EndsWithWords(trimmed, prefix)) continue;
+                int start = StartOfWordsAtEnd(trimmed, words, count);
+                if (start < 0) continue;
                 probe ??= Spaces.Replace(CleanBeforeNames(trimmed) ?? string.Empty, " ").Trim();
-                if (EndsWithWords(probe, prefix)) return trimmed[..^prefix.Length].TrimEnd();
+                if (StartOfWordsAtEnd(probe, words, count) >= 0) return trimmed[..start].TrimEnd();
             }
         }
         return text;
     }
 
-    private static bool EndsWithWords(string text, string words) =>
-        text.EndsWith(words, StringComparison.OrdinalIgnoreCase) &&
-        (text.Length == words.Length || !char.IsLetterOrDigit(text[text.Length - words.Length - 1]));
+    /// <summary>
+    /// Where the first <paramref name="count"/> of <paramref name="words"/> start when <paramref name="text"/> ends with them, at a
+    /// boundary that isn't a letter or digit, or -1. Independent review of 4056e3f, L2: any run of whitespace between them counts (a tab,
+    /// two spaces, a no-break space or a line break), as cleaning makes each one a single space.
+    /// </summary>
+    private static int StartOfWordsAtEnd(string text, string[] words, int count)
+    {
+        int end = text.Length;
+        for (int word = count - 1; word >= 0; word--)
+        {
+            if (word < count - 1)
+            {
+                int gapEnd = end;
+                while (end > 0 && char.IsWhiteSpace(text[end - 1])) end--;
+                if (end == gapEnd) return -1;
+            }
+            string expected = words[word];
+            if (end < expected.Length || !text.AsSpan(end - expected.Length, expected.Length).Equals(expected, StringComparison.OrdinalIgnoreCase)) return -1;
+            end -= expected.Length;
+        }
+        return end == 0 || !char.IsLetterOrDigit(text[end - 1]) ? end : -1;
+    }
 
     private static (string Text, bool Cut) CutAnswer(string text, int maximumCharacters)
     {
@@ -280,12 +301,36 @@ public static class AdvisoryAiRedaction
         {
             // Independent review of ce0eaf3, F1: the cut never falls inside a word, so a secret known by its shape is never left as a
             // prefix its pattern no longer matches (the evidence twin of the answer cut, Codex review of #141).
-            // Codex review of ce0eaf3, C3: nor inside a path that holds spaces.
-            if (scalars == MaximumInputScalars) return (text[..DiagnosticTextSanitizer.SafeCutAtOrBefore(text, index)], true);
+            // Codex review of ce0eaf3, C3: nor inside a path that holds spaces. Independent review of 4056e3f, G1: the cut is chosen
+            // on the text as cleaning will see it, where a line break is a space and an invisible character is gone, so a path
+            // wrapped over a line break is still one path.
+            if (scalars == MaximumInputScalars) return (text[..DiagnosticTextSanitizer.SafeCutAtOrBefore(AsCleaned(text, index), index)], true);
             index += char.IsHighSurrogate(text[index]) && index + 1 < text.Length && char.IsLowSurrogate(text[index + 1]) ? 2 : 1;
             scalars++;
         }
         return (text, false);
+    }
+
+    /// <summary>
+    /// Independent review of 4056e3f, G1: the start of <paramref name="text"/>, up to one longest path past <paramref name="end"/>, with
+    /// each character in the same place as cleaning will treat it: whitespace and line or paragraph separators become a space (an
+    /// evidence item is cleaned to one line), and a character cleaning removes becomes a letter, so the words on either side of it
+    /// stay one word. A cut chosen on it is a cut of <paramref name="text"/> at the same index.
+    /// </summary>
+    private static string AsCleaned(string text, int end)
+    {
+        int length = Math.Min(text.Length, end + DiagnosticTextSanitizer.MaximumPathLength);
+        return string.Create(length, text, static (view, source) =>
+        {
+            for (int index = 0; index < view.Length; index++)
+            {
+                char character = source[index];
+                UnicodeCategory category = char.GetUnicodeCategory(character);
+                view[index] = char.IsWhiteSpace(character) || category is UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator ? ' '
+                    : category is UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.OtherNotAssigned ? 'x'
+                    : character;
+            }
+        });
     }
 
     private static DiagnosticSanitizedText Truncate(string value, int maximumScalars)

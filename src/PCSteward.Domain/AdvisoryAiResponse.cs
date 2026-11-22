@@ -345,8 +345,22 @@ public static class AdvisoryAiResponseReader
         // request and paid requests stop for review, as for usage above the approved bounds.
         bool above = cacheWritten || reliable && (usage!.InputTokens > approvedInputTokens || usage.OutputTokens > approvedOutputTokens);
 
+        // Codex review of ce0eaf3, C1, and the independent review of 4056e3f, G2: every output token decodes to at most
+        // maximumTokenUtf8Bytes, so output text longer than the reported output tokens (or, when they can't be trusted, the approved
+        // output) could produce contradicts the usage. All text under output counts (answer text, a refusal, a reasoning summary),
+        // and it is checked before anything else in the output is read, so a body refused for another reason is checked too. Such
+        // usage is never trusted: the whole reservation is kept, and the reply stops paid requests for review.
+        if (maximumTokenUtf8Bytes > 0 && root.TryGetProperty("output", out JsonElement counted))
+        {
+            long tokens = reliable ? Math.Min(usage!.OutputTokens, approvedOutputTokens) : approvedOutputTokens;
+            if (OutputTextBytes(counted) > tokens * maximumTokenUtf8Bytes)
+            {
+                reliable = false;
+                above = true;
+            }
+        }
+
         StringBuilder text = new();
-        long textBytes = 0;
         bool refused = false;
         if (root.TryGetProperty("output", out JsonElement output))
         {
@@ -371,11 +385,7 @@ public static class AdvisoryAiResponseReader
                             if (part.ValueKind != JsonValueKind.Object || !part.TryGetProperty("type", out JsonElement partType) || partType.ValueKind != JsonValueKind.String)
                                 return Unbound(AdvisoryAiMalformedReason.InvalidOutputText, usage, reliable, above, id);
                             if (partType.ValueEquals("output_text") && part.TryGetProperty("text", out JsonElement value) && value.ValueKind == JsonValueKind.String)
-                            {
-                                string piece = value.GetString()!;
-                                textBytes += Encoding.UTF8.GetByteCount(piece);
-                                text.Append(piece);
-                            }
+                                text.Append(value.GetString());
                             else if (partType.ValueEquals("refusal")) refused = true;
                             else return Unbound(AdvisoryAiMalformedReason.InvalidOutputText, usage, reliable, above, id);
                         }
@@ -389,22 +399,32 @@ public static class AdvisoryAiResponseReader
         }
         else if (status != AdvisoryAiAnswerStatus.ProviderFailed) return Unbound(AdvisoryAiMalformedReason.UnexpectedOutputItem, usage, reliable, above, id);
 
-        // Codex review of ce0eaf3, C1: every output token decodes to at most maximumTokenUtf8Bytes, so answer text longer than the
-        // reported output tokens (or, when they can't be trusted, the approved output) could produce contradicts the usage. It is
-        // never trusted, so the whole reservation is kept, and the reply stops paid requests for review.
-        if (maximumTokenUtf8Bytes > 0)
-        {
-            long tokens = reliable ? Math.Min(usage!.OutputTokens, approvedOutputTokens) : approvedOutputTokens;
-            if (textBytes > tokens * maximumTokenUtf8Bytes)
-            {
-                reliable = false;
-                above = true;
-            }
-        }
-
         AdvisoryAiAnswerStatus final = refused && text.Length == 0 && status == AdvisoryAiAnswerStatus.Completed ? AdvisoryAiAnswerStatus.Refused : status.Value;
         string? answer = text.Length == 0 ? null : text.ToString().TrimEnd('\n');
         return new(final, incomplete, AdvisoryAiMalformedReason.None, id, answer, usage, reliable, above);
+    }
+
+    /// <summary>
+    /// Independent review of 4056e3f, G2: the UTF-8 bytes of every string value under <paramref name="element"/>, except the item and
+    /// part kinds, ids, roles and statuses, which the provider writes rather than the model.
+    /// </summary>
+    private static long OutputTextBytes(JsonElement element)
+    {
+        long bytes = 0;
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.String:
+                return Encoding.UTF8.GetByteCount(element.GetString()!);
+            case JsonValueKind.Array:
+                foreach (JsonElement child in element.EnumerateArray()) bytes += OutputTextBytes(child);
+                return bytes;
+            case JsonValueKind.Object:
+                foreach (JsonProperty property in element.EnumerateObject())
+                    if (property.Name is not ("type" or "id" or "role" or "status")) bytes += OutputTextBytes(property.Value);
+                return bytes;
+            default:
+                return 0;
+        }
     }
 
     /// <summary>

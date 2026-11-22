@@ -255,6 +255,51 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    [DataRow("\n", DisplayName = "a line break")]
+    [DataRow("\r\n", DisplayName = "a Windows line break")]
+    [DataRow("\u2028", DisplayName = "a line separator")]
+    [DataRow("\t", DisplayName = "a tab")]
+    public void AnEvidenceCutNeverSplitsAPathWrappedOverALineBreak(string wrap)
+    {
+        // Independent review of 4056e3f, G1: the evidence cut was chosen on the raw text, where a path wrapped over a line break is
+        // two pieces, but cleaning makes the break a space, so the cut kept the first words as a shorter path and the next word as
+        // plain text. The cut is now chosen on the text as cleaning sees it.
+        string path = "C:\\Clients\\Hartwell" + wrap + "Family Trust\\Accounts\\ledger.xlsx";
+        int first = path.IndexOf("Hartwell", StringComparison.Ordinal);
+        for (int bound = first + 1; bound < path.Length; bound++)
+        {
+            string evidence = new string(' ', (16 * 1024) - 4 - bound) + "See " + path + " tail";
+            Assert.AreEqual(16 * 1024, evidence.IndexOf(path, StringComparison.Ordinal) + bound);
+            DiagnosticSanitizedText clean = AdvisoryAiRedaction.SanitizeEvidence(evidence, 2048);
+            Assert.IsTrue(clean.Truncated);
+            foreach (string word in (string[])["Hartwell", "Family", "Trust", "Accounts"])
+                Assert.DoesNotContain(word, clean.Value ?? string.Empty, $"cut {bound} characters into the path");
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("\t", DisplayName = "a tab")]
+    [DataRow("  ", DisplayName = "two spaces")]
+    [DataRow("\u00A0", DisplayName = "a no-break space")]
+    [DataRow("\r\n", DisplayName = "a line break")]
+    public void ACutBetweenTheWordsOfANameDropsTheFirstWordsWhateverSpaceIsBetweenThem(string gap)
+    {
+        // Independent review of 4056e3f, L2: the first words were dropped only when one plain space was between them.
+        DiagnosticRedactionContext twoWords = new(["Jo Bloggs"]);
+        string answer = new string('a', 20) + " signed in as Jo" + gap + "Bloggs today";
+        (string cut, bool wasCut) = AdvisoryAiRedaction.BoundAnswer(answer, answer.IndexOf("Bloggs", StringComparison.Ordinal) + 2, twoWords);
+        Assert.IsTrue(wasCut);
+        Assert.EndsWith("signed in as", cut);
+        string evidence = new string(' ', (16 * 1024) - 3 - gap.Length) + "Jo" + gap + "Bloggs tail";
+        Assert.AreEqual((16 * 1024) - 1, evidence.IndexOf("Bloggs", StringComparison.Ordinal), "the bound falls inside the second word");
+        DiagnosticSanitizedText clean = AdvisoryAiRedaction.SanitizeEvidence(evidence, 2048, twoWords);
+        Assert.IsTrue(clean.Truncated);
+        Assert.DoesNotContain("Jo", clean.Value ?? string.Empty);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     public void ANameThatEndsASecretIsNotDroppedBeforeTheSecretIsRemoved()
     {
         // Codex review of #142: dropping the first word of a name that is also the last group of a product key would leave the

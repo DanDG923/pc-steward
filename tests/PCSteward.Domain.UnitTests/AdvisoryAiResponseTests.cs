@@ -51,6 +51,27 @@ public sealed class AdvisoryAiResponseTests
     }
 
     [TestMethod]
+    [TestCategory("FR-BUD-02")]
+    [DataRow("[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"refusal\",\"refusal\":\"TEXT\"}]}]", DisplayName = "a refusal")]
+    [DataRow("[{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"TEXT\"}]},{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"Short.\"}]}]", DisplayName = "a reasoning summary")]
+    [DataRow("[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"TEXT\"}]},{\"type\":\"function_call\",\"name\":\"x\"}]", DisplayName = "an answer in a body refused for another reason")]
+    public void AnyOutputTextLongerThanTheReportedOutputCouldDecodeToIsNotTrusted(string output)
+    {
+        // Independent review of 4056e3f, G2: the C1 check counted answer text only, so a huge refusal or reasoning summary, or an
+        // answer in a body that was refused before the check, settled at the reported usage with nothing stopped for review.
+        string large = output.Replace("TEXT", new string('x', (300 * 4) + 1), StringComparison.Ordinal);
+        AdvisoryAiResponse over = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(Body(output: large)), Model, 1_000_000, 8192, 1024, maximumTokenUtf8Bytes: 4);
+        Assert.IsFalse(over.UsageReliable);
+        Assert.IsTrue(over.UsageAboveApprovedBounds);
+        // The same reply with text the reported tokens can decode to is trusted, so the check charges only the text, not the fixed names.
+        string small = output.Replace("TEXT", "Short reason.", StringComparison.Ordinal);
+        AdvisoryAiResponse within = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(Body(output: small)), Model, 1_000_000, 8192, 1024, maximumTokenUtf8Bytes: 4);
+        Assert.AreEqual(over.Status, within.Status);
+        Assert.AreEqual(within.MalformedReason == AdvisoryAiMalformedReason.None, within.UsageReliable);
+        Assert.IsFalse(within.UsageAboveApprovedBounds);
+    }
+
+    [TestMethod]
     [TestCategory("FR-BUD-03")]
     public void AnIncompleteAnswerWithNoTextCanStillCarryCompleteBillableUsage()
     {
