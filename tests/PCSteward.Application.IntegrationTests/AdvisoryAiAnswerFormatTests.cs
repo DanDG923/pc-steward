@@ -182,6 +182,40 @@ public sealed class AdvisoryAiAnswerFormatTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    [DataRow("<span title=\"**ready**\">status</span>", DisplayName = "an attribute")]
+    [DataRow("<!-- **note** -->", DisplayName = "a comment")]
+    [DataRow("</__b__>", DisplayName = "a closing tag")]
+    public void MarksInsideAnHtmlTagStayAsWritten(string html)
+    {
+        // Task 71C review 71C-R3: HTML is never interpreted, and its source isn't changed by bold matching either.
+        IReadOnlyList<AdvisoryAiAnswerBlock> blocks = AdvisoryAiAnswerFormat.Parse(html);
+        Assert.HasCount(1, blocks);
+        Assert.AreEqual(html, blocks[0].PlainText);
+        Assert.IsFalse(blocks[0].Spans.Any(span => span.Bold), html);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void BoldOutsideATagOrAfterAnUnclosedAngleIsStillBold()
+    {
+        IReadOnlyList<AdvisoryAiAnswerBlock> blocks = AdvisoryAiAnswerFormat.Parse("Use <b>tags</b> and **this** if 2 <3 or **that**");
+        CollectionAssert.AreEqual(new[] { "this", "that" }, blocks[0].Spans.Where(span => span.Bold).Select(span => span.Text).ToArray());
+        Assert.AreEqual("Use <b>tags</b> and this if 2 <3 or that", blocks[0].PlainText);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void ManyUnclosedTagsAreReadInOnePass()
+    {
+        string answer = string.Concat(Enumerable.Repeat("<a **b** ", 6_000));
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        IReadOnlyList<AdvisoryAiAnswerBlock> blocks = AdvisoryAiAnswerFormat.Parse(answer);
+        Assert.IsLessThan(2.0, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalSeconds);
+        Assert.IsNotEmpty(blocks);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     public void NoAnswerIsNoBlocks()
     {
         Assert.HasCount(0, AdvisoryAiAnswerFormat.Parse(null));

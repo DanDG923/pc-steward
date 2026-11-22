@@ -273,7 +273,8 @@ public static class AdvisoryAiExplainText
         List<string> parts = [];
         if (report.HttpStatus is int status) parts.Add(string.Create(CultureInfo.InvariantCulture, $"HTTP status {status}"));
         // Task 70E T70E-01: only a known tier name, held as PC Steward's own constant, is ever shown; anything else is fixed words.
-        parts.Add(report.ServiceTierReport switch
+        // Independent review of c344237: a reply that couldn't be decoded was never read for its tier, so none is claimed either way.
+        parts.Add(report.MalformedReason == AdvisoryAiMalformedReason.UndecodableText ? "service tier not read" : report.ServiceTierReport switch
         {
             AdvisoryAiServiceTierReport.Named when report.ServiceTier is string tier && AdvisoryAiResponseReader.KnownServiceTiers.Contains(tier) => $"service tier \"{tier}\"",
             AdvisoryAiServiceTierReport.Repeated => "more than one service tier",

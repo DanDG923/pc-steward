@@ -678,6 +678,36 @@ public sealed class AdvisoryAiLedgerTests
         Assert.IsFalse(await fixture.Store.DeleteExplanationAsync(saved.Id, CancellationToken.None));
     }
 
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public async Task ASavedRowThatCleansToNothingShowsNoText()
+    {
+        // Task 71C review 71C-R4: an altered row holding only invisible format characters cleans to nothing, so nothing is shown.
+        await using Fixture fixture = await Fixture.CreateAsync();
+        AdvisoryAiSavedExplanation saved = Explanation(AdvisoryAiSourceKind.FailedUpdate, "job-1", Now);
+        await fixture.Store.SaveExplanationAsync(saved, Now, CancellationToken.None);
+        await fixture.ExecuteAsync("UPDATE ai_explanations SET answer=char(8238, 8203, 8206);");
+        AdvisoryAiSavedExplanation read = (await fixture.Store.ListExplanationsAsync(AdvisoryAiSourceKind.FailedUpdate, "job-1", Now, CancellationToken.None)).Single();
+        Assert.IsNull(read.Text);
+        Assert.IsFalse(read.TextTruncated);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public async Task ALongSavedRowIsCutToWhatCanBeShownBeforeItIsCleaned()
+    {
+        // Task 71C review 71C-R2: reading saved answers cleans only what the dialog can format, and marks the row cut.
+        await using Fixture fixture = await Fixture.CreateAsync();
+        AdvisoryAiSavedExplanation saved = Explanation(AdvisoryAiSourceKind.FailedUpdate, "job-1", Now);
+        await fixture.Store.SaveExplanationAsync(saved, Now, CancellationToken.None);
+        await fixture.ExecuteAsync("UPDATE ai_explanations SET answer=replace(hex(zeroblob(10000)), '0', 'line one ' || char(10));");
+        AdvisoryAiSavedExplanation read = (await fixture.Store.ListExplanationsAsync(AdvisoryAiSourceKind.FailedUpdate, "job-1", Now, CancellationToken.None)).Single();
+        Assert.IsNotNull(read.Text);
+        Assert.IsLessThanOrEqualTo(AdvisoryAiAnswerFormat.MaximumFormattedCharacters, read.Text.Length);
+        Assert.IsTrue(read.TextTruncated);
+        Assert.EndsWith("line one", read.Text, "cut at a line break");
+    }
+
     // ---- The workflow over the real store --------------------------------------------------------------------------------------
 
     [TestMethod]
@@ -700,6 +730,26 @@ public sealed class AdvisoryAiLedgerTests
         Assert.DoesNotContain("password=a", outcome.AnswerText);
         Assert.EndsWith("end", outcome.AnswerText);
         Assert.AreEqual(AdvisoryAiExplanationSave.Saved, outcome.Saved);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public async Task AnAnswerLongerThanTheApprovedOutputIsCutBeforeItIsCleaned()
+    {
+        // Task 71C review 71C-R2 and the independent review's sanitizer note: an answer within the approved output has at most
+        // output tokens x bytes per token characters. A longer one is cut there before cleaning, so cleaning time stays bounded, and
+        // it is marked cut. Its usage is above the approved bounds, so the whole reservation is kept as for any such reply.
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        int rawBound = AdvisoryAiLimits.Defaults.MaximumOutputTokens * Model.MaximumTokenUtf8Bytes;
+        string text = string.Concat(Enumerable.Repeat("advice line\n", (3 * rawBound) / 12));
+        FakeTransport transport = new(_ => Received(Body(text)));
+        (AdvisoryAiRequestWorkflow workflow, _) = fixture.Workflow(transport);
+        (AdvisoryAiApproval approval, AdvisoryAiRequestPreview preview) = await fixture.ApproveAsync();
+        AdvisoryAiSendOutcome outcome = await workflow.SendAsync(approval, preview, null, CancellationToken.None);
+        Assert.IsNotNull(outcome.AnswerText);
+        Assert.IsTrue(outcome.AnswerTruncated);
+        Assert.IsLessThanOrEqualTo(rawBound, outcome.AnswerText.Length);
+        Assert.EndsWith("advice line", outcome.AnswerText);
     }
 
     [TestMethod]

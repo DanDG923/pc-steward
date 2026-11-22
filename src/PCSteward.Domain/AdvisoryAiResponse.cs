@@ -219,6 +219,8 @@ public static class AdvisoryAiResponseReader
         if (body.Length > maximumBytes) return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.TooLarge);
         try
         {
+            // Task 71C review 71C-R1: decode every name and string first, including the ones the reader below never visits.
+            if (!DecodesInFull(body)) return Undecodable;
             using JsonDocument document = JsonDocument.Parse(body.ToArray(),
                 new JsonDocumentOptions { MaxDepth = MaximumDepth, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
             AdvisoryAiResponse response = Read(document.RootElement, expectedModel, approvedInputTokens, approvedOutputTokens);
@@ -255,6 +257,39 @@ public static class AdvisoryAiResponseReader
             // Task 71C review 71C-01: System.Text.Json parses a string token whose escaped contents it can't later decode, and then
             // throws here when a name or value is read. The billing scan may not have finished, so this is an untrusted reply.
             return Undecodable;
+        }
+    }
+
+    /// <summary>
+    /// Task 71C review 71C-R1: true when every property name and string value in <paramref name="body"/> decodes, wherever it sits.
+    /// System.Text.Json parses a string token and decodes its escapes and UTF-8 only when it is read, so a reply could otherwise
+    /// carry undecodable text in metadata, a reasoning item or a nested name that nothing reads, and still have its usage trusted.
+    /// This one pass reads the body with the same depth and syntax rules as the parse, so its work is bounded by the admitted bytes.
+    /// It keeps nothing it decodes. A syntax error throws JsonException, which the caller already treats as not JSON.
+    /// </summary>
+    public static bool DecodesInFull(ReadOnlySpan<byte> body)
+    {
+        Utf8JsonReader reader = new(body, new JsonReaderOptions { MaxDepth = MaximumDepth, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
+        char[] buffer = [];
+        try
+        {
+            while (reader.Read())
+            {
+                if (reader.TokenType is not (JsonTokenType.String or JsonTokenType.PropertyName)) continue;
+                // A decoded value never has more UTF-16 units than its bytes in the body.
+                int length = reader.HasValueSequence ? checked((int)reader.ValueSequence.Length) : reader.ValueSpan.Length;
+                if (buffer.Length < length) buffer = new char[Math.Max(length, Math.Min(2 * buffer.Length, body.Length))];
+                reader.CopyString(buffer);
+            }
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        finally
+        {
+            Array.Clear(buffer);
         }
     }
 

@@ -868,9 +868,15 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             string? answer = reader.IsDBNull(5) ? null : reader.GetValue(5) as string;
             AdvisoryAiSavedExplanation item = new(id, request, source, originId, model, status, incomplete, answer, truncated == 1, created);
             if (item.ExpiresAtUtc != expires || expires <= nowUtc) continue;
-            // Saved text was redacted before it was written; it is redacted again on read in case the row was altered.
-            if (answer is not null && AdvisoryAiRedaction.SanitizeAnswer(answer, int.MaxValue).Value is string clean && !string.Equals(clean, answer, StringComparison.Ordinal))
-                item = item with { Text = clean };
+            // Saved text was redacted before it was written; it is redacted again on read in case the row was altered. Task 71C review
+            // 71C-R4: what that leaves is what is shown, even nothing. 71C-R2: only what the dialog can format is cleaned and shown, so
+            // a long or altered row can't hold up the read; a row cut here is marked cut.
+            if (answer is not null)
+            {
+                (string bounded, bool cut) = AdvisoryAiRedaction.BoundAnswer(answer, AdvisoryAiAnswerFormat.MaximumFormattedCharacters);
+                string? clean = AdvisoryAiRedaction.SanitizeAnswer(bounded, int.MaxValue).Value;
+                item = item with { Text = clean, TextTruncated = clean is not null && (item.TextTruncated || cut) };
+            }
             result.Add(item);
         }
         return result;

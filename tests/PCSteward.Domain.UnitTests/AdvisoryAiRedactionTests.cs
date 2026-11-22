@@ -137,6 +137,24 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    public void AnAnswerIsCutBeforeItIsCleanedAtALineBreakWhereThereIsOne()
+    {
+        // Task 71C review 71C-R2: the raw text is cut to the bound before cleaning, so cleaning time follows the bound, not the reply.
+        Assert.AreEqual(("short", false), AdvisoryAiRedaction.BoundAnswer("short", 10));
+        Assert.AreEqual(("line one", true), AdvisoryAiRedaction.BoundAnswer("line one\nline two", 12), "cut at the line break");
+        Assert.AreEqual(("abcdefghij", true), AdvisoryAiRedaction.BoundAnswer("abcdefghijklmnop", 10), "no line break: cut at the bound");
+        Assert.AreEqual(("a\nbcdefghi", true), AdvisoryAiRedaction.BoundAnswer("a\nbcdefghijklmnop", 10), "a break in the first half is not used");
+        (string surrogate, bool cut) = AdvisoryAiRedaction.BoundAnswer("abcdefghi\U0001F600z", 10);
+        Assert.AreEqual("abcdefghi", surrogate, "a surrogate pair is never split");
+        Assert.IsTrue(cut);
+        string huge = new(' ', 3_000_000);
+        (string bounded, bool hugeCut) = AdvisoryAiRedaction.BoundAnswer(huge, 393_216);
+        Assert.AreEqual(393_216, bounded.Length);
+        Assert.IsTrue(hugeCut);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     public void AnAnswerKeepsEachLinesIndentationSoCodeKeepsItsMeaning()
     {
         // Task 71C review 71C-04: leading spaces survive redaction (spaces inside a line still collapse), capped, and the result is

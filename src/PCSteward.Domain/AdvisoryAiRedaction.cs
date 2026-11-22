@@ -115,6 +115,25 @@ public static class AdvisoryAiRedaction
         return joined with { Truncated = joined.Truncated || truncated };
     }
 
+    /// <summary>
+    /// Task 71C review 71C-R2 (and the independent review's sanitizer note): cuts <paramref name="text"/> to at most
+    /// <paramref name="maximumCharacters"/> before it is sanitized, so the time cleaning takes stays bounded by what can be shown or was
+    /// approved rather than by what a reply or an altered row holds. The cut is at the last line break in the second half of the bound
+    /// when there is one, so a line is never split there, and never between the two halves of a surrogate pair. Cut is true when
+    /// anything was removed, and the caller then marks the answer as cut. Nothing kept is left unredacted: the result is sanitized next.
+    /// </summary>
+    public static (string Text, bool Cut) BoundAnswer(string text, int maximumCharacters)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumCharacters, 2);
+        if (text.Length <= maximumCharacters) return (text, false);
+        int end = maximumCharacters;
+        int lineBreak = text.LastIndexOf('\n', end - 1, end - (end / 2));
+        if (lineBreak >= end / 2) end = lineBreak;
+        else if (char.IsHighSurrogate(text[end - 1])) end--;
+        return (text[..end], true);
+    }
+
     /// <summary>The most leading spaces an answer line keeps (Task 71C review 71C-04), enough for code nested sixteen levels deep.</summary>
     public const int MaximumAnswerIndentation = 64;
 

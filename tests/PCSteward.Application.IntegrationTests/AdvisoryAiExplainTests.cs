@@ -221,13 +221,19 @@ public sealed class AdvisoryAiExplainTests
 
     [TestMethod]
     [TestCategory("FR-BUD-03")]
-    public async Task AReplyThatCanNotBeDecodedKeepsTheReservationAndPausesTheNextRequest()
+    [DataRow("{\"cached_tokens\":0}", "{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_\\uD800\":0}}", DisplayName = "a name the reader reads")]
+    [DataRow("\"store\":false,", "\"store\":false,\"metadata\":{\"note\":\"\\uDC00\"},", DisplayName = "a value in metadata nothing reads")]
+    [DataRow("\"output\":[", "\"output\":[{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"\\uD800\"}]},", DisplayName = "text in a skipped reasoning item")]
+    [DataRow("\"output\":[", "\"output\":[{\"type\":\"reasoning\",\"summary\":[],\"extra\":{\"x\\uD800\":1}},", DisplayName = "a nested name in a skipped item")]
+    public async Task AReplyThatCanNotBeDecodedKeepsTheReservationAndPausesTheNextRequest(string find, string replace)
     {
-        // Task 71C review 71C-01: an unpaired escaped surrogate parses, then throws when its name is read. The claimed request is still
-        // settled, as an untrusted reply that keeps its whole reservation and pauses paid requests until the owner reviews it.
+        // Task 71C reviews 71C-01 and 71C-R1: an unpaired escaped surrogate parses, then throws only when it is decoded, so a reply with
+        // one anywhere (read or not) is untrusted. The claimed request is still settled, keeping its whole reservation, and paid
+        // requests pause until the owner reviews it, so the next request is refused before anything is sent.
         await using Fixture fixture = await Fixture.CreateAsync(connected: true, prices: true);
-        string body = Body("Synthetic explanation.").Replace("{\"cached_tokens\":0}",
-            "{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_\\uD800\":0}}", StringComparison.Ordinal);
+        string body = Body("Synthetic explanation.");
+        Assert.IsTrue(body.Contains(find, StringComparison.Ordinal));
+        body = body.Replace(find, replace, StringComparison.Ordinal);
         fixture.Transport.Next = new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes(body)]);
         AdvisoryAiExplainService service = fixture.Service();
         AdvisoryAiEvidenceDraft draft = (await service.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Draft!;
@@ -240,9 +246,16 @@ public sealed class AdvisoryAiExplainTests
         Assert.AreEqual(AdvisoryAiLedgerWrite.Done, outcome.SettlementWrite);
         Assert.IsNull(outcome.AnswerText);
         StringAssert.Contains(AdvisoryAiExplainText.ReplyDetails(outcome.UsageReport)!, "couldn't be decoded");
+        StringAssert.Contains(AdvisoryAiExplainText.ReplyDetails(outcome.UsageReport)!, "service tier not read");
         AdvisoryAiAccountingState state = await fixture.Store.GetAccountingStateAsync(CancellationToken.None);
         Assert.IsTrue(state.ReviewBlock);
         Assert.AreEqual(AdvisoryAiReviewCause.UntrustedReply, state.ReviewCauses, "the review block refuses the next reservation");
+
+        fixture.Transport.Next = new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes(Body("Synthetic explanation."))]);
+        AdvisoryAiEvidenceDraft next = (await service.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Draft!;
+        AdvisoryAiSendOutcome refused = await service.SendAsync(await service.ReviewAsync(next, CancellationToken.None), CancellationToken.None);
+        Assert.IsFalse(refused.Dispatched, "the next request is refused while paid requests are paused");
+        Assert.AreEqual(1, fixture.Transport.Calls, "nothing more is sent");
     }
 
     [TestMethod]
