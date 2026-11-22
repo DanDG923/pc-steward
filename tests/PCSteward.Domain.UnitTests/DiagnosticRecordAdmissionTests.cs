@@ -225,6 +225,16 @@ public sealed class DiagnosticRecordAdmissionTests
                 StringAssert.EndsWith(clean.Value, "a" + DiagnosticTextSanitizer.Ellipsis, $"{value} at {offset}: only whole words are kept");
             }
         }
+
+        // Codex review of #142: a text cut at the working bound that cleans to exactly the scalar limit still fits it with its mark.
+        foreach (int limit in new[] { 2, 255, 256, 257 })
+        {
+            string subject = new string('a', 256) + new string(' ', (16 * 1024) - 256) + " tail";
+            DiagnosticSanitizedText fitted = DiagnosticTextSanitizer.Sanitize(subject, limit);
+            Assert.IsTrue(fitted.Truncated, $"limit {limit}");
+            Assert.IsLessThanOrEqualTo(limit, fitted.Value!.EnumerateRunes().Count(), $"limit {limit}");
+            StringAssert.EndsWith(fitted.Value, DiagnosticTextSanitizer.Ellipsis);
+        }
     }
 
     private static DiagnosticRecordCandidate Candidate(DiagnosticSourceKind source, DiagnosticEventKind kind) =>
