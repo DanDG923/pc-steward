@@ -160,7 +160,7 @@ public static class AdvisoryAiRedaction
         string trimmed = text.TrimEnd();
         // Codex review of cd04620, 71C-04: the words are matched on the text as cleaning sees it, so an invisible character inside a
         // word ("J\u200Bo") doesn't hide it. The cut is then made at the same place in the text.
-        (string view, int[] map) = CleaningView(trimmed, trimmed.Length, keepLines: false);
+        (string view, List<int> map, _) = CleaningView(trimmed, trimmed.Length, keepLines: false);
         string? probe = null;
         foreach (string token in context.IdentityTokens)
         {
@@ -330,32 +330,35 @@ public static class AdvisoryAiRedaction
     {
         // A cut never splits a surrogate pair.
         if (end > 0 && end < text.Length && char.IsLowSurrogate(text[end]) && char.IsHighSurrogate(text[end - 1])) end--;
-        (string view, int[] map) = CleaningView(text, Math.Min(text.Length, end + DiagnosticTextSanitizer.MaximumPathLength), keepLines);
-        int viewEnd = Array.BinarySearch(map, 0, view.Length, end);
-        if (viewEnd < 0) viewEnd = ~viewEnd;
+        (string view, List<int> map, int viewEnd) = CleaningView(text, end, keepLines);
         int cut = DiagnosticTextSanitizer.SafeCutAtOrBefore(view, viewEnd);
         return cut >= viewEnd ? end : AfterViewPrefix(map, cut);
     }
 
     /// <summary>The end in the text of the first <paramref name="count"/> view characters, so characters cleaning removes after them go too.</summary>
-    private static int AfterViewPrefix(int[] map, int count) => count == 0 ? 0 : map[count - 1] + 1;
+    private static int AfterViewPrefix(List<int> map, int count) => count == 0 ? 0 : map[count - 1] + 1;
 
     /// <summary>
-    /// The first <paramref name="length"/> characters of <paramref name="text"/> as cleaning sees them, and where each view character
-    /// came from: a character cleaning removes (a control or format character, or an unassigned one) is left
-    /// out, so the words on either side of it join as they will once it is gone; other whitespace becomes a space, and a line break
-    /// becomes a space too unless <paramref name="keepLines"/> is set (an answer is cleaned line by line). Map is ascending, so a
-    /// view index maps back to a cut of the text at the same place.
+    /// <paramref name="text"/> as cleaning sees it, up to <paramref name="end"/> and then one longest path further in the view, and where
+    /// each view character came from. A character cleaning removes (a control or format character, or an unassigned one) is left out,
+    /// so the words on either side of it join as they will once it is gone; other whitespace becomes a space, and a line break becomes
+    /// a space too unless <paramref name="keepLines"/> is set (an answer is cleaned line by line). End is where <paramref name="end"/>
+    /// falls in the view. The lookahead is counted in view characters (Codex review of #145), so a run of removed characters past the
+    /// end can't make the view end early and a word or path running on past it look whole. Map is ascending, so a view index maps
+    /// back to a cut of the text at the same place.
     /// </summary>
-    private static (string View, int[] Map) CleaningView(string text, int length, bool keepLines)
+    private static (string View, List<int> Map, int End) CleaningView(string text, int end, bool keepLines)
     {
-        StringBuilder view = new(length);
-        int[] map = new int[length];
+        StringBuilder view = new();
+        List<int> map = [];
+        int viewEnd = -1;
         int index = 0;
-        while (index < length)
+        while (index < text.Length)
         {
+            if (index >= end && viewEnd < 0) viewEnd = view.Length;
+            if (viewEnd >= 0 && view.Length > viewEnd + DiagnosticTextSanitizer.MaximumPathLength) break;
             int start = index;
-            OperationStatus decoded = Rune.DecodeFromUtf16(text.AsSpan(index, length - index), out Rune rune, out int consumed);
+            OperationStatus decoded = Rune.DecodeFromUtf16(text.AsSpan(index), out Rune rune, out int consumed);
             index += Math.Max(1, consumed);
             UnicodeCategory category = decoded == OperationStatus.Done ? Rune.GetUnicodeCategory(rune) : UnicodeCategory.OtherSymbol;
             char replacement;
@@ -370,15 +373,15 @@ public static class AdvisoryAiRedaction
             else if (category is UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.Surrogate or UnicodeCategory.OtherNotAssigned) continue;
             else
             {
-                map[view.Length] = start;
+                map.Add(start);
                 view.Append(text[start]);
-                if (consumed == 2) { map[view.Length] = start + 1; view.Append(text[start + 1]); }
+                if (consumed == 2) { map.Add(start + 1); view.Append(text[start + 1]); }
                 continue;
             }
-            map[view.Length] = start;
+            map.Add(start);
             view.Append(replacement);
         }
-        return (view.ToString(), map);
+        return (view.ToString(), map, viewEnd < 0 ? view.Length : viewEnd);
     }
 
     private static DiagnosticSanitizedText Truncate(string value, int maximumScalars)

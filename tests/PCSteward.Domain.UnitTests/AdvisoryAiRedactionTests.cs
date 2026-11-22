@@ -329,6 +329,23 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    public void ARunOfInvisibleCharactersPastTheCutCannotMakeASplitSecretLookWhole()
+    {
+        // Codex review of #145: the view of the text past the cut was one longest path of raw characters, so a run of characters
+        // cleaning removes there left the view ending early, and the start of a secret before the cut looked like a whole word.
+        const string secret = "Ab3dEf7hIj1lMn5pQr9tUv2xYz4BcDe6GhIk8MoPqRsTuVwXyZ";
+        string evidence = new string(' ', (16 * 1024) - 20) + secret[..20] + new string('\u200B', 32 * 1024) + secret[20..] + " tail";
+        Assert.AreEqual("[secret]", AdvisoryAiRedaction.SanitizeEvidence(secret, 2048).Value, "the whole secret is removed");
+        DiagnosticSanitizedText clean = AdvisoryAiRedaction.SanitizeEvidence(evidence, 2048);
+        Assert.IsTrue(clean.Truncated);
+        Assert.DoesNotContain(secret[..20], clean.Value ?? string.Empty);
+        string answer = "Key: " + secret[..20] + new string('\u200B', 32 * 1024) + secret[20..] + " end";
+        (string cut, _) = AdvisoryAiRedaction.BoundAnswer(answer, 5 + 20);
+        Assert.DoesNotContain(secret[..20], AdvisoryAiRedaction.SanitizeAnswer(cut, 4000).Value ?? string.Empty);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     [DataRow("J\u200Bo", DisplayName = "a zero-width space inside the first word")]
     [DataRow("\u2060Jo", DisplayName = "a word joiner before the first word")]
     [DataRow("Jo", DisplayName = "no invisible character")]
