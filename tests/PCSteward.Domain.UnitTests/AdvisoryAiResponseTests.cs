@@ -72,6 +72,40 @@ public sealed class AdvisoryAiResponseTests
     }
 
     [TestMethod]
+    [TestCategory("FR-BUD-02")]
+    public void TextUnderANameTheCounterSkipsIsCountedWhenItIsNotAPlainString()
+    {
+        // Codex review of cd04620, 71C-02: the byte counter skipped every value named status, role, type or id, so text inside an
+        // object under one of those names wasn't counted, and the usage settled at one reported output token.
+        const string oneToken = "\"usage\":{\"input_tokens\":900,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":1,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":901}";
+        string hidden = "[{\"type\":\"reasoning\",\"status\":{\"note\":\"" + new string('x', 5) + "\"},\"summary\":[]},{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"TEXT\"}]}]";
+        AdvisoryAiResponse within = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(Body(output: hidden.Replace("TEXT", "abc", StringComparison.Ordinal), usage: oneToken)), Model, 1_000_000, 8192, 1024, maximumTokenUtf8Bytes: 8);
+        Assert.IsTrue(within.UsageReliable, "5 + 3 bytes fit the 8 one token can decode to");
+        AdvisoryAiResponse over = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(Body(output: hidden.Replace("TEXT", "abcd", StringComparison.Ordinal), usage: oneToken)), Model, 1_000_000, 8192, 1024, maximumTokenUtf8Bytes: 8);
+        Assert.IsFalse(over.UsageReliable, "the text in the status object is counted");
+        Assert.IsTrue(over.UsageAboveApprovedBounds);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-02")]
+    [DataRow(",\"store\":true", "\"output_tokens\":1,", "901", DisplayName = "a body refused before the output is read")]
+    [DataRow("", "\"output_tokens\":1,", "5", DisplayName = "a total that doesn't add up, with a plain output count")]
+    public void OutputTextThatContradictsAPlainOutputCountAlwaysPauses(string extra, string outputCount, string total)
+    {
+        // Codex review of cd04620, 71C-03: a body refused early (here for echoing store) returned before the check, and an inconsistent
+        // total made the check use the whole approved output instead of the reported count. Both kept the reservation with no pause.
+        string usage = "\"usage\":{\"input_tokens\":900,\"input_tokens_details\":{\"cached_tokens\":0}," + outputCount + "\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":" + total + "}";
+        string output = "[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"" + new string('x', 193) + "\"}]}]";
+        string body = Body(output: output, usage: usage).Replace(",\"store\":false", extra, StringComparison.Ordinal);
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 8192, 2048, maximumTokenUtf8Bytes: 192);
+        Assert.IsFalse(response.UsageReliable);
+        Assert.IsTrue(response.UsageAboveApprovedBounds, "193 bytes can't come from one token of at most 192");
+        string fits = body.Replace(new string('x', 193), new string('x', 192), StringComparison.Ordinal);
+        AdvisoryAiResponse within = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(fits), Model, 1_000_000, 8192, 2048, maximumTokenUtf8Bytes: 192);
+        Assert.IsFalse(within.UsageAboveApprovedBounds, "the same body with text one token can decode to isn't stopped for this");
+    }
+
+    [TestMethod]
     [TestCategory("FR-BUD-03")]
     public void AnIncompleteAnswerWithNoTextCanStillCarryCompleteBillableUsage()
     {

@@ -300,6 +300,73 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    [DataRow("\"C:\u200B\\Data\\Project Amber Notes.txt\"", DisplayName = "a zero-width space after the colon")]
+    [DataRow("\"\u202AC:\\Data\\Project Amber Notes.txt\"", DisplayName = "a direction mark before the drive")]
+    [DataRow("'C:\\\uFEFFData\\Project Amber Notes.txt'", DisplayName = "a byte-order mark after the separator")]
+    [DataRow("\"C\U0001D173:\\Data\\Project Amber Notes.txt\"", DisplayName = "an astral format character in the drive")]
+    public void ACutNeverSplitsAPathThatAnInvisibleCharacterInterrupts(string path)
+    {
+        // Codex review of cd04620, 71C-01, and the independent review's P1 and P4: cleaning removes an invisible character, so the
+        // whole path is removed, but the cut was chosen on text where the character still stood between the drive and the rest, so a
+        // cut at a space inside the path left "Amber" as plain text. Every cut is now chosen on the text as cleaning sees it.
+        string answer = "See " + path + " for details.";
+        Assert.DoesNotContain("Amber", AdvisoryAiRedaction.SanitizeAnswer(answer, 4000).Value!, "the whole path is removed");
+        Assert.DoesNotContain("Amber", AdvisoryAiRedaction.SanitizeEvidence(answer, 2048).Value!, "the whole path is removed");
+        for (int bound = answer.IndexOf("Amber", StringComparison.Ordinal) + 1; bound < answer.Length - 1; bound++)
+        {
+            (string cut, bool wasCut) = AdvisoryAiRedaction.BoundAnswer(answer, bound);
+            Assert.IsTrue(wasCut);
+            Assert.DoesNotContain("Amber", AdvisoryAiRedaction.SanitizeAnswer(cut, 4000).Value ?? string.Empty, $"answer cut at {bound}");
+        }
+        for (int offset = 1; offset < path.Length; offset++)
+        {
+            string evidence = new string(' ', (16 * 1024) - 4 - offset) + "See " + path + " tail";
+            DiagnosticSanitizedText clean = AdvisoryAiRedaction.SanitizeEvidence(evidence, 2048);
+            Assert.IsTrue(clean.Truncated);
+            Assert.DoesNotContain("Amber", clean.Value ?? string.Empty, $"evidence cut {offset} characters into the path");
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("J\u200Bo", DisplayName = "a zero-width space inside the first word")]
+    [DataRow("\u2060Jo", DisplayName = "a word joiner before the first word")]
+    [DataRow("Jo", DisplayName = "no invisible character")]
+    public void ACutBetweenTheWordsOfANameDropsTheFirstWordsWhateverInvisibleCharacterIsInThem(string first)
+    {
+        // Codex review of cd04620, 71C-04, and the independent review's P2 and P3: the first words were matched on the raw text, so an
+        // invisible character inside them hid them; and the timeline's own cut had no name step at all.
+        DiagnosticRedactionContext twoWords = new(["Jo Bloggs"]);
+        string answer = new string('a', 20) + " signed in as " + first + " Bloggs today";
+        (string cut, bool wasCut) = AdvisoryAiRedaction.BoundAnswer(answer, answer.IndexOf("Bloggs", StringComparison.Ordinal) + 2, twoWords);
+        Assert.IsTrue(wasCut);
+        Assert.EndsWith("signed in as", cut);
+        string evidence = new string(' ', (16 * 1024) - 2 - first.Length) + first + " Bloggs tail";
+        Assert.AreEqual((16 * 1024) - 1, evidence.IndexOf("Bloggs", StringComparison.Ordinal), "the bound falls inside the second word");
+        DiagnosticSanitizedText clean = AdvisoryAiRedaction.SanitizeEvidence(evidence, 2048, twoWords);
+        Assert.IsTrue(clean.Truncated);
+        Assert.DoesNotContain("Jo", clean.Value ?? string.Empty, "evidence");
+        string timeline = string.Concat(Enumerable.Repeat("log ", 4095)) + first + " Bloggs tail";
+        DiagnosticSanitizedText record = DiagnosticTextSanitizer.Sanitize(timeline, 20_000, twoWords);
+        Assert.IsTrue(record.Truncated);
+        Assert.DoesNotContain("Jo", record.Value!, "timeline");
+        Assert.EndsWith("log" + DiagnosticTextSanitizer.Ellipsis, record.Value!);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void ASingleQuotedPathWithAnApostropheInAFolderNameIsRemovedWhole()
+    {
+        // Independent review of cd04620, P7: the first apostrophe (O'Brien) ended the quoted path, so the rest of it stayed visible.
+        const string text = "Saved to 'C:\\Users\\O'Brien\\Documents\\Hartwell Accounts.pdf' yesterday.";
+        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000).Value, DiagnosticTextSanitizer.Sanitize(text, 4096).Value])
+        {
+            Assert.AreEqual("Saved to '[path]' yesterday.", clean);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     public void ANameThatEndsASecretIsNotDroppedBeforeTheSecretIsRemoved()
     {
         // Codex review of #142: dropping the first word of a name that is also the last group of a product key would leave the
@@ -326,11 +393,12 @@ public sealed class AdvisoryAiRedactionTests
     [TestCategory("FR-AI-05")]
     public void AnAnswerKeepsEachLinesIndentationSoCodeKeepsItsMeaning()
     {
-        // Task 71C review 71C-04: leading spaces survive redaction (spaces inside a line still collapse), capped, and the result is
-        // unchanged when it is sanitized again, as a saved answer is on every read.
-        const string answer = "Try this:\n```python\nif ready:\n    run(  1 )\n        log(\"C:\\Users\\alex\\x.log\")\n```";
+        // Task 71C review 71C-04: leading spaces survive redaction, capped, and the result is unchanged when it is sanitized again, as a
+        // saved answer is on every read. Codex review of cd04620, 71C-06: inside a fence, spaces inside a line are kept too when nothing
+        // in the line was removed; a line that had something removed has its spaces collapsed, and so does prose outside a fence.
+        const string answer = "Try  this:\n```python\nif ready:\n    run(  1 )\n    label = 'A  B'\n        log(  \"C:\\Users\\alex\\x.log\")\n```";
         string? clean = AdvisoryAiRedaction.SanitizeAnswer(answer, 4000, Identity).Value;
-        Assert.AreEqual("Try this:\n```python\nif ready:\n    run( 1 )\n        log(\"[path]\")\n```", clean);
+        Assert.AreEqual("Try this:\n```python\nif ready:\n    run(  1 )\n    label = 'A  B'\n        log( \"[path]\")\n```", clean);
         Assert.AreEqual(clean, AdvisoryAiRedaction.SanitizeAnswer(clean, 4000, Identity).Value);
         string deep = AdvisoryAiRedaction.SanitizeAnswer(new string(' ', 500) + "x", 4000).Value!;
         Assert.AreEqual(new string(' ', AdvisoryAiRedaction.MaximumAnswerIndentation) + "x", deep);

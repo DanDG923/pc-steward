@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -100,10 +101,21 @@ public static class AdvisoryAiRedaction
         // Invisible characters are removed first (line breaks kept), so "pass\u200Bword:" on one line and its value on the next are
         // still recognised as one secret.
         string whole = RedactSecrets(StripInvisibleKeepingLines(text));
+        char fence = '\0';
+        int fenceLength = 0;
         foreach (string line in whole.Split(['\n', '\r', '\u2028', '\u2029', '\u0085']))
         {
             DiagnosticSanitizedText clean = line.Length == 0 ? new(null, false) : Clean(line, maximumScalars, context);
             truncated |= clean.Truncated;
+            // Codex review of cd04620, 71C-06: inside a fenced code block, a line that cleaning left unchanged apart from its spacing
+            // keeps its spacing ("label = 'A  B'"). A line that had anything removed keeps the cleaned text, spaces collapsed.
+            bool literal = fence != '\0';
+            (fence, fenceLength) = NextFence(line, fence, fenceLength);
+            if (literal && fence != '\0' && clean.Value is not null && !clean.Truncated)
+            {
+                string spaced = line.Trim(' ');
+                if (string.Equals(Spaces.Replace(spaced, " "), clean.Value, StringComparison.Ordinal)) clean = clean with { Value = spaced };
+            }
             if (clean.Value is null)
             {
                 blankPending = lines.Count > 0;
@@ -146,6 +158,9 @@ public static class AdvisoryAiRedaction
     {
         if (context is null) return text;
         string trimmed = text.TrimEnd();
+        // Codex review of cd04620, 71C-04: the words are matched on the text as cleaning sees it, so an invisible character inside a
+        // word ("J\u200Bo") doesn't hide it. The cut is then made at the same place in the text.
+        (string view, int[] map) = CleaningView(trimmed, trimmed.Length, keepLines: false);
         string? probe = null;
         foreach (string token in context.IdentityTokens)
         {
@@ -153,46 +168,41 @@ public static class AdvisoryAiRedaction
             string[] words = token.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
             for (int count = words.Length - 1; count >= 1; count--)
             {
-                int start = StartOfWordsAtEnd(trimmed, words, count);
+                int start = DiagnosticTextSanitizer.StartOfWordsAtEnd(view.TrimEnd(), words, count);
                 if (start < 0) continue;
                 probe ??= Spaces.Replace(CleanBeforeNames(trimmed) ?? string.Empty, " ").Trim();
-                if (StartOfWordsAtEnd(probe, words, count) >= 0) return trimmed[..start].TrimEnd();
+                if (DiagnosticTextSanitizer.StartOfWordsAtEnd(probe, words, count) >= 0) return trimmed[..AfterViewPrefix(map, start)].TrimEnd();
             }
         }
         return text;
-    }
-
-    /// <summary>
-    /// Where the first <paramref name="count"/> of <paramref name="words"/> start when <paramref name="text"/> ends with them, at a
-    /// boundary that isn't a letter or digit, or -1. Independent review of 4056e3f, L2: any run of whitespace between them counts (a tab,
-    /// two spaces, a no-break space or a line break), as cleaning makes each one a single space.
-    /// </summary>
-    private static int StartOfWordsAtEnd(string text, string[] words, int count)
-    {
-        int end = text.Length;
-        for (int word = count - 1; word >= 0; word--)
-        {
-            if (word < count - 1)
-            {
-                int gapEnd = end;
-                while (end > 0 && char.IsWhiteSpace(text[end - 1])) end--;
-                if (end == gapEnd) return -1;
-            }
-            string expected = words[word];
-            if (end < expected.Length || !text.AsSpan(end - expected.Length, expected.Length).Equals(expected, StringComparison.OrdinalIgnoreCase)) return -1;
-            end -= expected.Length;
-        }
-        return end == 0 || !char.IsLetterOrDigit(text[end - 1]) ? end : -1;
     }
 
     private static (string Text, bool Cut) CutAnswer(string text, int maximumCharacters)
     {
         // The character just past the bound is part of the question: when it is whitespace, the last word inside is whole. Codex
         // review of ce0eaf3, C3: the cut never splits a path that holds spaces either, so it moves before any path open across it.
-        if (char.IsWhiteSpace(text[maximumCharacters])) return (text[..DiagnosticTextSanitizer.SafeCutAtOrBefore(text, maximumCharacters)], true);
+        // Codex review of cd04620, 71C-01: the cut is chosen on the answer as cleaning sees it, so an invisible character inside a path
+        // doesn't hide it.
+        if (char.IsWhiteSpace(text[maximumCharacters])) return (text[..SafeCutAsCleaned(text, maximumCharacters, keepLines: true)], true);
         int lineBreak = text.LastIndexOf('\n', maximumCharacters - 1, maximumCharacters - (maximumCharacters / 2));
-        if (lineBreak >= maximumCharacters / 2) return (text[..DiagnosticTextSanitizer.SafeCutAtOrBefore(text, lineBreak)], true);
-        return (text[..DiagnosticTextSanitizer.SafeCutAtOrBefore(text, maximumCharacters)].TrimEnd(), true);
+        if (lineBreak >= maximumCharacters / 2) return (text[..SafeCutAsCleaned(text, lineBreak, keepLines: true)], true);
+        return (text[..SafeCutAsCleaned(text, maximumCharacters, keepLines: true)].TrimEnd(), true);
+    }
+
+    /// <summary>
+    /// The fence open after <paramref name="line"/>: a line starting (after spaces) with three or more backticks or tildes opens one,
+    /// and a line of at least as many of the same character, and nothing else, closes it, as the answer formatter reads them.
+    /// </summary>
+    private static (char Fence, int Length) NextFence(string line, char fence, int length)
+    {
+        int start = 0;
+        while (start < line.Length && line[start] is ' ' or '\t') start++;
+        int run = 0;
+        char at = start < line.Length ? line[start] : '\0';
+        if (at is not ('`' or '~')) return (fence, length);
+        while (start + run < line.Length && line[start + run] == at) run++;
+        if (fence == '\0') return run >= 3 ? (at, run) : (fence, length);
+        return at == fence && run >= length && line.AsSpan(start + run).IsWhiteSpace() ? ('\0', 0) : (fence, length);
     }
 
     /// <summary>The most leading spaces an answer line keeps (Task 71C review 71C-04), enough for code nested sixteen levels deep.</summary>
@@ -303,8 +313,9 @@ public static class AdvisoryAiRedaction
             // prefix its pattern no longer matches (the evidence twin of the answer cut, Codex review of #141).
             // Codex review of ce0eaf3, C3: nor inside a path that holds spaces. Independent review of 4056e3f, G1: the cut is chosen
             // on the text as cleaning will see it, where a line break is a space and an invisible character is gone, so a path
-            // wrapped over a line break is still one path.
-            if (scalars == MaximumInputScalars) return (text[..DiagnosticTextSanitizer.SafeCutAtOrBefore(AsCleaned(text, index), index)], true);
+            // wrapped over a line break is still one path. Codex review of cd04620, 71C-01: an invisible character is left out of that
+            // view, not replaced, so it can't hide where a path starts.
+            if (scalars == MaximumInputScalars) return (text[..SafeCutAsCleaned(text, index, keepLines: false)], true);
             index += char.IsHighSurrogate(text[index]) && index + 1 < text.Length && char.IsLowSurrogate(text[index + 1]) ? 2 : 1;
             scalars++;
         }
@@ -312,25 +323,62 @@ public static class AdvisoryAiRedaction
     }
 
     /// <summary>
-    /// Independent review of 4056e3f, G1: the start of <paramref name="text"/>, up to one longest path past <paramref name="end"/>, with
-    /// each character in the same place as cleaning will treat it: whitespace and line or paragraph separators become a space (an
-    /// evidence item is cleaned to one line), and a character cleaning removes becomes a letter, so the words on either side of it
-    /// stay one word. A cut chosen on it is a cut of <paramref name="text"/> at the same index.
+    /// Independent review of 4056e3f, G1, and Codex review of cd04620, 71C-01: the end of a cut of <paramref name="text"/> at or before
+    /// <paramref name="end"/> that splits no word and no path as cleaning will see them, found on <see cref="CleaningView"/>.
     /// </summary>
-    private static string AsCleaned(string text, int end)
+    private static int SafeCutAsCleaned(string text, int end, bool keepLines)
     {
-        int length = Math.Min(text.Length, end + DiagnosticTextSanitizer.MaximumPathLength);
-        return string.Create(length, text, static (view, source) =>
+        // A cut never splits a surrogate pair.
+        if (end > 0 && end < text.Length && char.IsLowSurrogate(text[end]) && char.IsHighSurrogate(text[end - 1])) end--;
+        (string view, int[] map) = CleaningView(text, Math.Min(text.Length, end + DiagnosticTextSanitizer.MaximumPathLength), keepLines);
+        int viewEnd = Array.BinarySearch(map, 0, view.Length, end);
+        if (viewEnd < 0) viewEnd = ~viewEnd;
+        int cut = DiagnosticTextSanitizer.SafeCutAtOrBefore(view, viewEnd);
+        return cut >= viewEnd ? end : AfterViewPrefix(map, cut);
+    }
+
+    /// <summary>The end in the text of the first <paramref name="count"/> view characters, so characters cleaning removes after them go too.</summary>
+    private static int AfterViewPrefix(int[] map, int count) => count == 0 ? 0 : map[count - 1] + 1;
+
+    /// <summary>
+    /// The first <paramref name="length"/> characters of <paramref name="text"/> as cleaning sees them, and where each view character
+    /// came from: a character cleaning removes (a control or format character, or an unassigned one) is left
+    /// out, so the words on either side of it join as they will once it is gone; other whitespace becomes a space, and a line break
+    /// becomes a space too unless <paramref name="keepLines"/> is set (an answer is cleaned line by line). Map is ascending, so a
+    /// view index maps back to a cut of the text at the same place.
+    /// </summary>
+    private static (string View, int[] Map) CleaningView(string text, int length, bool keepLines)
+    {
+        StringBuilder view = new(length);
+        int[] map = new int[length];
+        int index = 0;
+        while (index < length)
         {
-            for (int index = 0; index < view.Length; index++)
+            int start = index;
+            OperationStatus decoded = Rune.DecodeFromUtf16(text.AsSpan(index, length - index), out Rune rune, out int consumed);
+            index += Math.Max(1, consumed);
+            UnicodeCategory category = decoded == OperationStatus.Done ? Rune.GetUnicodeCategory(rune) : UnicodeCategory.OtherSymbol;
+            char replacement;
+            // A lone surrogate half is read as the replacement character, as cleaning reads it.
+            if (decoded != OperationStatus.Done) replacement = '\uFFFD';
+            else if (rune.Value is '\r' or '\n' or 0x85 || category is UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator)
             {
-                char character = source[index];
-                UnicodeCategory category = char.GetUnicodeCategory(character);
-                view[index] = char.IsWhiteSpace(character) || category is UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator ? ' '
-                    : category is UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.OtherNotAssigned ? 'x'
-                    : character;
+                if (rune.Value == '\n' && start > 0 && text[start - 1] == '\r') continue;
+                replacement = keepLines ? '\n' : ' ';
             }
-        });
+            else if (Rune.IsWhiteSpace(rune)) replacement = ' ';
+            else if (category is UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.Surrogate or UnicodeCategory.OtherNotAssigned) continue;
+            else
+            {
+                map[view.Length] = start;
+                view.Append(text[start]);
+                if (consumed == 2) { map[view.Length] = start + 1; view.Append(text[start + 1]); }
+                continue;
+            }
+            map[view.Length] = start;
+            view.Append(replacement);
+        }
+        return (view.ToString(), map);
     }
 
     private static DiagnosticSanitizedText Truncate(string value, int maximumScalars)

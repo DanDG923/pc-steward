@@ -187,7 +187,7 @@ public sealed class AdvisoryAiAnswerFormatTests
         string redacted = PCSteward.Domain.AdvisoryAiRedaction.SanitizeAnswer(answer, 4000).Value!;
         IReadOnlyList<AdvisoryAiAnswerBlock> blocks = AdvisoryAiAnswerFormat.Parse(redacted);
         CollectionAssert.AreEqual(IndentedFenceKinds, blocks.Select(block => block.Kind).ToArray());
-        Assert.AreEqual("    ```bash\n    - keep-this\n        echo hi\n    ```", blocks[1].PlainText);
+        Assert.AreEqual("    ```bash\n    - keep-this\n        echo  hi\n    ```", blocks[1].PlainText, "code keeps its spacing (Codex review of cd04620, 71C-06)");
         Assert.AreEqual("2.", blocks[2].Marker);
     }
 
@@ -203,6 +203,9 @@ public sealed class AdvisoryAiAnswerFormatTests
     [DataRow("<span title='A <b> **ready**'>status</span>", DisplayName = "a single-quoted < in an attribute")]
     [DataRow("<!-- don't make **this** bold -->", DisplayName = "an apostrophe in a comment (independent review of 4056e3f, L3)")]
     [DataRow("<span title = \"A > **ready**\">status</span>", DisplayName = "a quoted value after spaces around =")]
+    [DataRow("<!-- a > **b** -->", DisplayName = "a > inside a comment (Codex review of cd04620, 71C-05)")]
+    [DataRow("<!-- a='b --> <span title=\"**ready**\">status</span>", DisplayName = "an unmatched apostrophe after = in a comment")]
+    [DataRow("<b x='y>text</b> <span title=\"**ready**\">status</span>", DisplayName = "an unmatched quote in a tag (independent review of cd04620, P6)")]
     public void MarksInsideAnHtmlTagStayAsWritten(string html)
     {
         // Task 71C review 71C-R3: HTML is never interpreted, and its source isn't changed by bold matching either.
