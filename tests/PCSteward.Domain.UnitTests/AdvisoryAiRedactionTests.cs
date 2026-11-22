@@ -752,4 +752,23 @@ public sealed class AdvisoryAiRedactionTests
             Assert.AreEqual(expected, clean);
         }
     }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("'C:\\x ", DisplayName = "every quote opens a path and closes the one before")]
+    [DataRow("'C:\\Users\\O'Brien\\x ", DisplayName = "every quote is inside a word that goes on as a path")]
+    [DataRow("'C:\\a.txt' b\\c'd ", DisplayName = "every run-on reads to a quote that doesn't close")]
+    [DataRow("'C:\\a.txt' x\\y 'C:\\b' ", DisplayName = "every run-on meets a path start")]
+    [DataRow("a'b ", DisplayName = "no path at all")]
+    public void QuotedPathRemovalStaysQuickOnTextBuiltToRepeatIt(string unit)
+    {
+        // Codex review of #147: a recovery that matched every shorter prefix again made text built to need one at every quote take
+        // work that grows with the cube of its length. The recoveries are bounded and the run-on's scans are remembered.
+        string line = string.Concat(Enumerable.Repeat(unit, (200_000 / unit.Length) + 1));
+        System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+        _ = AdvisoryAiRedaction.SanitizeEvidence(line[..16_000], 16_384).Value;
+        _ = DiagnosticTextSanitizer.Sanitize(line[..16_000], 20_000).Value;
+        _ = AdvisoryAiRedaction.SanitizeAnswer(line, 400_000).Value;
+        Assert.IsLessThan(TimeSpan.FromSeconds(10), watch.Elapsed);
+    }
 }

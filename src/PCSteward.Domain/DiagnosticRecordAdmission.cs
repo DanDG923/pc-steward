@@ -178,27 +178,40 @@ public static class DiagnosticTextSanitizer
         Match match = pattern.Match(value);
         if (!match.Success) return value;
         StringBuilder result = new(value.Length);
+        QuoteScanner scan = new(value, quote);
         int position = 0;
+        int recoveries = 0;
         while (match.Success)
         {
             int end = match.Index + match.Length;
-            bool reopened = false;
-            while (end - 2 > match.Index && char.IsWhiteSpace(value[end - 2]) && StartsAPath(value, end))
+            bool opensAnother = end - 2 > match.Index && char.IsWhiteSpace(value[end - 2]) && StartsAPath(value, end);
+            bool insideAWord = runOn && end < value.Length && IsLetterOrNumber(value[end]) && !StartsAPath(value, end)
+                && !StartsALink(value.AsSpan(end)) && ContinuesAPath(value, end);
+            if ((opensAnother || insideAWord) && ++recoveries > MaximumQuoteRecoveries)
+            {
+                // Codex review of #147: each recovery below matches again, so text built to need one at every quote is not scanned
+                // over and over. Past the limit the rest of the line goes with the path, which removes more and never less.
+                end = value.IndexOfAny(['\r', '\n'], match.Index);
+                if (end < 0) end = value.Length;
+                result.Append(value, position, match.Index - position).Append(quote).Append(PathPlaceholder).Append(quote);
+                position = end;
+                match = end < value.Length ? pattern.Match(value, end) : Match.Empty;
+                continue;
+            }
+            if (opensAnother)
             {
                 // The quote that ends the match follows a space and opens another quoted path, so the match ran on past its own
                 // close ('C:\a.txt'and '\\server\x.txt'): it is matched again in the text before that quote.
                 Match shorter = pattern.Match(value, match.Index, end - 1 - match.Index);
-                if (!shorter.Success || shorter.Index != match.Index) { reopened = true; break; }
+                if (!shorter.Success || shorter.Index != match.Index)
+                {
+                    match = pattern.Match(value, match.Index + 1);
+                    continue;
+                }
                 match = shorter;
                 end = match.Index + match.Length;
             }
-            if (reopened)
-            {
-                match = pattern.Match(value, match.Index + 1);
-                continue;
-            }
-            if (runOn && end < value.Length && IsLetterOrNumber(value[end]) && !StartsAPath(value, end) && !StartsALink(value.AsSpan(end))
-                && ContinuesAPath(value, end))
+            else if (insideAWord)
             {
                 // The quote that ends the match is inside a word that goes on as a path (O'Brien\Documents), so it is not the path's
                 // closing quote. The match ends at the last quote inside it that closes one; with none, the quote never closes, and
@@ -219,16 +232,8 @@ public static class DiagnosticTextSanitizer
             {
                 // The rest of a path after an apostrophe before a space ('C:\Music\Guns N' Roses\x.mp3') runs on to the next quote
                 // that closes one, over text that holds a backslash and no start of another path or link.
-                int next = end;
-                while (true)
-                {
-                    next = value.IndexOfAny([quote, '\r', '\n'], next);
-                    if (next < 0 || value[next] != quote || ClosesAQuote(value, next)) break;
-                    next++;
-                }
-                if (next < 0 || value[next] != quote) break;
-                ReadOnlySpan<char> gap = value.AsSpan(end, next - end);
-                if (gap.IndexOf('\\') < 0 || HoldsPathOrLinkStart(gap)) break;
+                int next = scan.NextClosingQuote(end);
+                if (next < 0 || scan.NextBackslash(end) >= next || scan.NextPathOrLinkStart(end) < next) break;
                 end = next + 1;
             }
             end = PastLinkTail(value, match.Index, end);
@@ -237,6 +242,62 @@ public static class DiagnosticTextSanitizer
             match = end < value.Length ? pattern.Match(value, end) : Match.Empty;
         }
         return result.Append(value, position, value.Length - position).ToString();
+    }
+
+    /// <summary>The most times one text's quoted paths are matched again before the rest of a line is removed with its path.</summary>
+    private const int MaximumQuoteRecoveries = 16;
+
+    /// <summary>
+    /// Codex review of #147: forward scans for the quoted-path run-on, each remembered so the run-on reads every character a bounded
+    /// number of times however many quoted paths a text holds. Each scan is asked for positions that never move back.
+    /// </summary>
+    private sealed class QuoteScanner(string value, char quote)
+    {
+        private int closingFrom = -1, closingAt = -1;
+        private bool closingIsQuote;
+        private int backslashFrom = -1, backslashAt = -1;
+        private int startFrom = -1, startAt = -1;
+
+        /// <summary>The first quote at or after <paramref name="from"/> that closes one, or -1 when a line break or the end comes first.</summary>
+        public int NextClosingQuote(int from)
+        {
+            if (closingFrom < 0 || from < closingFrom || from > closingAt)
+            {
+                int index = from;
+                while (index < value.Length && value[index] is not '\r' and not '\n' && (value[index] != quote || !ClosesAQuote(value, index))) index++;
+                closingFrom = from;
+                closingAt = index;
+                closingIsQuote = index < value.Length && value[index] == quote;
+            }
+            return closingIsQuote ? closingAt : -1;
+        }
+
+        /// <summary>The first backslash at or after <paramref name="from"/>, or the text's length.</summary>
+        public int NextBackslash(int from)
+        {
+            if (backslashFrom < 0 || from < backslashFrom || from > backslashAt)
+            {
+                int found = value.AsSpan(from).IndexOf('\\');
+                backslashFrom = from;
+                backslashAt = found < 0 ? value.Length : from + found;
+            }
+            return backslashAt;
+        }
+
+        /// <summary>The first start of a path or link at or after <paramref name="from"/>, or the text's length.</summary>
+        public int NextPathOrLinkStart(int from)
+        {
+            if (startFrom < 0 || from < startFrom || from > startAt)
+            {
+                int index = from;
+                while (index < value.Length && !StartsAPath(value, index)
+                    && !((index == 0 || !char.IsLetterOrDigit(value[index - 1])) && StartsALink(value.AsSpan(index)))
+                    && !value.AsSpan(index).StartsWith("://", StringComparison.Ordinal)) index++;
+                startFrom = from;
+                startAt = index;
+            }
+            return startAt;
+        }
     }
 
     /// <summary>
@@ -276,13 +337,15 @@ public static class DiagnosticTextSanitizer
         return after >= value.Length
             || !IsLetterOrNumber(value[after])
             || StartsAPath(value, after)
-            || StartsALink(value.AsSpan(after));
+            || StartsALink(value.AsSpan(after))
+            || value.AsSpan(after).StartsWith("file:", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Whether <paramref name="rest"/> starts with a link's scheme and "://", or with "file:".</summary>
+    /// <summary>Whether <paramref name="rest"/> starts with a link's scheme and "://", or with "file:" and a slash or drive.</summary>
     private static bool StartsALink(ReadOnlySpan<char> rest)
     {
-        if (rest.StartsWith("file:", StringComparison.OrdinalIgnoreCase)) return true;
+        if (rest.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+            return rest.Length > 5 && (rest[5] is '\\' or '/' || StartsAPath(rest[5..]));
         if (rest.IsEmpty || !char.IsAsciiLetter(rest[0])) return false;
         for (int index = 1; index < rest.Length && index <= 64; index++)
         {
@@ -327,7 +390,7 @@ public static class DiagnosticTextSanitizer
 
     private static bool HoldsPathOrLinkStart(ReadOnlySpan<char> text)
     {
-        if (text.IndexOf("://", StringComparison.Ordinal) >= 0 || text.IndexOf("file:", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+        if (text.IndexOf("://", StringComparison.Ordinal) >= 0) return true;
         for (int index = 0; index < text.Length; index++)
             if (StartsAPath(text[index..])) return true;
         return false;
