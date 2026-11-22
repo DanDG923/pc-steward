@@ -681,4 +681,75 @@ public sealed class AdvisoryAiRedactionTests
             Assert.DoesNotContain("Zebra", AdvisoryAiRedaction.SanitizeAnswer(cut, 4000).Value ?? string.Empty, $"answer cut at {at}");
         }
     }
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("Copy-Item : Cannot find path 'C:\\Temp\\setup.log' because it does not exist. At C:\\Users\\O'Brien\\Documents\\Scripts\\backup.ps1:12 char:1", "Copy-Item : Cannot find path '[path]' because it does not exist. At [path]:12 char:1", DisplayName = "a later path under a folder with an apostrophe")]
+    [DataRow("Copied 'C:\\Temp\\setup.log' to C:\\Users\\Pat\\Documents\\Mum's Papers\\Hartwell-Trust-Dispute.pdf", "Copied '[path]' to [path]", DisplayName = "a later path with a possessive folder")]
+    [DataRow("Compared 'C:\\Temp\\a.txt' (from \\\\nas\\backup) with 'C:\\Users\\Pat\\Documents\\Mum's will.pdf'", "Compared '[path]' (from [path] with '[path]'", DisplayName = "a network path between two quoted paths")]
+    [DataRow("Installer 'C:\\Temp\\setup.exe' wrote C:\\Temp\\setup.log, then fetched https://files.example.org/o'brien/Hartwell-Trust/setup.msi?code=4/0AbCdEf", "Installer '[path]' wrote [path] then fetched [link]", DisplayName = "a later link with an apostrophe")]
+    [DataRow("Opened 'C:\\Temp\\a.txt' and C:\\Logs\\b.log then file:///C:/Users/Pat/Mum's Papers/Hartwell-Trust.pdf", "Opened '[path]' and [path] then [link]", DisplayName = "a later file link with a possessive folder")]
+    [DataRow("Faulting application path: 'C:\\Program Files\\App\\app.exe' Faulting module path: C:\\Users\\O'Brien\\AppData\\Local\\Temp\\mod.dll", "Faulting application path: '[path]' Faulting module path: [path]", DisplayName = "an event's module path under a folder with an apostrophe")]
+    [DataRow("Log 'C:\\Temp\\x.log shows https://example.org/a?q='x'&code=4/0AbCdEf", "Log '[path]'", DisplayName = "an unclosed quote, then a link holding a quoted value")]
+    [DataRow("Log \"C:\\Temp\\x.log shows https://example.org/pa\"th/Hartwell-Trust", "Log \"[path]\"", DisplayName = "an unclosed double quote, then a link holding a double quote")]
+    [DataRow("Opened 'C:\\Users\\O'Brien\\Documents\\x.pdf (access denied)", "Opened '[path] (access denied)", DisplayName = "an unclosed quote around a path with an apostrophe")]
+    [DataRow("Copied 'C:\\Temp\\a.txt' to C:\\Music\\Guns N' Roses\\Hartwell.mp3", "Copied '[path]' to [path]", DisplayName = "a later unquoted path with an apostrophe before a space")]
+    public void AQuotedPathsRemovalLeavesNoPartOfALaterPathOrLink(string text, string expected)
+    {
+        // Independent review of 1e57444, R1: the removal of a single-quoted path ran on to the next apostrophe whenever a backslash
+        // lay between, so it swallowed the head of a later path, link or account name and left the tail visible. It now runs on only
+        // to an apostrophe that closes a quote, over text with no start of another path or link.
+        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000).Value, DiagnosticTextSanitizer.Sanitize(text, 4096).Value])
+        {
+            Assert.AreEqual(expected, clean);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void AQuotedPathsRemovalLeavesALaterAccountNameToBeRemoved()
+    {
+        // Independent review of 1e57444, R1: with O'Brien as the PC's account name, the quoted path's removal took "CORP\O'".
+        DiagnosticRedactionContext names = new(["CORP", "O'Brien"]);
+        const string text = "Signed in 'C:\\Temp\\a.txt' as CORP\\O'Brien today";
+        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048, names).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000, names).Value, DiagnosticTextSanitizer.Sanitize(text, 4096, names).Value])
+        {
+            Assert.AreEqual("Signed in '[path]' as [redacted]\\[redacted] today", clean);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("Could not open 'C:\\Temp\\a.txt'. Setup log at C:\\Logs\\x.log says the installer couldn't continue because the disk was full", "Could not open '[path]'. Setup log at [path] says the installer couldn't continue because the disk was full")]
+    [DataRow("Check 'C:\\Program Files\\Contoso Editor\\settings.ini' and the folder C:\\ProgramData\\Contoso; if it doesn't exist, reinstall the editor.", "Check '[path]' and the folder [path] if it doesn't exist, reinstall the editor.")]
+    public void AQuotedPathsRemovalKeepsTheOrdinaryWordsAfterIt(string text, string expected)
+    {
+        // Independent review of 1e57444, R2: the same run-on removed ordinary words up to the apostrophe in "couldn't".
+        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000).Value, DiagnosticTextSanitizer.Sanitize(text, 4096).Value])
+        {
+            Assert.AreEqual(expected, clean);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void ACutAfterAQuotedPathKeepsTheOrdinaryTextBeforeIt()
+    {
+        // Independent review of 1e57444, R2: with the next apostrophe past the cut, the cut check kept 6 characters of 20,000.
+        string text = "Opened 'C:\\Temp\\a.txt' and C:\\Logs\\b.log. " + string.Concat(Enumerable.Repeat("plain words here ", 1_200)) + "it didn't";
+        string clean = AdvisoryAiRedaction.SanitizeEvidence(text, 16_384).Value ?? string.Empty;
+        Assert.IsGreaterThan(15_000, clean.Length);
+        StringAssert.StartsWith(clean, "Opened '[path]' and [path]");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("Opened file://localhost/C:/Users/Pat/Tax Returns 2026/Final Copy/return.pdf today", "Opened [link] today", DisplayName = "a host before the drive (R5)")]
+    [DataRow("Paths C:\\a\\b.txt;D:\\Users\\Pat\\c.txt and \\\\srv\\share\\x;C:\\y\\z.txt done", "Paths [path][path] and [path][path] done", DisplayName = "a drive or share path, then a drive path with no space (R6)")]
+    public void AFileLinkAfterAHostAndTwoPathsJoinedWithNoSpaceAreRemovedWhole(string text, string expected)
+    {
+        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000).Value, DiagnosticTextSanitizer.Sanitize(text, 4096).Value])
+        {
+            Assert.AreEqual(expected, clean);
+        }
+    }
 }

@@ -1,3 +1,9 @@
+**Advisory AI, independent review of the seventh Task 71C retest build failed; fixes (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-DIA-03` ([Task 90 record §19](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `1e57444`.** One Medium finding, new in #146: removing a single-quoted path could run on into a later path, link or account name with an apostrophe and leave its tail, with no cut and no long text needed. Four Low and one Info. The cut check itself held. The model, route and retest procedure passed. The report is not in the repository.
+- **Fixed.** The run-on after a quoted path stops at anything that starts another path or link and ends only at an apostrophe that closes a quote, so ordinary words after it are kept too. A file link after a host, two paths joined with no space, and a link holding a quote are removed whole. The cut check stops after one second.
+- **Next.** A new retest build from `phase/4-beta`, reviewed by both reviewers, then the owner's separate approvals for the key step and the one send.
+
 **Advisory AI, independent review of the sixth Task 71C retest build failed; fixes (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-DIA-03` ([Task 90 record §18](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `4d2e238`.** One Medium finding, new in #145: an owner's evidence edit over 16,384 characters could be cut inside a double-quoted path inside a single-quoted command line, leaving words of the file name. Seven Low. The model, route and retest procedure passed. The report is not in the repository.
