@@ -621,6 +621,7 @@ public sealed class AdvisoryAiRedactionTests
     [TestCategory("FR-AI-05")]
     [DataRow("file:///C:/Users/Pat/Tax Returns 2026/Final Copy/return.pdf", DisplayName = "a drive in a file link")]
     [DataRow("FILE://server/share/Tax Returns 2026/Final Copy/return.pdf", DisplayName = "a network share in a file link")]
+    [DataRow("file:///C:/Tax Returns 2026/Final Copy/return.pdf?customer=Hartwell-Family#page=2", DisplayName = "a query string and fragment (Codex review of #146)")]
     public void AFileLinkWithSpacesIsRemovedWhole(string link)
     {
         // Independent review of 4d2e238, Q7: a file link ended at its first space, leaving the private folder names after it.
@@ -629,7 +630,7 @@ public sealed class AdvisoryAiRedactionTests
         {
             Assert.AreEqual("Open [link] now", clean);
         }
-        AssertNoCutShows(text, text.IndexOf("Returns", StringComparison.Ordinal), text.IndexOf(".pdf", StringComparison.Ordinal), ["Returns", "Final", "Copy", "return"]);
+        AssertNoCutShows(text, text.IndexOf("Returns", StringComparison.Ordinal), text.IndexOf(".pdf", StringComparison.Ordinal), ["Returns", "Final", "Copy", "return", "Hartwell"]);
     }
 
     [TestMethod]
