@@ -199,9 +199,11 @@ public sealed class AdvisoryAiAnswerFormatTests
     public void BoldOutsideATagOrAfterAnUnclosedAngleIsStillBold()
     {
         IReadOnlyList<AdvisoryAiAnswerBlock> blocks = AdvisoryAiAnswerFormat.Parse("Use <b>tags</b> and **this** if 2 <3 or **that**");
-        CollectionAssert.AreEqual(new[] { "this", "that" }, blocks[0].Spans.Where(span => span.Bold).Select(span => span.Text).ToArray());
+        CollectionAssert.AreEqual(BoldOutsideTags, blocks[0].Spans.Where(span => span.Bold).Select(span => span.Text).ToArray());
         Assert.AreEqual("Use <b>tags</b> and this if 2 <3 or that", blocks[0].PlainText);
     }
+
+    private static readonly string[] BoldOutsideTags = ["this", "that"];
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
