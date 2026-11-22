@@ -1,3 +1,8 @@
+**Advisory AI, independent review of the third retest build: one Medium fix (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-05`, `FR-DIA-03` ([Task 90 record §14](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `ce0eaf3`.** Every check the prompt asked for passed, including each earlier fix. One Medium finding of its own (F1): an owner's evidence edit over 16,384 characters was cut inside a word before it was cleaned, so part of a secret could stay in the text to send. The retest's one send can't reach it. The report is not in the repository.
+- **Fixed.** Evidence and the Diagnostics timeline's working bound now cut only at a word boundary, and a cut between the words of a name of several words drops its first words too (F3). F2, F4 and F5 (Low) are recorded, not changed.
+
 **Advisory AI, second Task 71C retest build review failed; fixes (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-04/05/06`, `FR-BUD-03` ([Task 90 record §13](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `c344237`.** The owner's review of the rebuilt retest build (run 44963267707) returned FAIL: two Medium findings (undecodable text where the reader doesn't look left usage trusted; sanitizing and the saved-answers dialog sat outside the formatting budget), two Low (bold matching changed HTML source; a saved row that cleaned to nothing kept its text) and one Info (runbook figures). Artifact identity, model, route, the retest arithmetic and the credential cleanup passed. The report is not in the repository.

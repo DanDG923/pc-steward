@@ -257,7 +257,7 @@ public sealed class AdvisoryAiRequestWorkflow
         DiagnosticSanitizedText answer = new(null, false);
         if (response.Text is not null)
         {
-            (string raw, bool cut) = AdvisoryAiRedaction.BoundAnswer(response.Text, Math.Max(2, rawCharacters));
+            (string raw, bool cut) = AdvisoryAiRedaction.BoundAnswer(response.Text, Math.Max(2, rawCharacters), redaction);
             answer = AdvisoryAiRedaction.SanitizeAnswer(raw, Math.Max(2, answerScalars), redaction);
             answer = answer with { Truncated = answer.Value is not null && (answer.Truncated || cut) };
         }

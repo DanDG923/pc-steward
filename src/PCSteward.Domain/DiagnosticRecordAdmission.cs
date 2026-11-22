@@ -83,9 +83,17 @@ public static class DiagnosticTextSanitizer
         if (string.IsNullOrWhiteSpace(text)) return new(null, false);
 
         StringBuilder cleaned = new(Math.Min(text.Length, maximumCleanedChars));
+        bool cutEarly = false;
         foreach (Rune rune in text.EnumerateRunes())
         {
-            if (cleaned.Length >= maximumCleanedChars) break;
+            if (cleaned.Length >= maximumCleanedChars)
+            {
+                // Independent review of ce0eaf3, F1: a cut inside a word would leave the start of a value the patterns below no
+                // longer recognise (part of an e-mail address or the computer name), so the unfinished last word is dropped.
+                cutEarly = true;
+                if (!Rune.IsWhiteSpace(rune)) cleaned.Length = WordStart(cleaned);
+                break;
+            }
             UnicodeCategory category = Rune.GetUnicodeCategory(rune);
             if (Rune.IsWhiteSpace(rune) || category is UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator) cleaned.Append(' ');
             else if (category is UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.Surrogate or UnicodeCategory.OtherNotAssigned) continue;
@@ -112,8 +120,37 @@ public static class DiagnosticTextSanitizer
             .ThenBy(token => token, StringComparer.Ordinal))
             value = ReplaceWholeWord(value, token);
         value = Whitespace.Replace(value, " ").Trim();
-        if (value.Length == 0) return new(null, false);
-        return Truncate(value, maximumScalars);
+        // A text whose only word ran past the working bound keeps nothing but is still marked cut (Codex review of #142).
+        if (value.Length == 0) return new(null, cutEarly);
+        if (!cutEarly) return Truncate(value, maximumScalars);
+        // A text cut at the working bound is marked with the ellipsis too, inside the same scalar limit (Codex review of #142).
+        DiagnosticSanitizedText early = Truncate(value, maximumScalars - 1);
+        return early.Truncated ? early : new(early.Value + Ellipsis, true);
+    }
+
+    /// <summary>Where the last word of <paramref name="text"/> starts: just after its last whitespace, or 0 when it has none.</summary>
+    private static int WordStart(StringBuilder text)
+    {
+        for (int index = text.Length - 1; index >= 0; index--)
+            if (char.IsWhiteSpace(text[index])) return index + 1;
+        return 0;
+    }
+
+    /// <summary>
+    /// Independent review of ce0eaf3, F1: the end of a cut of <paramref name="text"/> at <paramref name="end"/> that never falls inside
+    /// a word. It is <paramref name="end"/> when the text ends there or a whitespace character sits on either side of it; otherwise the
+    /// start of the word it would split (just after the last whitespace before it), or 0 when there is none, so nothing is kept.
+    /// Redaction runs after the cut, so a value it recognises by its shape is never left as a prefix it no longer matches.
+    /// </summary>
+    public static int WordBoundaryAtOrBefore(string text, int end)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        ArgumentOutOfRangeException.ThrowIfNegative(end);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(end, text.Length);
+        if (end == text.Length || end == 0 || char.IsWhiteSpace(text[end]) || char.IsWhiteSpace(text[end - 1])) return end;
+        for (int index = end - 1; index >= 0; index--)
+            if (char.IsWhiteSpace(text[index])) return index + 1;
+        return 0;
     }
 
     private static DiagnosticSanitizedText Truncate(string value, int maximumScalars)

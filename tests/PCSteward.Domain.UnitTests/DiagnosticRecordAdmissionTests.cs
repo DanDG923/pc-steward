@@ -208,6 +208,46 @@ public sealed class DiagnosticRecordAdmissionTests
             Assert.IsFalse(DiagnosticRecordJson.TryParse(value, out _), value.Length > 200 ? value[..200] : value);
     }
 
+    [TestMethod]
+    [TestCategory("FR-DIA-03")]
+    public void TheWorkingBoundNeverCutsInsideAWord()
+    {
+        // Independent review of ce0eaf3, F1 (related): the 16 Ki working bound used to fall inside a word, leaving the start of an
+        // e-mail address or computer name the patterns no longer matched. The unfinished word is dropped and the text is marked cut.
+        DiagnosticRedactionContext identity = new(["alexpc"]);
+        foreach (string value in new[] { "someone.person@example.com", "alexpc" })
+        {
+            for (int offset = 1; offset < value.Length; offset++)
+            {
+                string text = new string('a', 16 * 1024 - offset - 1) + " " + value + " tail";
+                DiagnosticSanitizedText clean = DiagnosticTextSanitizer.Sanitize(text, 32 * 1024, identity);
+                Assert.IsTrue(clean.Truncated, $"{value} at {offset}");
+                StringAssert.EndsWith(clean.Value, "a" + DiagnosticTextSanitizer.Ellipsis, $"{value} at {offset}: only whole words are kept");
+            }
+        }
+
+        // Codex review of #142: a text cut at the working bound that cleans to exactly the scalar limit still fits it with its mark.
+        foreach (int limit in new[] { 2, 255, 256, 257 })
+        {
+            string subject = new string('a', 256) + new string(' ', (16 * 1024) - 256) + " tail";
+            DiagnosticSanitizedText fitted = DiagnosticTextSanitizer.Sanitize(subject, limit);
+            Assert.IsTrue(fitted.Truncated, $"limit {limit}");
+            Assert.IsLessThanOrEqualTo(limit, fitted.Value!.EnumerateRunes().Count(), $"limit {limit}");
+            StringAssert.EndsWith(fitted.Value, DiagnosticTextSanitizer.Ellipsis);
+        }
+
+        // Codex review of #142: one word longer than the working bound keeps nothing, and the admitted record still says text was cut.
+        DiagnosticSanitizedText word = DiagnosticTextSanitizer.Sanitize(new string('a', (16 * 1024) + 1), 4096);
+        Assert.IsNull(word.Value);
+        Assert.IsTrue(word.Truncated);
+        DiagnosticAdmission admitted = DiagnosticRecordAdmission.Admit(
+            Candidate(DiagnosticSourceKind.SystemEventLog, DiagnosticEventKind.UnexpectedShutdown) with { Summary = new string('a', (16 * 1024) + 1) });
+        Assert.IsTrue(admitted.Admitted);
+        Assert.IsNull(admitted.Record!.Summary);
+        Assert.IsTrue(admitted.Record.TextTruncated);
+        Assert.IsTrue(DiagnosticRecordAdmission.IsValidStored(admitted.Record));
+    }
+
     private static DiagnosticRecordCandidate Candidate(DiagnosticSourceKind source, DiagnosticEventKind kind) =>
         new(source, "System:1234", new(At, TimeSpan.Zero, DiagnosticTimeQuality.Known), kind, DiagnosticOutcomeKind.NotApplicable, EventId: 41);
 }

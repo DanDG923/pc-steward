@@ -73,6 +73,7 @@ public static class AdvisoryAiRedaction
         ArgumentOutOfRangeException.ThrowIfGreaterThan(maximumScalars, MaximumInputScalars);
         if (string.IsNullOrWhiteSpace(text)) return new(null, false);
         (string bounded, bool cut) = Bound(text);
+        if (cut) bounded = DropPartialIdentity(bounded, context);
         DiagnosticSanitizedText result = Clean(bounded, maximumScalars, context);
         return result with { Truncated = result.Value is not null && (result.Truncated || cut) };
     }
@@ -123,18 +124,53 @@ public static class AdvisoryAiRedaction
     /// at the last line break in the second half of the bound, or else at the last whitespace within it, or else nothing is kept.
     /// Cut is true when anything was removed, and the caller then marks the answer as cut. The result is sanitized next.
     /// </summary>
-    public static (string Text, bool Cut) BoundAnswer(string text, int maximumCharacters)
+    public static (string Text, bool Cut) BoundAnswer(string text, int maximumCharacters, DiagnosticRedactionContext? context = null)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumCharacters, 2);
         if (text.Length <= maximumCharacters) return (text, false);
+        (string kept, bool cut) = CutAnswer(text, maximumCharacters);
+        return (DropPartialIdentity(kept, context), cut);
+    }
+
+    /// <summary>
+    /// Independent review of ce0eaf3, F3: a cut between the words of a name of several words (an account name "Jo Bloggs") would
+    /// leave its first words, which no longer match the whole name. When the kept text ends with the first words of such a name,
+    /// they are dropped too, but only when they are still plain text once secrets, paths and links are cleaned: words that end a
+    /// secret recognised by its shape (a product key whose last group spells the name) stay, so the whole secret is still removed
+    /// when the text is cleaned (Codex review of #142).
+    /// </summary>
+    private static string DropPartialIdentity(string text, DiagnosticRedactionContext? context)
+    {
+        if (context is null) return text;
+        string trimmed = text.TrimEnd();
+        string? probe = null;
+        foreach (string token in context.IdentityTokens)
+        {
+            if (string.IsNullOrWhiteSpace(token)) continue;
+            string[] words = token.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            for (int count = words.Length - 1; count >= 1; count--)
+            {
+                string prefix = string.Join(' ', words, 0, count);
+                if (!EndsWithWords(trimmed, prefix)) continue;
+                probe ??= Spaces.Replace(CleanBeforeNames(trimmed) ?? string.Empty, " ").Trim();
+                if (EndsWithWords(probe, prefix)) return trimmed[..^prefix.Length].TrimEnd();
+            }
+        }
+        return text;
+    }
+
+    private static bool EndsWithWords(string text, string words) =>
+        text.EndsWith(words, StringComparison.OrdinalIgnoreCase) &&
+        (text.Length == words.Length || !char.IsLetterOrDigit(text[text.Length - words.Length - 1]));
+
+    private static (string Text, bool Cut) CutAnswer(string text, int maximumCharacters)
+    {
         // The character just past the bound is part of the question: when it is whitespace, the last word inside is whole.
         if (char.IsWhiteSpace(text[maximumCharacters])) return (text[..maximumCharacters], true);
         int lineBreak = text.LastIndexOf('\n', maximumCharacters - 1, maximumCharacters - (maximumCharacters / 2));
         if (lineBreak >= maximumCharacters / 2) return (text[..lineBreak], true);
-        for (int end = maximumCharacters - 1; end >= 0; end--)
-            if (char.IsWhiteSpace(text[end])) return (text[..end], true);
-        return (string.Empty, true);
+        return (text[..DiagnosticTextSanitizer.WordBoundaryAtOrBefore(text, maximumCharacters)].TrimEnd(), true);
     }
 
     /// <summary>The most leading spaces an answer line keeps (Task 71C review 71C-04), enough for code nested sixteen levels deep.</summary>
@@ -151,6 +187,14 @@ public static class AdvisoryAiRedaction
         return new string(' ', spaces);
     }
 
+    /// <summary>The cleaning done before the PC's names are replaced: invisible characters, quoted secrets, paths, links, SIDs, addresses, secrets.</summary>
+    private static string? CleanBeforeNames(string text)
+    {
+        string quoted = RedactQuotedNamedValues(StripInvisibleKeepingLines(text));
+        string? structural = DiagnosticTextSanitizer.Sanitize(quoted, int.MaxValue, null, quoted.Length + 1).Value;
+        return structural is null ? null : RedactSecrets(structural);
+    }
+
     /// <summary>Sanitizes, redacts and collapses spaces in one line of text, then cuts it to <paramref name="maximumScalars"/>.</summary>
     private static DiagnosticSanitizedText Clean(string text, int maximumScalars, DiagnosticRedactionContext? context)
     {
@@ -159,10 +203,8 @@ public static class AdvisoryAiRedaction
         // invisible characters and replaces paths, links, SIDs and addresses; the second replaces only the names.
         // A quoted secret value is removed whole before that first pass, so a value that starts like a path and holds an escaped quote
         // (password="C:\temp\x\"hunter2") cannot be taken as a quoted path that ends early and leaves the rest of the secret behind.
-        string quoted = RedactQuotedNamedValues(StripInvisibleKeepingLines(text));
-        string? structural = DiagnosticTextSanitizer.Sanitize(quoted, int.MaxValue, null, quoted.Length + 1).Value;
-        if (structural is null) return new(null, false);
-        string redacted = RedactSecrets(structural);
+        string? redacted = CleanBeforeNames(text);
+        if (redacted is null) return new(null, false);
         string? cleaned = context is null ? redacted : DiagnosticTextSanitizer.Sanitize(redacted, int.MaxValue, context, redacted.Length + 1).Value;
         if (cleaned is null) return new(null, false);
         string value = Spaces.Replace(RedactSecrets(cleaned), " ").Trim();
@@ -235,7 +277,9 @@ public static class AdvisoryAiRedaction
         int index = 0;
         while (index < text.Length)
         {
-            if (scalars == MaximumInputScalars) return (text[..index], true);
+            // Independent review of ce0eaf3, F1: the cut never falls inside a word, so a secret known by its shape is never left as a
+            // prefix its pattern no longer matches (the evidence twin of the answer cut, Codex review of #141).
+            if (scalars == MaximumInputScalars) return (text[..DiagnosticTextSanitizer.WordBoundaryAtOrBefore(text, index)], true);
             index += char.IsHighSurrogate(text[index]) && index + 1 < text.Length && char.IsLowSurrogate(text[index + 1]) ? 2 : 1;
             scalars++;
         }
