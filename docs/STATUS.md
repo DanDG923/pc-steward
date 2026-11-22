@@ -1,3 +1,9 @@
+**Advisory AI, independent review of the eighth Task 71C retest build failed; fix (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-DIA-03` ([Task 90 record §20](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `5526f3d`.** One Medium finding, new in #147, sent ahead of the report: when the text between two single-quoted paths held a backslash, the first path's removal ended inside the second path's opening quote and left the second path's tail. The retest's one send can't reach it. The report is not in the repository.
+- **Fixed.** A quote that follows a space or an opening mark and has a path or link right after it opens that path or link, so the first path's removal never ends there and the second path is removed whole, at any cut.
+- **Next.** A new retest build from `phase/4-beta`, reviewed by both reviewers, then the owner's separate approvals for the key step and the one send.
+
 **Advisory AI, independent review of the seventh Task 71C retest build failed; fixes (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-DIA-03` ([Task 90 record §19](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `1e57444`.** One Medium finding, new in #146: removing a single-quoted path could run on into a later path, link or account name with an apostrophe and leave its tail, with no cut and no long text needed. Four Low and one Info. The cut check itself held. The model, route and retest procedure passed. The report is not in the repository.

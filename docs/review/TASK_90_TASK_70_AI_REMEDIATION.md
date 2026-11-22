@@ -268,3 +268,17 @@ The review also suggested a fix that would end this class: find what every rule 
 Carried over, unchanged, as §14 records: F2 (a usage count that isn't a plain count keeps the reservation without a pause, when the text is within the approved 2,048 tokens) and F5 (opening saved answers cleans up to 100 rows first; R3's bound now limits its worst case).
 
 The schema stays at 17.
+
+## 20. Task 71C independent review of the eighth retest build at `5526f3d`, and fixes
+
+The independent review of the eighth retest build (commit `5526f3d`; run 45059521803, artifact SHA-256 `28732ecd…250f`) sent one finding ahead of its report: S1 (Medium, privacy, new in #147). The retest's one short synthetic send can't reach it. The report is not committed.
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **S1 (Medium, privacy, new in #147). A single-quoted path's run-on ended at the next quoted path's opening quote, so that path lost its head and kept its tail.** The §19 run-on goes past a closing apostrophe to the next apostrophe that closes a quote when a backslash lies between and no path or link starts there. An apostrophe that a path follows counts as one that closes (so `….pdf'C:\…` still closes), so when the text between two quoted paths held a backslash (a registry key, an account name, a relative path), the run-on stopped just inside the second path's opening quote. `Cannot find path 'C:\Temp\setup.log' because it does not exist. HKLM\SOFTWARE\Contoso was read. Copy-Item 'C:\Users\Pat Smith\My Notes\Budget Plan.txt' failed` left `Plan.txt'`. | The run-on never ends at a quote that opens a path or link: one that follows a space or an opening mark (a bracket, `=`, `,`, `;`, `:` or a double quote) and has a drive, `\\`, `%NAME%`, `scheme://` or `file:` right after it. The first path then ends at its own closing quote and the second is removed whole. A quote glued to the end of a word (`….mp3'C:\…`) still closes that word, as before. The cut prediction reads it the same way, and every cut is still checked by cleaning. | `AdvisoryAiRedactionTests.AQuotedPathsRemovalEndsBeforeTheNextQuotedPath` (the review's three shapes, a `%USERPROFILE%` pair, a path after a bracket and a quoted file link, in evidence, answers and the timeline; all six fail on `5526f3d`), `ACutInsideTheSecondOfTwoQuotedPathsLeavesNoPartOfIt` (every cut inside the review's lines, for the evidence and timeline cuts); the §19 and Q6 tests still pass |
+
+Compared with the eighth build on the review's 20,000 random lines (cleaned four ways), the fix hides a private word the eighth build showed in 16 lines and shows one it hid in 20. Those 20 are text the generator glues or breaks: a quoted path holding an apostrophe before a space, closed with no space before the next word (`….mp3'Ran 'C:\…`), or a path split by a stray quote or line break (`"C:\Users"\Pat\…`, `"C':\…`, `"C` then a line break). The eighth build hid those only because its run-on swallowed everything up to the next quoted path. None of the review's whole-line shapes shows anything.
+
+Carried over, unchanged: F2 and F5 (§14, §19), the file-name-with-spaces limit (§19 R5) and R4.
+
+The schema stays at 17.
