@@ -730,6 +730,20 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    [DataRow("Opened file://pat:pw@nas01/share/Pat Smith/Tax Returns/return.pdf today", "Opened [link] today", DisplayName = "a user name and password before the host")]
+    [DataRow("Opened file://pat@nas01/share/Pat Smith/Tax Returns/return.pdf today", "Opened [link] today", DisplayName = "a user name before the host")]
+    public void AFileLinkWithAUserNameBeforeTheHostIsRemovedWhole(string text, string expected)
+    {
+        // Independent review of 5526f3d, S2: a user name and password before a file link's host sent the link to the general link
+        // rule, which ends at the first space, so later folder words were left.
+        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000).Value, DiagnosticTextSanitizer.Sanitize(text, 4096).Value])
+        {
+            Assert.AreEqual(expected, clean);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     public void ACutInsideTheSecondOfTwoQuotedPathsLeavesNoPartOfIt()
     {
         // Independent review of 5526f3d, S1, for the evidence and timeline cuts: wherever the cut falls, no part of the second
