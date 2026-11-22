@@ -1,3 +1,9 @@
+**Advisory AI, independent review of the fourth Task 71C retest build failed; fixes (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-BUD-02` ([Task 90 record §16](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `4056e3f`.** Two Medium findings of its own: an owner's evidence edit over 16,384 characters could be cut inside a path wrapped over a line break, leaving part of it as plain text; and the check that output text can't exceed what its reported tokens decode to counted answer text only. Four Low. The retest procedure, model and route passed. The report is not in the repository.
+- **Fixed.** The evidence cut is chosen on the text as cleaning sees it. All text under the output is counted. Name words with any whitespace between them, apostrophes inside HTML tags and an edit too long to keep are handled. One Low is recorded with §14 F2 for the owner.
+- **Next.** The owner chooses whether the retest keeps build `4056e3f` or a new build is made; then both reviews, the key step and the one send, each with its own approval.
+
 **Advisory AI, third Task 71C retest build review failed; fixes (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-05`, `FR-BUD-02/03`, `FR-DIA-03` ([Task 90 record §15](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `ce0eaf3`.** The owner's review returned FAIL: three Medium findings (usage was trusted even when the answer text was longer than its reported output could decode to; the evidence cut fixed in §14; a cut at a space inside a path left part of a private folder or file name visible) and three Low (a quoted ">" in an HTML attribute; code lines charged as half the elements the dialog makes; a cut that left nothing lost its notice). Artifact identity, model, route, arithmetic, migration and credentials passed. The report is not in the repository.

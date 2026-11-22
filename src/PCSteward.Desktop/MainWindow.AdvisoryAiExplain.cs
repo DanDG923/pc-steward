@@ -187,6 +187,7 @@ public sealed partial class MainWindow
     {
         AdvisoryAiDraftProblem.NoEvidenceLeft => "Keep at least one item, or choose Cancel to send nothing.",
         AdvisoryAiDraftProblem.EditIsEmpty => "An item can't be empty once your names are removed. Write something, or leave it out.",
+        AdvisoryAiDraftProblem.EditIsTooLong => "That item is too long to send safely. Shorten it, or leave it out.",
         _ => "PC Steward couldn't apply that change. Nothing has been sent."
     };
 

@@ -261,15 +261,18 @@ public static partial class AdvisoryAiAnswerFormat
         {
             if (masked[index] != '<' || !(char.IsAsciiLetter(masked[index + 1]) || masked[index + 1] is '/' or '!' or '?')) continue;
             // Codex review of ce0eaf3, C4: a quoted attribute value may hold "<" or ">" (title="A > B"), so neither ends the tag
-            // inside quotes. A quote left open to the end means no tag ends after this point.
+            // inside quotes. A quote left open to the end means no tag ends after this point. Independent review of 4056e3f, L3: only
+            // a quote just after "=" (spaces allowed) opens a value, so an apostrophe in a comment ("don't") is just a character.
             int close = index + 1;
             char quote = '\0';
+            char previous = '\0';
             while (close < masked.Length)
             {
                 char at = masked[close];
                 if (quote != '\0') { if (at == quote) quote = '\0'; }
-                else if (at is '"' or '\'') quote = at;
+                else if (at is '"' or '\'' && previous == '=') quote = at;
                 else if (at is '<' or '>') break;
+                if (quote == '\0' && !char.IsWhiteSpace(at)) previous = at;
                 close++;
             }
             if (close == masked.Length) break;

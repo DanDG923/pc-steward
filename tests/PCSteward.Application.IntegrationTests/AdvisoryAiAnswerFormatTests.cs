@@ -201,6 +201,8 @@ public sealed class AdvisoryAiAnswerFormatTests
     [DataRow("</__b__>", DisplayName = "a closing tag")]
     [DataRow("<span title=\"A > **ready**\">status</span>", DisplayName = "a quoted > in an attribute (Codex review of ce0eaf3, C4)")]
     [DataRow("<span title='A <b> **ready**'>status</span>", DisplayName = "a single-quoted < in an attribute")]
+    [DataRow("<!-- don't make **this** bold -->", DisplayName = "an apostrophe in a comment (independent review of 4056e3f, L3)")]
+    [DataRow("<span title = \"A > **ready**\">status</span>", DisplayName = "a quoted value after spaces around =")]
     public void MarksInsideAnHtmlTagStayAsWritten(string html)
     {
         // Task 71C review 71C-R3: HTML is never interpreted, and its source isn't changed by bold matching either.

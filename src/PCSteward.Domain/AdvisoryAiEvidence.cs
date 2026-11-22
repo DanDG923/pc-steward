@@ -39,7 +39,8 @@ public enum AdvisoryAiDraftProblem
     RequiredEvidenceDoesNotFit,
     NoEvidenceLeft,
     EditIsEmpty,
-    NoSuchItem
+    NoSuchItem,
+    EditIsTooLong
 }
 
 /// <summary>
@@ -61,14 +62,15 @@ public sealed record AdvisoryAiEvidenceDraft(
 
     /// <summary>
     /// ADR-028 consent item 4: replaces one item's text with the owner's edit, redacted again exactly as generated text is. The role
-    /// is kept. An edit that redacts to nothing is refused; the owner removes the item instead.
+    /// is kept. An edit that redacts to nothing is refused; the owner removes the item instead. An edit too long to keep any of is
+    /// refused as too long.
     /// </summary>
     public AdvisoryAiDraftProblem TryEdit(int index, string? text, DiagnosticRedactionContext? context, out AdvisoryAiEvidenceDraft edited)
     {
         edited = this;
         if (index < 0 || index >= Items.Count) return AdvisoryAiDraftProblem.NoSuchItem;
         DiagnosticSanitizedText clean = AdvisoryAiRedaction.SanitizeEvidence(text, MaximumItemScalars, context);
-        if (clean.Value is null) return AdvisoryAiDraftProblem.EditIsEmpty;
+        if (clean.Value is null) return clean.Truncated ? AdvisoryAiDraftProblem.EditIsTooLong : AdvisoryAiDraftProblem.EditIsEmpty;
         AdvisoryAiEvidenceItem[] items = [.. Items];
         items[index] = items[index] with { Text = clean.Value, TextTruncated = clean.Truncated, EditedByOwner = true };
         edited = this with { Items = items, Version = checked(Version + 1) };

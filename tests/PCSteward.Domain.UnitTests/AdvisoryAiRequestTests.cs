@@ -150,6 +150,8 @@ public sealed class AdvisoryAiRequestTests
         Assert.AreEqual("Login failed: password=\"[secret]\"", quoted.Items[0].Text, "a path-like quoted secret with an escaped quote is removed whole");
         Assert.AreEqual(AdvisoryAiDraftProblem.EditIsEmpty, draft.TryEdit(0, " \u200B ", identity, out _));
         Assert.AreEqual(AdvisoryAiDraftProblem.NoSuchItem, draft.TryEdit(99, "x", identity, out _));
+        // Independent review of 4056e3f, L4: an edit too long to keep any of says so, rather than that names were removed.
+        Assert.AreEqual(AdvisoryAiDraftProblem.EditIsTooLong, draft.TryEdit(0, new string('x', AdvisoryAiRedaction.MaximumInputScalars + 10), identity, out _));
 
         AdvisoryAiEvidenceDraft current = draft;
         while (current.Items.Count > 1)
