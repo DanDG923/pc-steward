@@ -711,12 +711,17 @@ public sealed class AdvisoryAiRedactionTests
     [DataRow("Copy 'C:\\Temp\\a.txt' to bin\\x64 then open 'D:\\Private Folder\\Tax Return 2025.pdf' please", "Copy '[path]' to bin\\x64 then open '[path]' please", DisplayName = "a relative path between two quoted paths")]
     [DataRow("Copy '%USERPROFILE%\\a.txt' to bin\\x64 then open '%USERPROFILE%\\Private Folder\\Tax Return 2025.pdf' please", "Copy '[path]' to bin\\x64 then open '[path]' please", DisplayName = "two quoted variable paths")]
     [DataRow("Copy 'C:\\Temp\\a.txt' to bin\\x64 then Open('D:\\Private Folder\\Tax Return 2025.pdf') now", "Copy '[path]' to bin\\x64 then Open('[path]') now", DisplayName = "a quoted path after a bracket")]
+    [DataRow("Ran 'C:\\Temp\\a.exe' as CORP\\jbloggs &'C:\\Users\\Pat Smith\\out file.txt' done", "Ran '[path]' as CORP\\jbloggs &'[path]' done", DisplayName = "PowerShell's call operator before the second path")]
+    [DataRow("Ran 'C:\\Temp\\a.exe' as CORP\\jbloggs `'C:\\Users\\Pat Smith\\out file.txt' done", "Ran '[path]' as CORP\\jbloggs `'[path]' done", DisplayName = "a backtick before the second path")]
+    [DataRow("Ran 'C:\\Temp\\a.exe' as CORP\\jbloggs \"x\"'C:\\Users\\Pat Smith\\out file.txt' done", "Ran '[path]' as CORP\\jbloggs \"x\"'[path]' done", DisplayName = "a closing double quote before the second path")]
+    [DataRow("Ran 'C:\\Temp\\a.exe' as CORP\\jbloggs \u2014'C:\\Users\\Pat Smith\\out file.txt' done", "Ran '[path]' as CORP\\jbloggs \u2014'[path]' done", DisplayName = "a long dash before the second path")]
     [DataRow("See 'C:\\Temp\\a.txt' near bin\\x64 and 'file:///C:/Private Folder/TaxReturn.pdf' now", "See '[path]' near bin\\x64 and '[link] now", DisplayName = "a quoted file link after a backslash")]
     public void AQuotedPathsRemovalEndsBeforeTheNextQuotedPath(string text, string expected)
     {
         // Independent review of 5526f3d, S1: when the text between two single-quoted paths held a backslash, the first path's
         // run-on ended at the second path's opening quote, so the second path's removal started inside it and left its tail. A
-        // quote that a path or link start follows now opens that path or link and never ends a run-on.
+        // quote that a path or link start follows, with no letter or number right before it, now opens that path or link and never
+        // ends a run-on.
         foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000).Value, DiagnosticTextSanitizer.Sanitize(text, 4096).Value])
         {
             Assert.AreEqual(expected, clean);

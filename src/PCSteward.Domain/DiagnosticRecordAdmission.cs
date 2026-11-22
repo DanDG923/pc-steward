@@ -347,15 +347,15 @@ public static class DiagnosticTextSanitizer
     }
 
     /// <summary>
-    /// Whether the quote at <paramref name="index"/> opens a path or link rather than closing what came before: it follows a
-    /// space or an opening mark (a bracket, "=", ",", ";", ":" or a double quote) and a path or link starts right after it
-    /// (independent review of 5526f3d, S1). A quote glued to the end of a word ("….mp3'C:\…") still closes that word.
+    /// Whether the quote at <paramref name="index"/> opens a path or link rather than closing what came before: a path or link
+    /// starts right after it (or after the doubled quote it starts), and no letter or number comes right before it (independent
+    /// review of 5526f3d, S1). Only a quote glued to the end of a word ("….mp3'C:\…") still closes that word.
     /// </summary>
     private static bool OpensAPathOrLink(string value, int index)
     {
-        int after = index + 1;
+        if (index > 0 && IsLetterOrNumber(value[index - 1])) return false;
+        int after = index + 1 < value.Length && value[index + 1] == value[index] ? index + 2 : index + 1;
         return after < value.Length
-            && (index == 0 || char.IsWhiteSpace(value[index - 1]) || value[index - 1] is '(' or '[' or '{' or '<' or '=' or ',' or ';' or ':' or '"')
             && (StartsAPath(value, after)
                 || StartsALink(value.AsSpan(after))
                 || value.AsSpan(after).StartsWith("file:", StringComparison.OrdinalIgnoreCase));
