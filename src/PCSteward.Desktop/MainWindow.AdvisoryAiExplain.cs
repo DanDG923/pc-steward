@@ -274,7 +274,9 @@ public sealed partial class MainWindow
         if (outcome.AnswerText is string answer)
         {
             body.Children.Add(StewardVisuals.InformationBanner("Advice only", AdvisoryAiExplainText.AdviceOnly, "neutral"));
-            body.Children.Add(AnswerText(answer, outcome.AnswerTruncated));
+            // Task 71C review 71C-R2: formatting is bounded in time and size, and runs off the window's thread.
+            IReadOnlyList<AdvisoryAiAnswerBlock> blocks = await Task.Run(() => AdvisoryAiAnswerFormat.Parse(answer));
+            body.Children.Add(AnswerText(blocks, outcome.AnswerTruncated));
         }
         await new ContentDialog { XamlRoot = Content.XamlRoot, Title = $"AI explanation: {subject}", Content = new ScrollViewer { Content = body }, CloseButtonText = "Close" }.ShowAsync();
     }
@@ -282,11 +284,12 @@ public sealed partial class MainWindow
     /// <summary>
     /// First live test (Task 71): the redacted answer with its headings, lists and bold text formatted. Only runs of plain text are
     /// made, never a hyperlink or anything else that acts: what the formatter doesn't recognise is shown exactly as written.
+    /// Task 71C review 71C-R2: the blocks come from <see cref="AdvisoryAiAnswerFormat.Parse"/>, which bounds how many there are and the
+    /// runs in them, so one answer makes at most that many elements.
     /// </summary>
-    private static RichTextBlock AnswerText(string answer, bool truncated)
+    private static RichTextBlock AnswerText(IReadOnlyList<AdvisoryAiAnswerBlock> blocks, bool truncated)
     {
         RichTextBlock text = new() { TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
-        IReadOnlyList<AdvisoryAiAnswerBlock> blocks = AdvisoryAiAnswerFormat.Parse(answer);
         for (int index = 0; index < blocks.Count; index++)
         {
             AdvisoryAiAnswerBlock block = blocks[index];
@@ -324,16 +327,79 @@ public sealed partial class MainWindow
         return text;
     }
 
-    /// <summary>FR-AI-06: earlier answers for this record, newest first, each with Delete. Deleting asks nothing more of the provider.</summary>
+    private const string ShowSavedAnswerLabel = "Show this answer";
+    private const string HideSavedAnswerLabel = "Hide this answer";
+
+    /// <summary>
+    /// FR-AI-06: earlier answers for this record, newest first, each with Delete. Deleting asks nothing more of the provider. Task 71C
+    /// review 71C-R2: only one answer is formatted and shown at a time (the newest at first), so opening up to 100 saved answers makes
+    /// the elements of one answer, never of all of them; showing another removes the one shown before.
+    /// </summary>
     private async Task ShowSavedExplanationsAsync(AdvisoryAiExplainService explain, string subject, IReadOnlyList<AdvisoryAiSavedExplanation> saved)
     {
         StackPanel body = new() { Spacing = StewardSpacing.Medium };
         body.Children.Add(StewardVisuals.InformationBanner("Advice only", AdvisoryAiExplainText.AdviceOnly, "neutral"));
+        Border? shownSlot = null;
+        Button? shownButton = null;
+        int generation = 0;
+        void Hide()
+        {
+            generation++;
+            if (shownSlot is not null) shownSlot.Child = null;
+            if (shownButton is not null) SetShowLabel(shownButton, ShowSavedAnswerLabel);
+            shownSlot = null;
+            shownButton = null;
+        }
+        async Task ShowAsync(Border slot, Button button, string text, bool truncated)
+        {
+            Hide();
+            int mine = generation;
+            button.IsEnabled = false;
+            try
+            {
+                IReadOnlyList<AdvisoryAiAnswerBlock> blocks = await Task.Run(() => AdvisoryAiAnswerFormat.Parse(text));
+                // Another answer was asked for meanwhile: only the latest one asked for is shown.
+                if (mine != generation) return;
+                slot.Child = AnswerText(blocks, truncated);
+                SetShowLabel(button, HideSavedAnswerLabel);
+                shownSlot = slot;
+                shownButton = button;
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                if (mine != generation) return;
+                slot.Child = Wrapped("PC Steward couldn't show this answer just now.");
+                shownSlot = slot;
+                shownButton = button;
+            }
+            finally
+            {
+                button.IsEnabled = true;
+            }
+        }
+        Func<Task>? showNewest = null;
         foreach (AdvisoryAiSavedExplanation answer in saved)
         {
             StackPanel item = new() { Spacing = StewardSpacing.XSmall };
             item.Children.Add(new TextBlock { Text = AdvisoryAiExplainText.SavedHeading(answer), Style = AppStyle("StewardDescriptionStyle"), TextWrapping = TextWrapping.Wrap });
-            item.Children.Add(answer.Text is string text ? (UIElement)AnswerText(text, answer.TextTruncated) : new TextBlock { Text = "No answer text was saved.", TextWrapping = TextWrapping.Wrap });
+            if (answer.Text is string text)
+            {
+                Border slot = new();
+                Button show = StewardVisuals.ActionButton(ShowSavedAnswerLabel);
+                bool truncated = answer.TextTruncated;
+                show.Click += async (_, _) =>
+                {
+                    if (ReferenceEquals(shownSlot, slot)) Hide();
+                    else await ShowAsync(slot, show, text, truncated);
+                };
+                showNewest ??= () => ShowAsync(slot, show, text, truncated);
+                item.Children.Add(show);
+                item.Children.Add(slot);
+            }
+            else
+            {
+                item.Children.Add(new TextBlock { Text = "No answer text was saved.", TextWrapping = TextWrapping.Wrap });
+            }
             Button delete = StewardVisuals.ActionButton("Delete this answer", "(removes it from this PC)");
             TextBlock deleted = Wrapped(string.Empty);
             AutomationProperties.SetLiveSetting(deleted, AutomationLiveSetting.Polite);
@@ -351,7 +417,14 @@ public sealed partial class MainWindow
             item.Children.Add(deleted);
             body.Children.Add(item);
         }
+        if (showNewest is not null) await showNewest();
         await new ContentDialog { XamlRoot = Content.XamlRoot, Title = $"Earlier answers: {subject}", Content = new ScrollViewer { Content = body }, CloseButtonText = "Back" }.ShowAsync();
+    }
+
+    private static void SetShowLabel(Button button, string label)
+    {
+        button.Content = label;
+        AutomationProperties.SetName(button, label);
     }
 
     private static async Task<IReadOnlyList<AdvisoryAiSavedExplanation>> ReadSavedExplanationsAsync(AdvisoryAiExplainService explain, AdvisoryAiSourceKind source, string originId)

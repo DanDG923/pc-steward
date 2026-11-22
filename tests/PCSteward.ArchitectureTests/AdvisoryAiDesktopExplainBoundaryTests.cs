@@ -94,12 +94,35 @@ public sealed class AdvisoryAiDesktopExplainBoundaryTests
         // First live test (Task 71): Markdown marks are shown as formatting. The answer is model text, so it never becomes a link,
         // an image or anything else that acts, and both the new answer and saved answers go through the same formatter.
         string explain = DesktopFile("MainWindow.AdvisoryAiExplain.cs");
-        string answer = Between(explain, "private static RichTextBlock AnswerText(string answer, bool truncated)", "/// <summary>FR-AI-06: earlier answers for this record");
-        StringAssert.Contains(answer, "AdvisoryAiAnswerFormat.Parse(answer)");
+        string answer = Between(explain, "private static RichTextBlock AnswerText(IReadOnlyList<AdvisoryAiAnswerBlock> blocks, bool truncated)", "private const string ShowSavedAnswerLabel");
+        Assert.IsFalse(answer.Contains("Parse(", StringComparison.Ordinal), "the blocks are parsed before, off the window's thread");
+        StringAssert.Contains(explain, "await Task.Run(() => AdvisoryAiAnswerFormat.Parse(answer));");
+        StringAssert.Contains(explain, "await Task.Run(() => AdvisoryAiAnswerFormat.Parse(text));");
         foreach (string forbidden in new[] { "Hyperlink", "NavigateUri", "Image", "InlineUIContainer", "XamlReader", "Launcher" })
             Assert.IsFalse(explain.Contains(forbidden, StringComparison.Ordinal), $"the explain window uses {forbidden}");
-        StringAssert.Contains(explain, "body.Children.Add(AnswerText(answer, outcome.AnswerTruncated));");
-        StringAssert.Contains(explain, "(UIElement)AnswerText(text, answer.TextTruncated)");
+        StringAssert.Contains(explain, "body.Children.Add(AnswerText(blocks, outcome.AnswerTruncated));");
+        StringAssert.Contains(explain, "slot.Child = AnswerText(blocks, truncated);");
+    }
+
+    [TestMethod]
+    public void SavedAnswersAreShownOneAtATime()
+    {
+        // Task 71C review 71C-R2: up to 100 saved answers open in one dialog, so only one is formatted and shown at a time; showing
+        // another first removes the one shown, and a slower earlier request never shows over a later one.
+        string explain = DesktopFile("MainWindow.AdvisoryAiExplain.cs");
+        string saved = Between(explain, "private async Task ShowSavedExplanationsAsync(", "private static void SetShowLabel(");
+        Assert.AreEqual(1, Count(saved, "AnswerText("), "one place builds a saved answer");
+        StringAssert.Contains(saved, "if (shownSlot is not null) shownSlot.Child = null;");
+        StringAssert.Contains(saved, "if (mine != generation) return;");
+        StringAssert.Contains(saved, "if (showNewest is not null) await showNewest();");
+        Assert.IsFalse(saved.Contains("foreach (AdvisoryAiAnswerBlock", StringComparison.Ordinal));
+    }
+
+    private static int Count(string source, string value)
+    {
+        int count = 0;
+        for (int at = source.IndexOf(value, StringComparison.Ordinal); at >= 0; at = source.IndexOf(value, at + value.Length, StringComparison.Ordinal)) count++;
+        return count;
     }
 
     private static string DesktopFile(string name) => File.ReadAllText(Path.Combine(CompiledIlScanner.FindRepositoryRoot(), "src", "PCSteward.Desktop", name));

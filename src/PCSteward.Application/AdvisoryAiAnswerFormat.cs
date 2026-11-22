@@ -217,13 +217,14 @@ public static partial class AdvisoryAiAnswerFormat
 
     /// <summary>
     /// Bold runs marked by a matching pair of ** or __ on one line. An unmatched mark stays as literal text, and so does any mark inside
-    /// an inline code span: the code is masked before bold is matched, so its stars and underscores can neither open, close nor be lost.
+    /// an inline code span or an HTML tag: they are masked before bold is matched, so their stars and underscores can neither open,
+    /// close nor be lost.
     /// </summary>
     private static List<AdvisoryAiAnswerSpan> Inline(string text, long deadline)
     {
         List<AdvisoryAiAnswerSpan> spans = [];
         int position = 0;
-        foreach (Match bold in BoldRun().Matches(MaskCodeSpans(text)))
+        foreach (Match bold in BoldRun().Matches(MaskLiteralSpans(text)))
         {
             CheckTime(deadline);
             if (spans.Count > MaximumRuns) throw new TimeoutException("The answer has too many runs to format.");
@@ -241,6 +242,31 @@ public static partial class AdvisoryAiAnswerFormat
     /// exactly N) replaced by a letter, so no mark inside code is matched. Backticks with no matching run stay as they are. Task 71C
     /// review 71C-03: each run's closing partner is found in one backward pass, so this takes time in proportion to the text.
     /// </summary>
+    private static string MaskLiteralSpans(string text) => MaskHtmlTags(MaskCodeSpans(text));
+
+    /// <summary>
+    /// Task 71C review 71C-R3: a copy of the text, the same length, with the inside of each HTML tag (from a "&lt;" followed by a
+    /// letter, "/", "!" or "?" to the next "&gt;", with no other "&lt;" between) replaced by a letter, so an attribute such as
+    /// title="**ready**" is shown exactly as written. HTML is never interpreted: it is only kept literal. One forward pass.
+    /// </summary>
+    private static string MaskHtmlTags(string text)
+    {
+        if (!text.Contains('<', StringComparison.Ordinal)) return text;
+        char[] masked = text.ToCharArray();
+        for (int index = 0; index + 1 < masked.Length; index++)
+        {
+            if (masked[index] != '<' || !(char.IsAsciiLetter(masked[index + 1]) || masked[index + 1] is '/' or '!' or '?')) continue;
+            int close = index + 1;
+            while (close < masked.Length && masked[close] is not ('<' or '>')) close++;
+            if (close == masked.Length) break;
+            if (masked[close] == '>')
+                for (int inside = index + 1; inside < close; inside++) masked[inside] = 'x';
+            // The scan resumes at the closing mark, or at the next "<", so each character is looked at a bounded number of times.
+            index = close - 1;
+        }
+        return new string(masked);
+    }
+
     private static string MaskCodeSpans(string text)
     {
         if (!text.Contains('`', StringComparison.Ordinal)) return text;

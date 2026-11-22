@@ -451,6 +451,48 @@ public sealed class AdvisoryAiResponseTests
 
     [TestMethod]
     [TestCategory("FR-BUD-03")]
+    [DataRow(",\"metadata\":{\"note\":\"\\uD800\"}", "[{\"type\":\"reasoning\",\"summary\":[]}", DisplayName = "a metadata value nothing reads")]
+    [DataRow(",\"metadata\":{\"a\":{\"b\":[{\"c\\uDC00\":1}]}}", "[{\"type\":\"reasoning\",\"summary\":[]}", DisplayName = "a nested name nothing reads")]
+    [DataRow("", "[{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"x\\uD800y\"}]}", DisplayName = "text in a skipped reasoning item")]
+    [DataRow("", "[{\"type\":\"reasoning\",\"encrypted_content\":\"\\uDFFF\",\"summary\":[]}", DisplayName = "an opaque value in a skipped item")]
+    [DataRow(",\"usage_note\\uD800\":null", "[{\"type\":\"reasoning\",\"summary\":[]}", DisplayName = "a top-level name after usage")]
+    public void UndecodableTextAnywhereInTheReplyStopsPaidRequestsForReview(string extra, string firstItems)
+    {
+        // Task 71C review 71C-R1: the reader never visits metadata, the contents of reasoning items or names it doesn't look up, so
+        // undecodable text there threw nothing and the live usage below settled at its actual cost. Every name and string is now
+        // decoded first, so the reply is untrusted, keeps the whole reservation and pauses paid requests wherever the text sits.
+        string usage = "\"usage\":{\"input_tokens\":491,\"input_tokens_details\":" + LiveInputDetails +
+            ",\"output_tokens\":321,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":812}";
+        string output = firstItems + ",{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Line one.\",\"annotations\":[]}]}]";
+        string json = Body(output: output, usage: usage, extra: ",\"service_tier\":\"default\"" + extra);
+        string clean = json.Replace("\\uD800", "", StringComparison.Ordinal).Replace("\\uDC00", "", StringComparison.Ordinal).Replace("\\uDFFF", "", StringComparison.Ordinal);
+        Assert.IsTrue(ReadAsRequested(clean).UsageReliable, "without the undecodable text the same reply settles: " + clean);
+
+        AdvisoryAiResponse response = ReadAsRequested(json);
+        Assert.AreEqual(AdvisoryAiAnswerStatus.Malformed, response.Status, json);
+        Assert.AreEqual(AdvisoryAiMalformedReason.UndecodableText, response.MalformedReason, json);
+        Assert.IsNull(response.Text, json);
+        AssertPausedWithWholeReservation(response, json);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void InvalidUtf8InAValueNothingReadsStopsPaidRequestsForReview()
+    {
+        // Task 71C review 71C-R1: raw bytes that aren't UTF-8 also parse and fail only when decoded.
+        string json = Body(extra: ",\"metadata\":{\"note\":\"@@\"}");
+        byte[] body = Encoding.UTF8.GetBytes(json);
+        int at = Array.IndexOf(body, (byte)'@');
+        body[at] = 0xC3;
+        body[at + 1] = 0x28;
+        Assert.IsFalse(AdvisoryAiResponseReader.DecodesInFull(body));
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(body, Model, 1_000_000, 8192, 1024, "default", noPromptCache: true);
+        Assert.AreEqual(AdvisoryAiMalformedReason.UndecodableText, response.MalformedReason);
+        AssertPausedWithWholeReservation(response, json);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
     [DataRow("{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_\\uD800\":0}}", "", "Line one.", DisplayName = "an undecodable key in the cache-write details")]
     [DataRow(LiveInputDetails, ",\"x\\uDC00\":1", "Line one.", DisplayName = "an undecodable key at the top")]
     [DataRow(LiveInputDetails, "", "bad \\uD800 text", DisplayName = "undecodable answer text")]

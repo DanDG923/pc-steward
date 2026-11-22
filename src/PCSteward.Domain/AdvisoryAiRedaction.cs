@@ -115,6 +115,28 @@ public static class AdvisoryAiRedaction
         return joined with { Truncated = joined.Truncated || truncated };
     }
 
+    /// <summary>
+    /// Task 71C review 71C-R2 (and the independent review's sanitizer note): cuts <paramref name="text"/> to at most
+    /// <paramref name="maximumCharacters"/> before it is sanitized, so the time cleaning takes stays bounded by what can be shown or was
+    /// approved rather than by what a reply or an altered row holds. A cut never ends inside a word, so a secret recognised by its
+    /// shape (a product key, a long hex or base64 value) is never left as an unrecognisable prefix (Codex review of #141): the cut is
+    /// at the last line break in the second half of the bound, or else at the last whitespace within it, or else nothing is kept.
+    /// Cut is true when anything was removed, and the caller then marks the answer as cut. The result is sanitized next.
+    /// </summary>
+    public static (string Text, bool Cut) BoundAnswer(string text, int maximumCharacters)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumCharacters, 2);
+        if (text.Length <= maximumCharacters) return (text, false);
+        // The character just past the bound is part of the question: when it is whitespace, the last word inside is whole.
+        if (char.IsWhiteSpace(text[maximumCharacters])) return (text[..maximumCharacters], true);
+        int lineBreak = text.LastIndexOf('\n', maximumCharacters - 1, maximumCharacters - (maximumCharacters / 2));
+        if (lineBreak >= maximumCharacters / 2) return (text[..lineBreak], true);
+        for (int end = maximumCharacters - 1; end >= 0; end--)
+            if (char.IsWhiteSpace(text[end])) return (text[..end], true);
+        return (string.Empty, true);
+    }
+
     /// <summary>The most leading spaces an answer line keeps (Task 71C review 71C-04), enough for code nested sixteen levels deep.</summary>
     public const int MaximumAnswerIndentation = 64;
 

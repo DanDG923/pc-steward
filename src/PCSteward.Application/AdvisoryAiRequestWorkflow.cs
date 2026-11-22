@@ -251,7 +251,16 @@ public sealed class AdvisoryAiRequestWorkflow
         // same sanitizer expansion that SavedItemBytes admits, so a complete answer is never cut just because it was redacted.
         int answerScalars = (int)Math.Min(int.MaxValue,
             (long)AdvisoryAiResourcePolicy.AnswerSanitizerExpansion * request.MaximumOutputTokens * model.MaximumTokenUtf8Bytes);
-        DiagnosticSanitizedText answer = response.Text is null ? new(null, false) : AdvisoryAiRedaction.SanitizeAnswer(response.Text, Math.Max(2, answerScalars), redaction);
+        // Task 71C review 71C-R2: an answer within the approved output has at most this many UTF-16 units (one per UTF-8 byte at most),
+        // so the raw text is cut there before it is cleaned. Only a reply beyond what was approved is cut, and it is then marked cut.
+        int rawCharacters = (int)Math.Min(int.MaxValue, (long)request.MaximumOutputTokens * model.MaximumTokenUtf8Bytes);
+        DiagnosticSanitizedText answer = new(null, false);
+        if (response.Text is not null)
+        {
+            (string raw, bool cut) = AdvisoryAiRedaction.BoundAnswer(response.Text, Math.Max(2, rawCharacters));
+            answer = AdvisoryAiRedaction.SanitizeAnswer(raw, Math.Max(2, answerScalars), redaction);
+            answer = answer with { Truncated = answer.Value is not null && (answer.Truncated || cut) };
+        }
         AdvisoryAiSavedExplanation saved = new(Guid.NewGuid(), request.RequestId, approval.Preview.Draft.Source, approval.Preview.Draft.OriginId, model.ModelId,
             response.Status, response.IncompleteReason, answer.Value, answer.Truncated, utcNow());
         AdvisoryAiExplanationSave save;
