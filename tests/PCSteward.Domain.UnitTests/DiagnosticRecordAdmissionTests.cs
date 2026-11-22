@@ -208,6 +208,25 @@ public sealed class DiagnosticRecordAdmissionTests
             Assert.IsFalse(DiagnosticRecordJson.TryParse(value, out _), value.Length > 200 ? value[..200] : value);
     }
 
+    [TestMethod]
+    [TestCategory("FR-DIA-03")]
+    public void TheWorkingBoundNeverCutsInsideAWord()
+    {
+        // Independent review of ce0eaf3, F1 (related): the 16 Ki working bound used to fall inside a word, leaving the start of an
+        // e-mail address or computer name the patterns no longer matched. The unfinished word is dropped and the text is marked cut.
+        DiagnosticRedactionContext identity = new(["alexpc"]);
+        foreach (string value in new[] { "someone.person@example.com", "alexpc" })
+        {
+            for (int offset = 1; offset < value.Length; offset++)
+            {
+                string text = new string('a', 16 * 1024 - offset - 1) + " " + value + " tail";
+                DiagnosticSanitizedText clean = DiagnosticTextSanitizer.Sanitize(text, 32 * 1024, identity);
+                Assert.IsTrue(clean.Truncated, $"{value} at {offset}");
+                StringAssert.EndsWith(clean.Value, "a" + DiagnosticTextSanitizer.Ellipsis, $"{value} at {offset}: only whole words are kept");
+            }
+        }
+    }
+
     private static DiagnosticRecordCandidate Candidate(DiagnosticSourceKind source, DiagnosticEventKind kind) =>
         new(source, "System:1234", new(At, TimeSpan.Zero, DiagnosticTimeQuality.Known), kind, DiagnosticOutcomeKind.NotApplicable, EventId: 41);
 }

@@ -132,7 +132,9 @@ public sealed class AdvisoryAiRedactionTests
         Assert.IsTrue(cut.Truncated);
         Assert.IsLessThanOrEqualTo(50, cut.Value!.EnumerateRunes().Count());
         Assert.IsTrue(cut.Value.EndsWith(DiagnosticTextSanitizer.Ellipsis, StringComparison.Ordinal));
-        Assert.IsTrue(AdvisoryAiRedaction.SanitizeEvidence(new string('x', AdvisoryAiRedaction.MaximumInputScalars + 10), 2048).Truncated);
+        Assert.IsTrue(AdvisoryAiRedaction.SanitizeEvidence(string.Concat(Enumerable.Repeat("log ", AdvisoryAiRedaction.MaximumInputScalars)), 2048).Truncated);
+        // Independent review of ce0eaf3, F1: a cut never falls inside a word, so one word longer than the bound keeps nothing.
+        Assert.IsNull(AdvisoryAiRedaction.SanitizeEvidence(new string('x', AdvisoryAiRedaction.MaximumInputScalars + 10), 2048).Value);
     }
 
     [TestMethod]
@@ -168,6 +170,51 @@ public sealed class AdvisoryAiRedactionTests
             Assert.IsFalse(clean?.Contains("AAAAA", StringComparison.Ordinal) == true || clean?.Contains("0123", StringComparison.Ordinal) == true ||
                 clean?.Contains("QUJD", StringComparison.Ordinal) == true, $"bound {bound}: {clean}");
         }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("AAAAA-BBBBB-CCCCC-DDDDD-EEEEE", DisplayName = "a product key")]
+    [DataRow("0123456789abcdef0123456789abcdef0123", DisplayName = "a long hex value")]
+    [DataRow("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZn", DisplayName = "a long base64 value")]
+    [DataRow("6f9619ff-8b86-d011-b42d-00c04fc964ff", DisplayName = "a GUID")]
+    [DataRow("someone.person@example.com", DisplayName = "an e-mail address")]
+    [DataRow("alexpc", DisplayName = "the computer name")]
+    public void AnOverLongEvidenceEditNeverKeepsPartOfASecret(string value)
+    {
+        // Independent review of ce0eaf3, F1: an owner edit over 16,384 characters was cut there, inside a word, before it was
+        // cleaned. A log of long paths shrinks to a fraction when cleaned, so the start of a value cut part-way survived into the
+        // text to send. The cut now drops the unfinished word.
+        const string path = @"C:\Program Files\Contoso\Editor\plugins\component\library.dll ";
+        for (int offset = 1; offset < value.Length; offset++)
+        {
+            string head = string.Concat(Enumerable.Repeat(path, ((16 * 1024) - offset - 1) / path.Length));
+            string text = head + new string('x', (16 * 1024) - offset - head.Length - 1) + " " + value + " more log text";
+            Assert.AreEqual((16 * 1024) - offset, text.IndexOf(value, StringComparison.Ordinal));
+            DiagnosticSanitizedText clean = AdvisoryAiRedaction.SanitizeEvidence(text, 2048, Identity);
+            Assert.IsNotNull(clean.Value);
+            Assert.IsTrue(clean.Truncated);
+            Assert.IsLessThan(2048, clean.Value.Length, "the paths shrank, so the end of the cut text is kept");
+            if (offset >= 3) Assert.DoesNotContain(value[..offset], clean.Value, $"cut {offset} characters into the value");
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void ACutBetweenTheWordsOfANameDropsTheFirstWordsToo()
+    {
+        // Independent review of ce0eaf3, F3: a name of several words cut between them would keep its first word.
+        DiagnosticRedactionContext twoWords = new(["Jo Bloggs"]);
+        string answer = new string('a', 20) + " signed in as Jo Bloggs today";
+        int bound = answer.IndexOf("Bloggs", StringComparison.Ordinal) + 2;
+        (string cut, bool wasCut) = AdvisoryAiRedaction.BoundAnswer(answer, bound, twoWords);
+        Assert.IsTrue(wasCut);
+        Assert.EndsWith("signed in as", cut);
+        string evidence = string.Concat(Enumerable.Repeat("log ", 4095)) + "Jo Bloggs";
+        Assert.AreEqual(16 * 1024, evidence.IndexOf("Bloggs", StringComparison.Ordinal) + 1, "the bound falls inside the second word");
+        DiagnosticSanitizedText clean = AdvisoryAiRedaction.SanitizeEvidence(evidence, 16 * 1024, twoWords);
+        Assert.IsTrue(clean.Truncated);
+        Assert.EndsWith("log", clean.Value!.TrimEnd('…'));
     }
 
     [TestMethod]
