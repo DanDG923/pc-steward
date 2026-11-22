@@ -73,7 +73,7 @@ public static class AdvisoryAiRedaction
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumScalars, 2);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(maximumScalars, MaximumInputScalars);
         if (string.IsNullOrWhiteSpace(text)) return new(null, false);
-        (string bounded, bool cut) = Bound(text);
+        (string bounded, bool cut) = Bound(text, context);
         if (cut) bounded = DropPartialIdentity(bounded, context);
         DiagnosticSanitizedText result = Clean(bounded, maximumScalars, context);
         // Task 71C independent review of 4056e3f, L4: a text cut to nothing still says it was cut, so an owner's edit that was too
@@ -143,7 +143,7 @@ public static class AdvisoryAiRedaction
         ArgumentNullException.ThrowIfNull(text);
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumCharacters, 2);
         if (text.Length <= maximumCharacters) return (text, false);
-        (string kept, bool cut) = CutAnswer(text, maximumCharacters);
+        (string kept, bool cut) = CutAnswer(text, maximumCharacters, context);
         return (DropPartialIdentity(kept, context), cut);
     }
 
@@ -177,16 +177,19 @@ public static class AdvisoryAiRedaction
         return text;
     }
 
-    private static (string Text, bool Cut) CutAnswer(string text, int maximumCharacters)
+    private static (string Text, bool Cut) CutAnswer(string text, int maximumCharacters, DiagnosticRedactionContext? context)
     {
         // The character just past the bound is part of the question: when it is whitespace, the last word inside is whole. Codex
         // review of ce0eaf3, C3: the cut never splits a path that holds spaces either, so it moves before any path open across it.
         // Codex review of cd04620, 71C-01: the cut is chosen on the answer as cleaning sees it, so an invisible character inside a path
         // doesn't hide it.
-        if (char.IsWhiteSpace(text[maximumCharacters])) return (text[..SafeCutAsCleaned(text, maximumCharacters, keepLines: true)], true);
+        // Independent review of 4d2e238: the cut is then checked by cleaning the kept answer as an answer is cleaned.
+        int longest = (int)Math.Min(int.MaxValue, AdvisoryAiResourcePolicy.MaximumResponseBytes);
+        Func<string, string?> clean = kept => SanitizeAnswer(kept.Length > longest ? kept[..longest] : kept, int.MaxValue, context).Value;
+        if (char.IsWhiteSpace(text[maximumCharacters])) return (text[..SafeCutAsCleaned(text, maximumCharacters, keepLines: true, clean)], true);
         int lineBreak = text.LastIndexOf('\n', maximumCharacters - 1, maximumCharacters - (maximumCharacters / 2));
-        if (lineBreak >= maximumCharacters / 2) return (text[..SafeCutAsCleaned(text, lineBreak, keepLines: true)], true);
-        return (text[..SafeCutAsCleaned(text, maximumCharacters, keepLines: true)].TrimEnd(), true);
+        if (lineBreak >= maximumCharacters / 2) return (text[..SafeCutAsCleaned(text, lineBreak, keepLines: true, clean)], true);
+        return (text[..SafeCutAsCleaned(text, maximumCharacters, keepLines: true, clean)].TrimEnd(), true);
     }
 
     /// <summary>
@@ -303,7 +306,7 @@ public static class AdvisoryAiRedaction
         return match.Groups[1].Value + match.Groups[2].Value + quote + SecretPlaceholder + (closed ? quote : string.Empty);
     }
 
-    private static (string Value, bool Cut) Bound(string text)
+    private static (string Value, bool Cut) Bound(string text, DiagnosticRedactionContext? context)
     {
         int scalars = 0;
         int index = 0;
@@ -315,7 +318,8 @@ public static class AdvisoryAiRedaction
             // on the text as cleaning will see it, where a line break is a space and an invisible character is gone, so a path
             // wrapped over a line break is still one path. Codex review of cd04620, 71C-01: an invisible character is left out of that
             // view, not replaced, so it can't hide where a path starts.
-            if (scalars == MaximumInputScalars) return (text[..SafeCutAsCleaned(text, index, keepLines: false)], true);
+            if (scalars == MaximumInputScalars)
+                return (text[..SafeCutAsCleaned(text, index, keepLines: false, kept => Clean(kept, int.MaxValue, context).Value)], true);
             index += char.IsHighSurrogate(text[index]) && index + 1 < text.Length && char.IsLowSurrogate(text[index + 1]) ? 2 : 1;
             scalars++;
         }
@@ -326,13 +330,19 @@ public static class AdvisoryAiRedaction
     /// Independent review of 4056e3f, G1, and Codex review of cd04620, 71C-01: the end of a cut of <paramref name="text"/> at or before
     /// <paramref name="end"/> that splits no word and no path as cleaning will see them, found on <see cref="CleaningView"/>.
     /// </summary>
-    private static int SafeCutAsCleaned(string text, int end, bool keepLines)
+    private static int SafeCutAsCleaned(string text, int end, bool keepLines, Func<string, string?> clean)
     {
         // A cut never splits a surrogate pair.
         if (end > 0 && end < text.Length && char.IsLowSurrogate(text[end]) && char.IsHighSurrogate(text[end - 1])) end--;
         (string view, List<int> map, int viewEnd) = CleaningView(text, end, keepLines);
-        int cut = DiagnosticTextSanitizer.SafeCutAtOrBefore(view, viewEnd);
-        return cut >= viewEnd ? end : AfterViewPrefix(map, cut);
+        int TextCut(int viewCut) => viewCut >= viewEnd ? end : AfterViewPrefix(map, viewCut);
+        // Independent review of 4d2e238: the predicted cut is checked by cleaning. The whole text the view read (one longest path
+        // past the cut) is cleaned once, and the cut moves back until the kept text, cleaned the same way, shows only what that shows.
+        int wholeEnd = view.Length > viewEnd + DiagnosticTextSanitizer.MaximumPathLength ? map[^1] + 1 : text.Length;
+        string? whole = clean(text[..wholeEnd]);
+        int cut = DiagnosticTextSanitizer.CheckedCut(
+            view, DiagnosticTextSanitizer.SafeCutAtOrBefore(view, viewEnd), viewCut => clean(text[..TextCut(viewCut)]), whole);
+        return TextCut(cut);
     }
 
     /// <summary>The end in the text of the first <paramref name="count"/> view characters, so characters cleaning removes after them go too.</summary>

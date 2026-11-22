@@ -206,6 +206,10 @@ public sealed class AdvisoryAiAnswerFormatTests
     [DataRow("<!-- a > **b** -->", DisplayName = "a > inside a comment (Codex review of cd04620, 71C-05)")]
     [DataRow("<!-- a='b --> <span title=\"**ready**\">status</span>", DisplayName = "an unmatched apostrophe after = in a comment")]
     [DataRow("<b x='y>text</b> <span title=\"**ready**\">status</span>", DisplayName = "an unmatched quote in a tag (independent review of cd04620, P6)")]
+    [DataRow("<!-- oops <b title=\"**ready**\">status</b>", DisplayName = "a comment that never closes (independent review of 4d2e238, Q5)")]
+    [DataRow("<!--> <b title=\"**ready**\">status</b>", DisplayName = "an empty comment closed at once")]
+    [DataRow("<!---> <b title=\"**ready**\">status</b>", DisplayName = "an empty comment closed after one dash")]
+    [DataRow("<!-- **a** --!> <b title=\"**ready**\">status</b>", DisplayName = "a comment closed by --!>")]
     public void MarksInsideAnHtmlTagStayAsWritten(string html)
     {
         // Task 71C review 71C-R3: HTML is never interpreted, and its source isn't changed by bold matching either.

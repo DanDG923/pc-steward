@@ -57,11 +57,18 @@ public static class DiagnosticTextSanitizer
     private static readonly TimeSpan MatchTimeout = TimeSpan.FromSeconds(1);
     private const RegexOptions Options = RegexOptions.CultureInvariant | RegexOptions.NonBacktracking;
     private static readonly Regex Link = new(@"[A-Za-z][A-Za-z0-9+.\-]*://\S+", Options, MatchTimeout);
+    // Independent review of 4d2e238, Q7: a file link names a path, so its folder names may hold spaces as a drive path's may, and
+    // it is removed the way a drive path is: whole folders, then a last part that runs to whitespace, so a query string or fragment
+    // goes with it as it did with the general link pattern (Codex review of #146). Quoted paths are removed before links, so a quoted
+    // command line holding a file link is removed whole before this pattern could take its closing quote.
+    private static readonly Regex FileLink = new(@"[Ff][Ii][Ll][Ee]:[\\/]*(?:[A-Za-z]:[\\/]|[^\\/\s""<>|*?]+[\\/])(?:[^\\/\r\n""<>|:*?]*[\\/])*\S*", Options, MatchTimeout);
     // A quoted path is removed up to its closing quote, so a file or folder name with spaces cannot leave a suffix behind.
     private static readonly Regex DoubleQuotedPath = new(@"""(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%)[^""\r\n]*""", Options, MatchTimeout);
     // Independent review of cd04620, P7: an apostrophe followed by a letter or digit (O'Brien) is part of a single-quoted path, so the
-    // rest of the path isn't left visible after the first one.
-    private static readonly Regex SingleQuotedPath = new(@"'(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%)(?:[^'\r\n]|'[\p{L}\p{N}])*'", Options, MatchTimeout);
+    // rest of the path isn't left visible after the first one. Independent review of 4d2e238, Q6: so is a doubled apostrophe
+    // (PowerShell's O''Brien), and when the text after the closing quote up to the next apostrophe on the line holds a backslash
+    // ('C:\Music\Guns N' Roses\x.mp3'), that part is the rest of the path and is removed too.
+    private static readonly Regex SingleQuotedPath = new(@"'(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%)(?:[^'\r\n]|'[\p{L}\p{N}]|'')*'(?:[^'\r\n]*\\[^'\r\n]*')*", Options, MatchTimeout);
     private static readonly Regex UncPath = new(@"\\\\[^\\/\s]+(?:[\\/](?:[^\\/\r\n""<>|:*?]*[\\/])*[^\\/\s""<>|:*?]*)?", Options, MatchTimeout);
     private static readonly Regex DrivePath = new(@"[A-Za-z]:[\\/](?:[^\\/\r\n""<>|:*?]*[\\/])*[^\\/\s""<>|:*?]*", Options, MatchTimeout);
     // Same structure as a drive path: folders may contain spaces, the last segment ends at whitespace.
@@ -102,14 +109,36 @@ public static class DiagnosticTextSanitizer
         }
 
         bool cutEarly = boundary >= 0 && cleaned.Length > boundary;
-        if (cutEarly) cleaned.Length = SafeCutAtOrBefore(cleaned.ToString(), boundary);
+        string value = cleaned.ToString();
+        if (cutEarly)
+        {
+            // Independent review of 4d2e238: the cut is checked, not only predicted. The kept text is cleaned and compared with the
+            // whole text read so far, cleaned the same way, and the cut moves back until the first shows only what the second shows.
+            string? whole = Redact(value, context, cutEarly: false);
+            int cut = CheckedCut(value, SafeCutAtOrBefore(value, boundary), kept => Redact(value[..kept], context, cutEarly: true), whole);
+            value = Redact(value[..cut], context, cutEarly: true);
+        }
+        else value = Redact(value, context, cutEarly: false);
+        // A text whose only word ran past the working bound keeps nothing but is still marked cut (Codex review of #142).
+        if (value.Length == 0) return new(null, cutEarly);
+        if (!cutEarly) return Truncate(value, maximumScalars);
+        // A text cut at the working bound is marked with the ellipsis too, inside the same scalar limit (Codex review of #142).
+        DiagnosticSanitizedText early = Truncate(value, maximumScalars - 1);
+        return early.Truncated ? early : new(early.Value + Ellipsis, true);
+    }
 
+    /// <summary>The cleaned text with paths, links, SIDs, addresses and the PC's names replaced and whitespace joined.</summary>
+    private static string Redact(string value, DiagnosticRedactionContext? context, bool cutEarly)
+    {
         // Structured values go first, so an identity token can never break a path, link, SID or address apart before it is
         // recognised (a one-letter account name "c" would otherwise turn "C:\Users\..." into text no path pattern matches).
-        string value = cleaned.ToString();
-        value = Link.Replace(value, LinkPlaceholder);
+        // A quoted path goes before links (Codex review of #146): a quoted command line may hold a link, and the link's pattern
+        // would otherwise take the quote that closes it. A quoted path needs a drive, share or variable just after its quote, so a
+        // quoted link is left for the link patterns.
         value = DoubleQuotedPath.Replace(value, "\"" + PathPlaceholder + "\"");
         value = SingleQuotedPath.Replace(value, "'" + PathPlaceholder + "'");
+        value = FileLink.Replace(value, LinkPlaceholder);
+        value = Link.Replace(value, LinkPlaceholder);
         value = UncPath.Replace(value, PathPlaceholder);
         value = DrivePath.Replace(value, PathPlaceholder);
         value = VariablePath.Replace(value, PathPlaceholder);
@@ -118,20 +147,58 @@ public static class DiagnosticTextSanitizer
         // Codex review of cd04620, 71C-04, and the independent review's P3: a cut between the words of a name of several words keeps
         // its first words, which no longer match the whole name, so they are dropped too when they end the text.
         if (cutEarly) value = DropPartialName(value, context);
+        // Independent review of 4d2e238, Q8: runs of whitespace are joined before names are replaced, so a name of several words
+        // written with two spaces, a tab or a line break between them is still found.
+        value = Whitespace.Replace(value, " ");
         foreach (string token in (context ?? DiagnosticRedactionContext.None).IdentityTokens
             .Where(token => !string.IsNullOrWhiteSpace(token))
-            .Select(token => token.Trim())
+            .Select(token => Whitespace.Replace(token.Trim(), " "))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(token => token.Length)
             .ThenBy(token => token, StringComparer.Ordinal))
             value = ReplaceWholeWord(value, token);
-        value = Whitespace.Replace(value, " ").Trim();
-        // A text whose only word ran past the working bound keeps nothing but is still marked cut (Codex review of #142).
-        if (value.Length == 0) return new(null, cutEarly);
-        if (!cutEarly) return Truncate(value, maximumScalars);
-        // A text cut at the working bound is marked with the ellipsis too, inside the same scalar limit (Codex review of #142).
-        DiagnosticSanitizedText early = Truncate(value, maximumScalars - 1);
-        return early.Truncated ? early : new(early.Value + Ellipsis, true);
+        return value.Trim();
+    }
+
+    /// <summary>The most times <see cref="CheckedCut"/> moves a cut back before it keeps nothing.</summary>
+    private const int MaximumCutChecks = 24;
+
+    /// <summary>
+    /// Independent review of 4d2e238 (the fix that ends the class): <paramref name="cut"/> in <paramref name="view"/>, or an earlier word
+    /// boundary, such that the kept text, cleaned by <paramref name="cleanPrefix"/>, shows only what <paramref name="whole"/> (the whole
+    /// text read past the cut, cleaned the same way) shows at its start. A cut that splits a path, a quoted value, a secret or a name
+    /// changes how the kept text is cleaned, so its cleaned form is no longer the start of the whole one; the cut then moves back one
+    /// word, then two, four and so on, and keeps nothing after <see cref="MaximumCutChecks"/> tries. This needs no knowledge of what
+    /// cleaning removes, so a shape the predicted cut misses is still caught.
+    /// </summary>
+    internal static int CheckedCut(string view, int cut, Func<int, string?> cleanPrefix, string? whole)
+    {
+        int words = 1;
+        for (int attempt = 0; ; attempt++)
+        {
+            if (cut == 0 || ShowsOnlyWhatTheWholeShows(cleanPrefix(cut), whole)) return cut;
+            if (attempt == MaximumCutChecks) return 0;
+            for (int step = 0; step < words && cut > 0; step++) cut = StartOfLastWord(view, cut);
+            cut = SafeCutAtOrBefore(view, cut);
+            words *= 2;
+        }
+    }
+
+    /// <summary>True when <paramref name="part"/> is empty, or is the start of <paramref name="whole"/> ending where it ends or at whitespace.</summary>
+    internal static bool ShowsOnlyWhatTheWholeShows(string? part, string? whole)
+    {
+        string kept = (part ?? string.Empty).TrimEnd();
+        if (kept.Length == 0) return true;
+        string all = whole ?? string.Empty;
+        return all.StartsWith(kept, StringComparison.Ordinal) && (all.Length == kept.Length || char.IsWhiteSpace(all[kept.Length]));
+    }
+
+    /// <summary>Where the last word before <paramref name="cut"/> starts, so a cut there drops it.</summary>
+    private static int StartOfLastWord(string text, int cut)
+    {
+        while (cut > 0 && char.IsWhiteSpace(text[cut - 1])) cut--;
+        while (cut > 0 && !char.IsWhiteSpace(text[cut - 1])) cut--;
+        return cut;
     }
 
     /// <summary>
@@ -202,21 +269,46 @@ public static class DiagnosticTextSanitizer
     /// <summary>Where a quoted path still open at <paramref name="cut"/> starts (its opening quote), or <paramref name="cut"/>.</summary>
     private static int OpenQuotedPathStart(string text, int cut)
     {
-        // A quoted path holds no line break and is no longer than the longest path. It is closed by its own kind of quote, except an
-        // apostrophe followed by a letter or digit (O'Brien) inside a single-quoted path (independent review of cd04620, P7), so the
-        // line before the cut is read forward to find the first quote that opens a path still open at the cut.
-        int lineStart = Math.Max(text.AsSpan(0, cut).LastIndexOfAny(['\r', '\n']) + 1, Math.Max(0, cut - MaximumPathLength - 2));
+        // A quoted path holds no line break. Independent review of 4d2e238, Q1 and Q3: each kind of quote is followed on its own from
+        // the start of the line, as cleaning removes double-quoted paths before single-quoted ones, so a double-quoted path inside a
+        // single-quoted command line is still seen; the earliest opener of either kind wins.
+        int lineStart = text.AsSpan(0, cut).LastIndexOfAny(['\r', '\n']) + 1;
+        return Math.Min(OpenQuotedPathStart(text, lineStart, cut, '"'), OpenQuotedPathStart(text, lineStart, cut, '\''));
+    }
+
+    private static int OpenQuotedPathStart(string text, int lineStart, int cut, char quote)
+    {
         int open = -1;
-        char quote = '\0';
+        int last = -1;
         for (int index = lineStart; index < cut; index++)
         {
-            char at = text[index];
+            if (text[index] != quote) continue;
+            if (StartsAPath(text, index + 1)) last = index;
             if (open < 0)
             {
-                if (at is '"' or '\'' && StartsAPath(text, index + 1)) { open = index; quote = at; }
+                if (StartsAPath(text, index + 1)) open = index;
+                continue;
             }
-            else if (at == quote && !(quote == '\'' && index + 1 < text.Length && char.IsLetterOrDigit(text[index + 1]))) open = -1;
+            if (quote == '\'' && index + 1 < cut)
+            {
+                // An apostrophe followed by a letter or number (O'Brien), or a doubled one (O''Brien), carries the path on, as the
+                // remover reads it (independent review of 4d2e238, Q2 and Q6).
+                char next = text[index + 1];
+                if (char.IsLetter(next) || char.IsNumber(next)) continue;
+                if (next == '\'') { index++; continue; }
+            }
+            if (quote == '\'')
+            {
+                // The text after a closing apostrophe up to the next one on the line is the rest of the path when it holds a
+                // backslash (Q6); with no apostrophe before the cut, a backslash after it keeps the path open.
+                int after = text.AsSpan(index + 1, cut - index - 1).IndexOf('\'');
+                ReadOnlySpan<char> rest = after < 0 ? text.AsSpan(index + 1, cut - index - 1) : text.AsSpan(index + 1, after);
+                if (rest.Contains('\\')) { if (after >= 0) index += after; continue; }
+            }
+            open = -1;
         }
+        // The fifth build's rule too: the last quote before the cut that is followed by a path start.
+        if (last >= 0 && text.AsSpan(last + 1, cut - last - 1).IndexOf(quote) < 0) open = open < 0 ? last : Math.Min(open, last);
         return open >= 0 ? open : cut;
     }
 
@@ -240,7 +332,7 @@ public static class DiagnosticTextSanitizer
         int windowStart = Math.Max(0, cut - MaximumPathLength);
         ReadOnlySpan<char> window = text.AsSpan(windowStart, Math.Min(text.Length, cut + MaximumPathLength) - windowStart);
         int start = cut;
-        foreach (Regex path in (ReadOnlySpan<Regex>)[UncPath, DrivePath, VariablePath])
+        foreach (Regex path in (ReadOnlySpan<Regex>)[FileLink, UncPath, DrivePath, VariablePath])
         {
             foreach (ValueMatch match in path.EnumerateMatches(window))
             {
