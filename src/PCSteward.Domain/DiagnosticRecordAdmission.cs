@@ -63,10 +63,11 @@ public static class DiagnosticTextSanitizer
     // command line holding a file link is removed whole before this pattern could take its closing quote.
     // Independent review of 1e57444, R5: a host may come before the drive (file://localhost/C:/...), and a host may be an IPv6
     // address in brackets or carry a port (Codex review of #147); otherwise it holds no colon, so "file:file:///C:/..." is not
-    // read as a host named "file:". R6 is left as it is: the pattern
+    // read as a host named "file:". A user name and password may come before the host (independent review of 5526f3d, S2). R6
+    // is left as it is: the pattern
     // also matches inside a longer word ("profile:C:\..." becomes "pro[link]"), which only removes more, and a scheme such as
     // "logfile:///C:/My Documents/x.txt" would otherwise go to the general link pattern, which ends at the first space.
-    private static readonly Regex FileLink = new(@"[Ff][Ii][Ll][Ee]:[\\/]*(?:[A-Za-z]:[\\/]|(?:\[[^\]\s\\/]*\]|[^\\/\s""<>|*?:]+)(?::[0-9]+)?[\\/](?:[A-Za-z]:[\\/])?)(?:[^\\/\r\n""<>|:*?]*[\\/])*\S*", Options, MatchTimeout);
+    private static readonly Regex FileLink = new(@"[Ff][Ii][Ll][Ee]:[\\/]*(?:[A-Za-z]:[\\/]|(?:[^\\/\s""<>|*?:@]+(?::[^\\/\s""<>|*?:@]*)?@)?(?:\[[^\]\s\\/]*\]|[^\\/\s""<>|*?:]+)(?::[0-9]+)?[\\/](?:[A-Za-z]:[\\/])?)(?:[^\\/\r\n""<>|:*?]*[\\/])*\S*", Options, MatchTimeout);
     // A quoted path is removed up to its closing quote, so a file or folder name with spaces cannot leave a suffix behind.
     private static readonly Regex DoubleQuotedPath = new(@"""(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%)[^""\r\n]*""", Options, MatchTimeout);
     // Independent review of cd04620, P7: an apostrophe followed by a letter or digit (O'Brien) is part of a single-quoted path, so the
@@ -236,6 +237,9 @@ public static class DiagnosticTextSanitizer
                 // that closes one, over text that holds a backslash and no start of another path or link.
                 int next = scan.NextClosingQuote(end);
                 if (next < 0 || scan.NextBackslash(end) >= next || scan.NextPathOrLinkStart(end) < next) break;
+                // A quote that a path or link start follows opens that path or link, so the run-on never ends there
+                // (independent review of 5526f3d, S1).
+                if (OpensAPathOrLink(value, next)) break;
                 end = next + 1;
             }
             end = PastLinkTail(value, match.Index, end);
@@ -341,6 +345,21 @@ public static class DiagnosticTextSanitizer
             || StartsAPath(value, after)
             || StartsALink(value.AsSpan(after))
             || value.AsSpan(after).StartsWith("file:", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Whether the quote at <paramref name="index"/> opens a path or link rather than closing what came before: a path or link
+    /// starts right after it (or after the doubled quote it starts), and no letter or number comes right before it (independent
+    /// review of 5526f3d, S1). Only a quote glued to the end of a word ("….mp3'C:\…") still closes that word.
+    /// </summary>
+    private static bool OpensAPathOrLink(string value, int index)
+    {
+        if (index > 0 && IsLetterOrNumber(value[index - 1])) return false;
+        int after = index + 1 < value.Length && value[index + 1] == value[index] ? index + 2 : index + 1;
+        return after < value.Length
+            && (StartsAPath(value, after)
+                || StartsALink(value.AsSpan(after))
+                || value.AsSpan(after).StartsWith("file:", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Whether <paramref name="rest"/> starts with a link's scheme and "://", or with "file:" and a slash or drive.</summary>
@@ -553,7 +572,11 @@ public static class DiagnosticTextSanitizer
                 int closing = index + 1;
                 while (closing < cut && (text[closing] != '\'' || !ClosesAQuote(text, closing))) closing++;
                 ReadOnlySpan<char> rest = text.AsSpan(index + 1, closing - index - 1);
-                if (rest.Contains('\\') && !HoldsPathOrLinkStart(rest)) { index = closing - 1; continue; }
+                if (rest.Contains('\\') && !HoldsPathOrLinkStart(rest) && (closing >= cut || !OpensAPathOrLink(text, closing)))
+                {
+                    index = closing - 1;
+                    continue;
+                }
             }
             open = -1;
         }

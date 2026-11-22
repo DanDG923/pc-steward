@@ -706,6 +706,79 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    [DataRow("Cannot find path 'C:\\Temp\\setup.log' because it does not exist. HKLM\\SOFTWARE\\Contoso was read. Copy-Item 'C:\\Users\\Pat Smith\\My Notes\\Budget Plan.txt' failed", "Cannot find path '[path]' because it does not exist. HKLM\\SOFTWARE\\Contoso was read. Copy-Item '[path]' failed", DisplayName = "a registry key between two quoted paths")]
+    [DataRow("'C:\\Users\\Pat\\a b.txt' was read by CORP\\jbloggs; see 'C:\\Logs\\Xsecret Ysecret.log'", "'[path]' was read by CORP\\jbloggs; see '[path]'", DisplayName = "an account name between two quoted paths")]
+    [DataRow("Copy 'C:\\Temp\\a.txt' to bin\\x64 then open 'D:\\Private Folder\\Tax Return 2025.pdf' please", "Copy '[path]' to bin\\x64 then open '[path]' please", DisplayName = "a relative path between two quoted paths")]
+    [DataRow("Copy '%USERPROFILE%\\a.txt' to bin\\x64 then open '%USERPROFILE%\\Private Folder\\Tax Return 2025.pdf' please", "Copy '[path]' to bin\\x64 then open '[path]' please", DisplayName = "two quoted variable paths")]
+    [DataRow("Copy 'C:\\Temp\\a.txt' to bin\\x64 then Open('D:\\Private Folder\\Tax Return 2025.pdf') now", "Copy '[path]' to bin\\x64 then Open('[path]') now", DisplayName = "a quoted path after a bracket")]
+    [DataRow("Ran 'C:\\Temp\\a.exe' as CORP\\jbloggs &'C:\\Users\\Pat Smith\\out file.txt' done", "Ran '[path]' as CORP\\jbloggs &'[path]' done", DisplayName = "PowerShell's call operator before the second path")]
+    [DataRow("Ran 'C:\\Temp\\a.exe' as CORP\\jbloggs `'C:\\Users\\Pat Smith\\out file.txt' done", "Ran '[path]' as CORP\\jbloggs `'[path]' done", DisplayName = "a backtick before the second path")]
+    [DataRow("Ran 'C:\\Temp\\a.exe' as CORP\\jbloggs \"x\"'C:\\Users\\Pat Smith\\out file.txt' done", "Ran '[path]' as CORP\\jbloggs \"x\"'[path]' done", DisplayName = "a closing double quote before the second path")]
+    [DataRow("Ran 'C:\\Temp\\a.exe' as CORP\\jbloggs \u2014'C:\\Users\\Pat Smith\\out file.txt' done", "Ran '[path]' as CORP\\jbloggs \u2014'[path]' done", DisplayName = "a long dash before the second path")]
+    [DataRow("See 'C:\\Temp\\a.txt' near bin\\x64 and 'file:///C:/Private Folder/TaxReturn.pdf' now", "See '[path]' near bin\\x64 and '[link] now", DisplayName = "a quoted file link after a backslash")]
+    public void AQuotedPathsRemovalEndsBeforeTheNextQuotedPath(string text, string expected)
+    {
+        // Independent review of 5526f3d, S1: when the text between two single-quoted paths held a backslash, the first path's
+        // run-on ended at the second path's opening quote, so the second path's removal started inside it and left its tail. A
+        // quote that a path or link start follows, with no letter or number right before it, now opens that path or link and never
+        // ends a run-on.
+        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000).Value, DiagnosticTextSanitizer.Sanitize(text, 4096).Value])
+        {
+            Assert.AreEqual(expected, clean);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("Opened file://pat:pw@nas01/share/Pat Smith/Tax Returns/return.pdf today", "Opened [link] today", DisplayName = "a user name and password before the host")]
+    [DataRow("Opened file://pat@nas01/share/Pat Smith/Tax Returns/return.pdf today", "Opened [link] today", DisplayName = "a user name before the host")]
+    public void AFileLinkWithAUserNameBeforeTheHostIsRemovedWhole(string text, string expected)
+    {
+        // Independent review of 5526f3d, S2: a user name and password before a file link's host sent the link to the general link
+        // rule, which ends at the first space, so later folder words were left.
+        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000).Value, DiagnosticTextSanitizer.Sanitize(text, 4096).Value])
+        {
+            Assert.AreEqual(expected, clean);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void ACutInsideTheSecondOfTwoQuotedPathsLeavesNoPartOfIt()
+    {
+        // Independent review of 5526f3d, S1, for the evidence and timeline cuts: wherever the cut falls, no part of the second
+        // quoted path's private folder or file name is kept. (A text that itself ends inside an unclosed quoted path with a space
+        // keeps the words after that space, the same limit an unquoted drive path has.)
+        string[] lines =
+        [
+            "Cannot find path 'C:\\Temp\\setup.log' because it does not exist. HKLM\\SOFTWARE\\Contoso was read. Copy-Item 'C:\\Users\\Pat Smith\\My Notes\\Budget Plan.txt' failed",
+            "Copy 'C:\\Temp\\a.txt' to bin\\x64 then open 'D:\\Private Folder\\Tax Return 2025.pdf' please",
+        ];
+        string[] secrets = ["Pat", "Smith", "Notes", "Budget", "Plan", "Private", "Folder", "Tax", "Return", "2025"];
+        string padding = string.Concat(Enumerable.Repeat("The update was checked. ", 625));
+        foreach (string line in lines)
+        {
+            for (int length = 2; length <= line.Length; length++)
+            {
+                string? evidence = AdvisoryAiRedaction.SanitizeEvidence(padding + line + " and the update stopped.", padding.Length + length).Value;
+                string? timeline = DiagnosticTextSanitizer.Sanitize(line + " and the update stopped.", length).Value;
+                foreach (string? clean in (string?[])[evidence, timeline])
+                {
+                    if (clean is null) continue;
+                    foreach (string secret in secrets)
+                    {
+                        for (int size = 3; size <= secret.Length; size++)
+                        {
+                            StringAssert.DoesNotMatch(clean, new System.Text.RegularExpressions.Regex(@"(?<![\p{L}\p{N}])" + System.Text.RegularExpressions.Regex.Escape(secret[..size]) + @"(?![\p{L}\p{N}])"), $"length {length}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     public void AQuotedPathsRemovalLeavesALaterAccountNameToBeRemoved()
     {
         // Independent review of 1e57444, R1: with O'Brien as the PC's account name, the quoted path's removal took "CORP\O'".
