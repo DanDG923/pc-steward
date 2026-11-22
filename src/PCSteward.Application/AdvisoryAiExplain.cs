@@ -191,6 +191,16 @@ public static class AdvisoryAiExplainText
 
     public const string AdviceOnly = "An AI explanation is advice only. PC Steward never acts on it, and it can be wrong.";
 
+    /// <summary>Codex review of ce0eaf3, C6: shown when the size limit left none of an answer that could be shown safely.</summary>
+    public const string AnswerOmitted = "The answer was too long to show safely, so none of it is shown.";
+
+    /// <summary>What a saved answer with no text to show says instead.</summary>
+    public static string NoSavedText(AdvisoryAiSavedExplanation saved)
+    {
+        ArgumentNullException.ThrowIfNull(saved);
+        return saved.TextTruncated ? AnswerOmitted : "No answer text was saved.";
+    }
+
     public static string Blocked(AdvisoryAiExplainBlock block, AdvisoryAiDraftProblem draftProblem = AdvisoryAiDraftProblem.None, AdvisoryAiPreviewProblem previewProblem = AdvisoryAiPreviewProblem.None) => block switch
     {
         AdvisoryAiExplainBlock.None => string.Empty,

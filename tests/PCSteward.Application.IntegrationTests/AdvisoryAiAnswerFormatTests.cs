@@ -138,6 +138,20 @@ public sealed class AdvisoryAiAnswerFormatTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    [DataRow(1_998, true, DisplayName = "1,998 code lines and two fence lines: 4,000 elements with the closing mark")]
+    [DataRow(1_999, false, DisplayName = "1,999 code lines and two fence lines: over the budget")]
+    public void ACodeBlockIsChargedForEveryLineAndLineBreakTheDialogMakes(int lines, bool formatted)
+    {
+        // Codex review of ce0eaf3, C5: the dialog makes one run per code line and one line break between lines, so a 2,500-line
+        // block would make 5,000 elements while counted as 2,500.
+        string answer = "```\n" + string.Join("\n", Enumerable.Range(0, lines).Select(line => "x" + line)) + "\n```";
+        IReadOnlyList<AdvisoryAiAnswerBlock> blocks = AdvisoryAiAnswerFormat.Parse(answer);
+        if (formatted) Assert.AreEqual(AdvisoryAiAnswerBlockKind.Literal, blocks.Single().Kind);
+        else Assert.AreEqual(AdvisoryAiAnswerFormat.TooComplexNotice, blocks[0].PlainText);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     public void AnOverlongAnswerIsCutForDisplayAndSaysSo()
     {
         string answer = new('a', AdvisoryAiAnswerFormat.MaximumFormattedCharacters + 10);
@@ -185,6 +199,8 @@ public sealed class AdvisoryAiAnswerFormatTests
     [DataRow("<span title=\"**ready**\">status</span>", DisplayName = "an attribute")]
     [DataRow("<!-- **note** -->", DisplayName = "a comment")]
     [DataRow("</__b__>", DisplayName = "a closing tag")]
+    [DataRow("<span title=\"A > **ready**\">status</span>", DisplayName = "a quoted > in an attribute (Codex review of ce0eaf3, C4)")]
+    [DataRow("<span title='A <b> **ready**'>status</span>", DisplayName = "a single-quoted < in an attribute")]
     public void MarksInsideAnHtmlTagStayAsWritten(string html)
     {
         // Task 71C review 71C-R3: HTML is never interpreted, and its source isn't changed by bold matching either.

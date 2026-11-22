@@ -192,7 +192,7 @@ public static class AdvisoryAiResponseReader
         ArgumentNullException.ThrowIfNull(approval);
         AdvisoryAiRequestPreview preview = approval.Preview;
         return Read(body, preview.Model.ModelId, AdmittedBytes(approval), preview.InputTokenUpperBound, preview.Limits.MaximumOutputTokens,
-            preview.Model.ServiceTier, preview.Model.RequestNoPromptCache);
+            preview.Model.ServiceTier, preview.Model.RequestNoPromptCache, preview.Model.MaximumTokenUtf8Bytes);
     }
 
     /// <summary>
@@ -210,10 +210,11 @@ public static class AdvisoryAiResponseReader
     /// <summary>
     /// Reads one body for <paramref name="expectedModel"/>. <paramref name="expectedServiceTier"/> is the tier requested and priced: a
     /// body naming another is a departure (null checks only that a named tier is readable). When <paramref name="noPromptCache"/> is
-    /// set, the request asked for no prompt cache, so any cached input is a departure.
+    /// set, the request asked for no prompt cache, so any cached input is a departure. When <paramref name="maximumTokenUtf8Bytes"/> is
+    /// above 0, answer text longer than the reported output tokens (or the approved output) could decode to contradicts the usage.
     /// </summary>
     public static AdvisoryAiResponse Read(ReadOnlySpan<byte> body, string expectedModel, long maximumBytes, long approvedInputTokens, long approvedOutputTokens,
-        string? expectedServiceTier = null, bool noPromptCache = false)
+        string? expectedServiceTier = null, bool noPromptCache = false, int maximumTokenUtf8Bytes = 0)
     {
         ArgumentNullException.ThrowIfNull(expectedModel);
         if (body.Length > maximumBytes) return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.TooLarge);
@@ -223,7 +224,7 @@ public static class AdvisoryAiResponseReader
             if (!DecodesInFull(body)) return Undecodable;
             using JsonDocument document = JsonDocument.Parse(body.ToArray(),
                 new JsonDocumentOptions { MaxDepth = MaximumDepth, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
-            AdvisoryAiResponse response = Read(document.RootElement, expectedModel, approvedInputTokens, approvedOutputTokens);
+            AdvisoryAiResponse response = Read(document.RootElement, expectedModel, approvedInputTokens, approvedOutputTokens, maximumTokenUtf8Bytes);
             (long? written, bool unreadable) = CacheWriteReport(document.RootElement);
             (string? tier, AdvisoryAiServiceTierReport tierReport, AdvisoryAiResponseDeparture departures, AdvisoryAiUsageFieldLocation unknownAt) =
                 DepartureReport(document.RootElement, expectedServiceTier, noPromptCache);
@@ -300,7 +301,7 @@ public static class AdvisoryAiResponseReader
     public static AdvisoryAiResponse Undecodable { get; } =
         AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.UndecodableText) with { UsageAboveApprovedBounds = true };
 
-    private static AdvisoryAiResponse Read(JsonElement root, string expectedModel, long approvedInputTokens, long approvedOutputTokens)
+    private static AdvisoryAiResponse Read(JsonElement root, string expectedModel, long approvedInputTokens, long approvedOutputTokens, int maximumTokenUtf8Bytes)
     {
         if (root.ValueKind != JsonValueKind.Object) return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.NotAResponseObject);
         if (HasDuplicate(root)) return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.DuplicateProperty);
@@ -345,6 +346,7 @@ public static class AdvisoryAiResponseReader
         bool above = cacheWritten || reliable && (usage!.InputTokens > approvedInputTokens || usage.OutputTokens > approvedOutputTokens);
 
         StringBuilder text = new();
+        long textBytes = 0;
         bool refused = false;
         if (root.TryGetProperty("output", out JsonElement output))
         {
@@ -369,7 +371,11 @@ public static class AdvisoryAiResponseReader
                             if (part.ValueKind != JsonValueKind.Object || !part.TryGetProperty("type", out JsonElement partType) || partType.ValueKind != JsonValueKind.String)
                                 return Unbound(AdvisoryAiMalformedReason.InvalidOutputText, usage, reliable, above, id);
                             if (partType.ValueEquals("output_text") && part.TryGetProperty("text", out JsonElement value) && value.ValueKind == JsonValueKind.String)
-                                text.Append(value.GetString());
+                            {
+                                string piece = value.GetString()!;
+                                textBytes += Encoding.UTF8.GetByteCount(piece);
+                                text.Append(piece);
+                            }
                             else if (partType.ValueEquals("refusal")) refused = true;
                             else return Unbound(AdvisoryAiMalformedReason.InvalidOutputText, usage, reliable, above, id);
                         }
@@ -382,6 +388,19 @@ public static class AdvisoryAiResponseReader
             }
         }
         else if (status != AdvisoryAiAnswerStatus.ProviderFailed) return Unbound(AdvisoryAiMalformedReason.UnexpectedOutputItem, usage, reliable, above, id);
+
+        // Codex review of ce0eaf3, C1: every output token decodes to at most maximumTokenUtf8Bytes, so answer text longer than the
+        // reported output tokens (or, when they can't be trusted, the approved output) could produce contradicts the usage. It is
+        // never trusted, so the whole reservation is kept, and the reply stops paid requests for review.
+        if (maximumTokenUtf8Bytes > 0)
+        {
+            long tokens = reliable ? Math.Min(usage!.OutputTokens, approvedOutputTokens) : approvedOutputTokens;
+            if (textBytes > tokens * maximumTokenUtf8Bytes)
+            {
+                reliable = false;
+                above = true;
+            }
+        }
 
         AdvisoryAiAnswerStatus final = refused && text.Length == 0 && status == AdvisoryAiAnswerStatus.Completed ? AdvisoryAiAnswerStatus.Refused : status.Value;
         string? answer = text.Length == 0 ? null : text.ToString().TrimEnd('\n');

@@ -34,6 +34,23 @@ public sealed class AdvisoryAiResponseTests
     }
 
     [TestMethod]
+    [TestCategory("FR-BUD-02")]
+    [DataRow(300 * 4, false, DisplayName = "text 300 tokens can decode to")]
+    [DataRow((300 * 4) + 1, true, DisplayName = "one byte more than 300 tokens can decode to")]
+    public void AnswerTextLongerThanTheReportedOutputCouldDecodeToIsNotTrusted(int bytes, bool contradicted)
+    {
+        // Codex review of ce0eaf3, C1: with at most 4 bytes per token, 300 reported output tokens decode to at most 1,200 bytes.
+        string text = new('x', bytes);
+        string output = "[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"" + text + "\",\"annotations\":[]}]}]";
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(Body(output: output)), Model, 1_000_000, 8192, 1024, maximumTokenUtf8Bytes: 4);
+        Assert.AreEqual(text, response.Text);
+        Assert.AreEqual(!contradicted, response.UsageReliable);
+        Assert.AreEqual(contradicted, response.UsageAboveApprovedBounds);
+        // Without a per-token bound the text is not compared, as before.
+        Assert.IsTrue(Read(Body(output: output)).UsageReliable);
+    }
+
+    [TestMethod]
     [TestCategory("FR-BUD-03")]
     public void AnIncompleteAnswerWithNoTextCanStillCarryCompleteBillableUsage()
     {

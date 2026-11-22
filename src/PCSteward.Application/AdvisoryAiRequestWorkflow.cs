@@ -259,7 +259,9 @@ public sealed class AdvisoryAiRequestWorkflow
         {
             (string raw, bool cut) = AdvisoryAiRedaction.BoundAnswer(response.Text, Math.Max(2, rawCharacters), redaction);
             answer = AdvisoryAiRedaction.SanitizeAnswer(raw, Math.Max(2, answerScalars), redaction);
-            answer = answer with { Truncated = answer.Value is not null && (answer.Truncated || cut) };
+            // Codex review of ce0eaf3, C6: a cut that leaves nothing to show still marks the answer cut, so the owner is told it was
+            // too long to show rather than that there was none.
+            answer = answer with { Truncated = cut || (answer.Value is not null && answer.Truncated) };
         }
         AdvisoryAiSavedExplanation saved = new(Guid.NewGuid(), request.RequestId, approval.Preview.Draft.Source, approval.Preview.Draft.OriginId, model.ModelId,
             response.Status, response.IncompleteReason, answer.Value, answer.Truncated, utcNow());

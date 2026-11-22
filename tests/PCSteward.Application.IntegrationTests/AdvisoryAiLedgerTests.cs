@@ -708,6 +708,41 @@ public sealed class AdvisoryAiLedgerTests
         Assert.EndsWith("line one", read.Text, "cut at a line break");
     }
 
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public async Task ASavedRowCutToNothingSaysItWasTooLongToShow()
+    {
+        // Codex review of ce0eaf3, C6: one word longer than what the dialog can show keeps nothing, but the row stays marked cut,
+        // so the dialog says the answer was too long to show rather than that none was saved.
+        await using Fixture fixture = await Fixture.CreateAsync();
+        AdvisoryAiSavedExplanation saved = Explanation(AdvisoryAiSourceKind.FailedUpdate, "job-1", Now);
+        await fixture.Store.SaveExplanationAsync(saved, Now, CancellationToken.None);
+        await fixture.ExecuteAsync("UPDATE ai_explanations SET answer=replace(hex(zeroblob(32769)), '0', 'a');");
+        AdvisoryAiSavedExplanation read = (await fixture.Store.ListExplanationsAsync(AdvisoryAiSourceKind.FailedUpdate, "job-1", Now, CancellationToken.None)).Single();
+        Assert.IsNull(read.Text);
+        Assert.IsTrue(read.TextTruncated);
+        Assert.AreEqual(AdvisoryAiExplainText.AnswerOmitted, AdvisoryAiExplainText.NoSavedText(read));
+        Assert.AreEqual("No answer text was saved.", AdvisoryAiExplainText.NoSavedText(read with { TextTruncated = false }));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public async Task ANewAnswerCutToNothingIsMarkedCut()
+    {
+        // Codex review of ce0eaf3, C6: the same on the new-answer path. Nothing unsafe is shown or saved, and the cut is kept.
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        int rawBound = AdvisoryAiLimits.Defaults.MaximumOutputTokens * Model.MaximumTokenUtf8Bytes;
+        FakeTransport transport = new(_ => Received(Body(new string('a', rawBound + 1))));
+        (AdvisoryAiRequestWorkflow workflow, _) = fixture.Workflow(transport);
+        (AdvisoryAiApproval approval, AdvisoryAiRequestPreview preview) = await fixture.ApproveAsync();
+        AdvisoryAiSendOutcome outcome = await workflow.SendAsync(approval, preview, null, CancellationToken.None);
+        Assert.IsNull(outcome.AnswerText);
+        Assert.IsTrue(outcome.AnswerTruncated);
+        AdvisoryAiSavedExplanation read = (await fixture.Store.ListExplanationsAsync(approval.Preview.Draft.Source, approval.Preview.Draft.OriginId, Now, CancellationToken.None)).Single();
+        Assert.IsNull(read.Text);
+        Assert.IsTrue(read.TextTruncated);
+    }
+
     // ---- The workflow over the real store --------------------------------------------------------------------------------------
 
     [TestMethod]
@@ -750,6 +785,41 @@ public sealed class AdvisoryAiLedgerTests
         Assert.IsTrue(outcome.AnswerTruncated);
         Assert.IsLessThanOrEqualTo(rawBound, outcome.AnswerText.Length);
         Assert.EndsWith("advice line", outcome.AnswerText);
+        // Codex review of ce0eaf3, C1: the counters report 300 output tokens, which can't decode to this much text, so they are
+        // contradicted. The whole reservation is kept, paid requests stop for review, and the next request is refused unsent.
+        Assert.AreEqual(AdvisoryAiRequestState.Uncertain, outcome.Settlement!.State);
+        Assert.AreEqual(outcome.Reservation, outcome.Settlement.Committed);
+        Assert.AreEqual(outcome.Reservation.Value, await fixture.ScalarAsync("SELECT committed FROM ai_requests;"));
+        AdvisoryAiAccountingState state = await fixture.NewStore().GetAccountingStateAsync(CancellationToken.None);
+        Assert.IsTrue(state.ReviewBlock);
+        Assert.AreEqual(AdvisoryAiReviewCause.UntrustedReply, state.ReviewCauses);
+        (AdvisoryAiApproval next, AdvisoryAiRequestPreview nextPreview) = await fixture.ApproveAsync();
+        AdvisoryAiSendOutcome refused = await workflow.SendAsync(next, nextPreview, null, CancellationToken.None);
+        Assert.IsFalse(refused.Dispatched);
+        Assert.AreEqual(1, transport.Calls, "nothing more is sent");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-02")]
+    public async Task TextLongerThanTheReportedOutputCouldDecodeToContradictsTheUsage()
+    {
+        // Codex review of ce0eaf3, C1: text within the approved output but longer than the reported output tokens could decode to.
+        await using Fixture fixture = await Fixture.CreateReadyAsync();
+        string text = new('x', (300 * Model.MaximumTokenUtf8Bytes) + 1);
+        FakeTransport transport = new(_ => Received(Body(text)));
+        (AdvisoryAiRequestWorkflow workflow, _) = fixture.Workflow(transport);
+        (AdvisoryAiApproval approval, AdvisoryAiRequestPreview preview) = await fixture.ApproveAsync();
+        AdvisoryAiSendOutcome outcome = await workflow.SendAsync(approval, preview, null, CancellationToken.None);
+        Assert.AreEqual(AdvisoryAiRequestState.Uncertain, outcome.Settlement!.State);
+        Assert.AreEqual(outcome.Reservation, outcome.Settlement.Committed);
+        Assert.IsTrue((await fixture.NewStore().GetAccountingStateAsync(CancellationToken.None)).ReviewBlock);
+
+        // Text that 300 tokens can decode to settles at its actual cost, as before.
+        await using Fixture fits = await Fixture.CreateReadyAsync();
+        (AdvisoryAiRequestWorkflow fitting, _) = fits.Workflow(new FakeTransport(_ => Received(Body(new string('x', 300 * Model.MaximumTokenUtf8Bytes)))));
+        (AdvisoryAiApproval fitApproval, AdvisoryAiRequestPreview fitPreview) = await fits.ApproveAsync();
+        AdvisoryAiSendOutcome settled = await fitting.SendAsync(fitApproval, fitPreview, null, CancellationToken.None);
+        Assert.AreEqual(AdvisoryAiRequestState.Settled, settled.Settlement!.State);
     }
 
     [TestMethod]

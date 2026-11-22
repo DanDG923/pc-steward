@@ -166,11 +166,12 @@ public static class AdvisoryAiRedaction
 
     private static (string Text, bool Cut) CutAnswer(string text, int maximumCharacters)
     {
-        // The character just past the bound is part of the question: when it is whitespace, the last word inside is whole.
-        if (char.IsWhiteSpace(text[maximumCharacters])) return (text[..maximumCharacters], true);
+        // The character just past the bound is part of the question: when it is whitespace, the last word inside is whole. Codex
+        // review of ce0eaf3, C3: the cut never splits a path that holds spaces either, so it moves before any path open across it.
+        if (char.IsWhiteSpace(text[maximumCharacters])) return (text[..DiagnosticTextSanitizer.SafeCutAtOrBefore(text, maximumCharacters)], true);
         int lineBreak = text.LastIndexOf('\n', maximumCharacters - 1, maximumCharacters - (maximumCharacters / 2));
-        if (lineBreak >= maximumCharacters / 2) return (text[..lineBreak], true);
-        return (text[..DiagnosticTextSanitizer.WordBoundaryAtOrBefore(text, maximumCharacters)].TrimEnd(), true);
+        if (lineBreak >= maximumCharacters / 2) return (text[..DiagnosticTextSanitizer.SafeCutAtOrBefore(text, lineBreak)], true);
+        return (text[..DiagnosticTextSanitizer.SafeCutAtOrBefore(text, maximumCharacters)].TrimEnd(), true);
     }
 
     /// <summary>The most leading spaces an answer line keeps (Task 71C review 71C-04), enough for code nested sixteen levels deep.</summary>
@@ -279,7 +280,8 @@ public static class AdvisoryAiRedaction
         {
             // Independent review of ce0eaf3, F1: the cut never falls inside a word, so a secret known by its shape is never left as a
             // prefix its pattern no longer matches (the evidence twin of the answer cut, Codex review of #141).
-            if (scalars == MaximumInputScalars) return (text[..DiagnosticTextSanitizer.WordBoundaryAtOrBefore(text, index)], true);
+            // Codex review of ce0eaf3, C3: nor inside a path that holds spaces.
+            if (scalars == MaximumInputScalars) return (text[..DiagnosticTextSanitizer.SafeCutAtOrBefore(text, index)], true);
             index += char.IsHighSurrogate(text[index]) && index + 1 < text.Length && char.IsLowSurrogate(text[index + 1]) ? 2 : 1;
             scalars++;
         }

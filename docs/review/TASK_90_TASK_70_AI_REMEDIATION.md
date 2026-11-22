@@ -181,3 +181,18 @@ The independent review of the third retest build (commit `ce0eaf3`; run 44966275
 | **F2, F4, F5 (Low), not changed.** F2: a main usage count that isn't a plain count keeps the whole reservation without a pause, which is the ADR-029 rule for unreliable usage; the cache-write details are stricter. F4: HTML with ">" inside an attribute or comment can still have its stars read as bold (display only). F5: opening saved answers cleans up to 100 rows, off the window's thread, before the first is shown. | Recorded for a later change. F2 would change ADR-029 and is the owner's choice. | — |
 
 The schema stays at 17.
+
+## 15. Task 71C review of the third retest build at `ce0eaf3`, and fixes
+
+The owner's review of the third retest build (commit `ce0eaf3`; run 44966275569, artifact SHA-256 `56bab6d1…d80e`) returned FAIL. Artifact identity and contents, the compiled model and route, the first request's settlement ($0.004192), migration 17 and the credential format passed. The report is not committed.
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **C1 (Medium). Usage was trusted when the answer text contradicted it.** A reply whose text was far longer than its reported output tokens could decode to settled at the reported cost. | The reader compares the answer text's UTF-8 bytes with the reported output tokens (or, when they can't be trusted, the approved output) times the most bytes one token decodes to. Longer text makes the usage untrusted: the whole reservation is kept and paid requests stop for review. | `AdvisoryAiResponseTests.AnswerTextLongerThanTheReportedOutputCouldDecodeToIsNotTrusted`; `AdvisoryAiLedgerTests.AnAnswerLongerThanTheApprovedOutputIsCutBeforeItIsCleaned` (amount, cause and the next request refused), `TextLongerThanTheReportedOutputCouldDecodeToContradictsTheUsage` |
+| **C2 (Medium). The evidence cut inside a word.** | Fixed in §14 (#142). | §14 |
+| **C3 (Medium, privacy). A cut at a space inside a path left part of it visible.** A quoted file name or a folder name with spaces, cut at one of them, left the first words as a shorter path and the rest as plain text, at the answer, saved-answer, evidence and timeline cuts. | Every cut before cleaning moves before a quoted path still open at it and before any drive, network or variable path running across it, then back to a word boundary (`DiagnosticTextSanitizer.SafeCutAtOrBefore`). The timeline sanitizer reads up to one longest path past its bound to find it. | `AdvisoryAiRedactionTests.ACutNeverSplitsAPathThatHoldsSpaces` (five kinds of path, every cut position, all four cuts) |
+| **C4 (Low). A quoted ">" in an HTML attribute ended the tag.** | Inside a tag, quoted values may hold "<" or ">"; a quote left open means no later tag. | `AdvisoryAiAnswerFormatTests.MarksInsideAnHtmlTagStayAsWritten` |
+| **C5 (Low). Code blocks were charged half the elements the dialog makes.** | A code block is charged one run per line and one line break between lines, plus the closing mark, against the 4,000 budget. | `AdvisoryAiAnswerFormatTests.ACodeBlockIsChargedForEveryLineAndLineBreakTheDialogMakes` |
+| **C6 (Low). A cut that left nothing lost its notice.** | A new or saved answer cut to nothing stays marked cut, and the dialog says "The answer was too long to show safely, so none of it is shown." A genuinely empty cleaned answer still shows no text. | `AdvisoryAiLedgerTests.ASavedRowCutToNothingSaysItWasTooLongToShow`, `ANewAnswerCutToNothingIsMarkedCut` |
+
+The schema stays at 17.

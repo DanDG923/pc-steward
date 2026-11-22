@@ -83,23 +83,24 @@ public static class DiagnosticTextSanitizer
         if (string.IsNullOrWhiteSpace(text)) return new(null, false);
 
         StringBuilder cleaned = new(Math.Min(text.Length, maximumCleanedChars));
-        bool cutEarly = false;
+        int boundary = -1;
         foreach (Rune rune in text.EnumerateRunes())
         {
-            if (cleaned.Length >= maximumCleanedChars)
-            {
-                // Independent review of ce0eaf3, F1: a cut inside a word would leave the start of a value the patterns below no
-                // longer recognise (part of an e-mail address or the computer name), so the unfinished last word is dropped.
-                cutEarly = true;
-                if (!Rune.IsWhiteSpace(rune)) cleaned.Length = WordStart(cleaned);
-                break;
-            }
+            // Independent review of ce0eaf3, F1, and Codex review of ce0eaf3, C3: a cut inside a word or a path would leave the start
+            // of a value the patterns below no longer recognise (part of an e-mail address, the computer name or a private folder name
+            // after a space in a path). Past the bound, up to one longest path more is read, so the cut can be moved before any word
+            // or path it would split.
+            if (boundary < 0 && cleaned.Length >= maximumCleanedChars) boundary = cleaned.Length;
+            if (boundary >= 0 && cleaned.Length >= boundary + MaximumPathLength) break;
             UnicodeCategory category = Rune.GetUnicodeCategory(rune);
             if (Rune.IsWhiteSpace(rune) || category is UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator) cleaned.Append(' ');
             else if (category is UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.Surrogate or UnicodeCategory.OtherNotAssigned) continue;
             else if (rune == Rune.ReplacementChar) cleaned.Append('?');
             else cleaned.Append(rune.ToString());
         }
+
+        bool cutEarly = boundary >= 0 && cleaned.Length > boundary;
+        if (cutEarly) cleaned.Length = SafeCutAtOrBefore(cleaned.ToString(), boundary);
 
         // Structured values go first, so an identity token can never break a path, link, SID or address apart before it is
         // recognised (a one-letter account name "c" would otherwise turn "C:\Users\..." into text no path pattern matches).
@@ -128,12 +129,72 @@ public static class DiagnosticTextSanitizer
         return early.Truncated ? early : new(early.Value + Ellipsis, true);
     }
 
-    /// <summary>Where the last word of <paramref name="text"/> starts: just after its last whitespace, or 0 when it has none.</summary>
-    private static int WordStart(StringBuilder text)
+    /// <summary>The longest Windows path, in UTF-16 units: no path that a cut could split starts or ends further than this from it.</summary>
+    public const int MaximumPathLength = 32 * 1024;
+
+    /// <summary>
+    /// Codex review of ce0eaf3, C3: the end of a cut of <paramref name="text"/> at <paramref name="end"/> that splits no word and no
+    /// path. A path may hold spaces (a quoted file name, or a folder name in an unquoted path), so cutting at one of them would leave
+    /// the path's first words as a shorter path and its later words as plain text. The cut moves before a quoted path that is still
+    /// open at it, and before any drive, network or variable path that runs across it, then back to a word boundary.
+    /// </summary>
+    public static int SafeCutAtOrBefore(string text, int end)
     {
-        for (int index = text.Length - 1; index >= 0; index--)
-            if (char.IsWhiteSpace(text[index])) return index + 1;
-        return 0;
+        int cut = WordBoundaryAtOrBefore(text, end);
+        for (int pass = 0; pass < 64 && cut > 0; pass++)
+        {
+            int moved = Math.Min(OpenQuotedPathStart(text, cut), PathAcross(text, cut));
+            if (moved >= cut) break;
+            cut = WordBoundaryAtOrBefore(text, moved);
+        }
+        return cut;
+    }
+
+    /// <summary>Where a quoted path still open at <paramref name="cut"/> starts (its opening quote), or <paramref name="cut"/>.</summary>
+    private static int OpenQuotedPathStart(string text, int cut)
+    {
+        // A quoted path holds no quote of its own kind and no line break, so if one is open at the cut, the last such quote before
+        // the cut on its line opens it.
+        int lineStart = text.AsSpan(0, cut).LastIndexOfAny(['\r', '\n']) + 1;
+        int start = cut;
+        foreach (char quote in (ReadOnlySpan<char>)['"', '\''])
+        {
+            int at = text.AsSpan(lineStart, cut - lineStart).LastIndexOf(quote);
+            if (at >= 0 && StartsAPath(text, lineStart + at + 1)) start = Math.Min(start, lineStart + at);
+        }
+        return start;
+    }
+
+    private static bool StartsAPath(string text, int index)
+    {
+        ReadOnlySpan<char> rest = text.AsSpan(index);
+        if (rest.Length >= 3 && char.IsAsciiLetter(rest[0]) && rest[1] == ':' && rest[2] is '\\' or '/') return true;
+        if (rest.StartsWith(@"\\", StringComparison.Ordinal)) return true;
+        if (rest.Length < 3 || rest[0] != '%' || !(char.IsAsciiLetter(rest[1]) || rest[1] == '_')) return false;
+        for (int i = 2; i < rest.Length && i <= 256; i++)
+        {
+            if (rest[i] == '%') return true;
+            if (!(char.IsAsciiLetterOrDigit(rest[i]) || rest[i] == '_')) return false;
+        }
+        return false;
+    }
+
+    /// <summary>Where the first drive, network or variable path running across <paramref name="cut"/> starts, or <paramref name="cut"/>.</summary>
+    private static int PathAcross(string text, int cut)
+    {
+        int windowStart = Math.Max(0, cut - MaximumPathLength);
+        ReadOnlySpan<char> window = text.AsSpan(windowStart, Math.Min(text.Length, cut + MaximumPathLength) - windowStart);
+        int start = cut;
+        foreach (Regex path in (ReadOnlySpan<Regex>)[UncPath, DrivePath, VariablePath])
+        {
+            foreach (ValueMatch match in path.EnumerateMatches(window))
+            {
+                int matchStart = windowStart + match.Index;
+                if (matchStart >= cut) break;
+                if (matchStart + match.Length > cut) start = Math.Min(start, matchStart);
+            }
+        }
+        return start;
     }
 
     /// <summary>
