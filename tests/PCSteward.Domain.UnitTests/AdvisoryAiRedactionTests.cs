@@ -142,15 +142,32 @@ public sealed class AdvisoryAiRedactionTests
         // Task 71C review 71C-R2: the raw text is cut to the bound before cleaning, so cleaning time follows the bound, not the reply.
         Assert.AreEqual(("short", false), AdvisoryAiRedaction.BoundAnswer("short", 10));
         Assert.AreEqual(("line one", true), AdvisoryAiRedaction.BoundAnswer("line one\nline two", 12), "cut at the line break");
-        Assert.AreEqual(("abcdefghij", true), AdvisoryAiRedaction.BoundAnswer("abcdefghijklmnop", 10), "no line break: cut at the bound");
-        Assert.AreEqual(("a\nbcdefghi", true), AdvisoryAiRedaction.BoundAnswer("a\nbcdefghijklmnop", 10), "a break in the first half is not used");
-        (string surrogate, bool cut) = AdvisoryAiRedaction.BoundAnswer("abcdefghi\U0001F600z", 10);
-        Assert.AreEqual("abcdefghi", surrogate, "a surrogate pair is never split");
-        Assert.IsTrue(cut);
+        Assert.AreEqual(("abc", true), AdvisoryAiRedaction.BoundAnswer("abc defghijklmnop", 10), "no line break: cut at the last space");
+        Assert.AreEqual(("a\nbc", true), AdvisoryAiRedaction.BoundAnswer("a\nbc defghijklmnop", 10), "a break in the first half is not used");
+        Assert.AreEqual(("abc defghi", true), AdvisoryAiRedaction.BoundAnswer("abc defghi jkl", 10), "the word inside the bound is whole");
+        Assert.AreEqual((string.Empty, true), AdvisoryAiRedaction.BoundAnswer("abcdefghi\U0001F600z", 10), "one word longer than the bound: nothing kept");
         string huge = new(' ', 3_000_000);
         (string bounded, bool hugeCut) = AdvisoryAiRedaction.BoundAnswer(huge, 393_216);
         Assert.AreEqual(393_216, bounded.Length);
         Assert.IsTrue(hugeCut);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("See AAAAA-BBBBB-CCCCC-DDDDD-EEEEE", DisplayName = "a product key")]
+    [DataRow("See 0123456789abcdef0123456789abcdef0123", DisplayName = "a long hex value")]
+    [DataRow("See QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZn", DisplayName = "a long base64 value")]
+    public void ACutNeverLeavesPartOfASecretThatIsKnownByItsShape(string answer)
+    {
+        // Codex review of #141: cutting one character off an unlabelled secret would leave a prefix its pattern no longer matches.
+        Assert.AreEqual("See [secret]", AdvisoryAiRedaction.SanitizeAnswer(answer, 4000).Value?.Replace("[product key]", "[secret]", StringComparison.Ordinal), "whole, it is redacted");
+        for (int bound = 5; bound < answer.Length; bound++)
+        {
+            (string cut, _) = AdvisoryAiRedaction.BoundAnswer(answer, bound);
+            string? clean = AdvisoryAiRedaction.SanitizeAnswer(cut, 4000).Value;
+            Assert.IsFalse(clean?.Contains("AAAAA", StringComparison.Ordinal) == true || clean?.Contains("0123", StringComparison.Ordinal) == true ||
+                clean?.Contains("QUJD", StringComparison.Ordinal) == true, $"bound {bound}: {clean}");
+        }
     }
 
     [TestMethod]
