@@ -59,8 +59,10 @@ public static class DiagnosticTextSanitizer
     private static readonly Regex Link = new(@"[A-Za-z][A-Za-z0-9+.\-]*://\S+", Options, MatchTimeout);
     // Independent review of 4d2e238, Q7: a file link names a path, so its folder names may hold spaces as a drive path's may, and
     // it is removed the way a drive path is: whole folders, then a last part that runs to whitespace, so a query string or fragment
-    // goes with it as it did with the general link pattern (Codex review of #146).
-    private static readonly Regex FileLink = new(@"[Ff][Ii][Ll][Ee]:[\\/]*(?:[A-Za-z]:[\\/]|[^\\/\s""<>|*?]+[\\/])(?:[^\\/\r\n""<>|:*?]*[\\/])*\S*", Options, MatchTimeout);
+    // goes with it as it did with the general link pattern (Codex review of #146). The last part stops at a quote (an apostrophe
+    // followed by a letter or number, as in O'Brien, is part of it), so a quoted command line holding a file link keeps the quote
+    // that closes it and is still removed whole.
+    private static readonly Regex FileLink = new(@"[Ff][Ii][Ll][Ee]:[\\/]*(?:[A-Za-z]:[\\/]|[^\\/\s""<>|*?]+[\\/])(?:[^\\/\r\n""<>|:*?]*[\\/])*(?:[^\s""']|'[\p{L}\p{N}])*", Options, MatchTimeout);
     // A quoted path is removed up to its closing quote, so a file or folder name with spaces cannot leave a suffix behind.
     private static readonly Regex DoubleQuotedPath = new(@"""(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%)[^""\r\n]*""", Options, MatchTimeout);
     // Independent review of cd04620, P7: an apostrophe followed by a letter or digit (O'Brien) is part of a single-quoted path, so the
