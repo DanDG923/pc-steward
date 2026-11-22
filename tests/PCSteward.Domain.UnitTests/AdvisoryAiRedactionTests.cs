@@ -511,4 +511,156 @@ public sealed class AdvisoryAiRedactionTests
     [DataRow("address: 8.0.300.0 is not an address")]
     public void VersionsTimesAndOrdinaryWordsAreNotTakenForAddressesOrSecrets(string text) =>
         Assert.AreEqual(text, AdvisoryAiRedaction.SanitizeEvidence(text, 2048, Identity).Value);
+
+    /// <summary>Every cut position in <paramref name="from"/>..<paramref name="to"/> of <paramref name="line"/>, at all four cuts.</summary>
+    private static void AssertNoCutShows(string line, int from, int to, string[] hidden, DiagnosticRedactionContext? context = null)
+    {
+        for (int at = from; at < to; at++)
+        {
+            string evidence = new string(' ', (16 * 1024) - at) + line + " tail";
+            string timeline = evidence;
+            string? evidenceClean = AdvisoryAiRedaction.SanitizeEvidence(evidence, 2048, context).Value;
+            string? timelineClean = DiagnosticTextSanitizer.Sanitize(timeline, 20_000, context).Value;
+            (string answerCut, _) = AdvisoryAiRedaction.BoundAnswer(line + " tail", Math.Max(2, at), context);
+            string? answerClean = AdvisoryAiRedaction.SanitizeAnswer(answerCut, 4000, context).Value;
+            foreach (string word in hidden)
+            {
+                Assert.DoesNotContain(word, evidenceClean ?? string.Empty, $"evidence cut at {at}");
+                Assert.DoesNotContain(word, timelineClean ?? string.Empty, $"timeline cut at {at}");
+                Assert.DoesNotContain(word, answerClean ?? string.Empty, $"answer cut at {at}");
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("Parents' House", "House", DisplayName = "a folder name ending in an apostrophe")]
+    [DataRow("Guns N' Roses", "Roses", DisplayName = "an apostrophe followed by a space")]
+    [DataRow("O'Brien", "Brien", DisplayName = "an apostrophe followed by a letter")]
+    public void ACutInsideADoubleQuotedPathInASingleQuotedCommandLineShowsNothingOfIt(string folder, string folderWord)
+    {
+        // Independent review of 4d2e238, Q1: the cut check followed one quoted path at a time, so a double-quoted path inside a
+        // single-quoted command line was missed, while cleaning removes double-quoted paths first. A cut inside the file name then
+        // left its words visible. Each kind of quote is now followed on its own, and every cut is checked by cleaning it.
+        string line = "Ran 'C:\\Windows\\System32\\msiexec.exe /i \"C:\\Users\\Pat\\" + folder + "\\Hartwell Family Trust Dispute.msi\" /qn' (exit 1603)";
+        string[] hidden = [folderWord, "Hartwell", "Family", "Trust", "Dispute"];
+        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(line, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(line, 4000).Value, DiagnosticTextSanitizer.Sanitize(line, 4096).Value])
+            Assert.AreEqual("Ran '[path]' (exit 1603)", clean, "pasted short, the whole command line is removed");
+        AssertNoCutShows(line, line.IndexOf("Pat", StringComparison.Ordinal), line.IndexOf(".msi", StringComparison.Ordinal), hidden);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void AnApostropheBeforeANumberThatIsNotADigitCarriesTheQuotedPathOnAtACut()
+    {
+        // Independent review of 4d2e238, Q2: the cut check took only a letter or digit after an apostrophe as carrying a single-quoted
+        // path on, while the remover takes any letter or number (², ½, Ⅷ).
+        const string line = "Saved 'C:\\Users\\Pat\\O'\u00B2 Zebra Quokka.txt' today";
+        AssertNoCutShows(line, line.IndexOf("Zebra", StringComparison.Ordinal), line.IndexOf(".txt", StringComparison.Ordinal), ["Zebra", "Quokka"]);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void AnAnswerCutInsideAQuotedPathLongerThanTheLongestPathShowsNothingOfIt()
+    {
+        // Independent review of 4d2e238, Q3: the check started at most one longest path before the cut, so the opening quote of a
+        // longer quoted "path" was not seen at the answer cuts. The line is now read from its start, and the cut is checked.
+        string answer = "See \"C:\\" + new string('x', 40_000) + " Zebra Quokka Ocelot.txt\" now";
+        int bound = answer.IndexOf("Quokka", StringComparison.Ordinal) + 2;
+        (string cut, bool wasCut) = AdvisoryAiRedaction.BoundAnswer(answer, bound);
+        Assert.IsTrue(wasCut);
+        string shown = AdvisoryAiRedaction.SanitizeAnswer(cut, 100_000).Value ?? string.Empty;
+        Assert.DoesNotContain("Zebra", shown);
+        Assert.DoesNotContain("Quokka", shown);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void AnAnswerCutBetweenTheWordsOfANameIsCheckedAsAnAnswerIsCleaned()
+    {
+        // Independent review of 4d2e238, Q4: the name check cleaned the kept answer as one evidence item, all lines joined, so a path
+        // at the end of an earlier line swallowed the first words of the name, and they were kept. The cut is now checked by cleaning
+        // the kept answer line by line, as an answer is cleaned.
+        DiagnosticRedactionContext name = new(["Pat Ocelot Zebra"]);
+        string answer = "Open C:\\Users\\\nsigned in as DOMAIN\\Pat Ocelot Zebra today";
+        (string cut, bool wasCut) = AdvisoryAiRedaction.BoundAnswer(answer, answer.IndexOf("Zebra", StringComparison.Ordinal) + 2, name);
+        Assert.IsTrue(wasCut);
+        string shown = AdvisoryAiRedaction.SanitizeAnswer(cut, 4000, name).Value ?? string.Empty;
+        Assert.DoesNotContain("Pat", shown);
+        Assert.DoesNotContain("Ocelot", shown);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("Saved 'C:\\Music\\Guns N' Roses\\Tax Return 2026.mp3' today", DisplayName = "an apostrophe followed by a space")]
+    [DataRow("Saved 'C:\\Users\\Parents' House\\Tax Return 2026.mp3' today", DisplayName = "a folder name ending in an apostrophe")]
+    [DataRow("Saved 'C:\\Users\\O''Brien\\Tax Return 2026.mp3' today", DisplayName = "a doubled apostrophe (PowerShell)")]
+    public void ASingleQuotedPathWithAnyApostropheInAFolderNameIsRemovedWhole(string text)
+    {
+        // Independent review of 4d2e238, Q6: the path ended at an apostrophe followed by a space or another apostrophe, and the rest
+        // of it was left visible with no cut involved. The text up to the next apostrophe is the rest of the path when it holds a
+        // backslash, and a doubled apostrophe carries the path on.
+        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000).Value, DiagnosticTextSanitizer.Sanitize(text, 4096).Value])
+        {
+            Assert.AreEqual("Saved '[path]' today", clean);
+        }
+        AssertNoCutShows(text, text.IndexOf("Tax", StringComparison.Ordinal), text.IndexOf(".mp3", StringComparison.Ordinal), ["Tax", "Return", "Roses", "House", "Brien"]);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void TwoSingleQuotedPathsOnALineStaySeparate()
+    {
+        // The rest of a path is taken only when it holds a backslash, so the words between two quoted paths are kept.
+        const string text = "Copied 'C:\\a\\b.txt' to 'D:\\c\\d.txt' fine";
+        Assert.AreEqual("Copied '[path]' to '[path]' fine", DiagnosticTextSanitizer.Sanitize(text, 4096).Value);
+        Assert.AreEqual("Copied '[path]' to '[path]' fine", AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("file:///C:/Users/Pat/Tax Returns 2026/Final Copy/return.pdf", DisplayName = "a drive in a file link")]
+    [DataRow("FILE://server/share/Tax Returns 2026/Final Copy/return.pdf", DisplayName = "a network share in a file link")]
+    public void AFileLinkWithSpacesIsRemovedWhole(string link)
+    {
+        // Independent review of 4d2e238, Q7: a file link ended at its first space, leaving the private folder names after it.
+        string text = "Open " + link + " now";
+        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000).Value, DiagnosticTextSanitizer.Sanitize(text, 4096).Value])
+        {
+            Assert.AreEqual("Open [link] now", clean);
+        }
+        AssertNoCutShows(text, text.IndexOf("Returns", StringComparison.Ordinal), text.IndexOf(".pdf", StringComparison.Ordinal), ["Returns", "Final", "Copy", "return"]);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("Pat  Ocelot  Zebra", DisplayName = "two spaces")]
+    [DataRow("Pat\r\nOcelot Zebra", DisplayName = "a line break")]
+    [DataRow("Pat \tOcelot Zebra", DisplayName = "a space and a tab")]
+    public void TheTimelineRemovesANameWhateverWhitespaceSeparatesItsWords(string written)
+    {
+        // Independent review of 4d2e238, Q8: names were replaced before runs of whitespace were joined.
+        DiagnosticRedactionContext name = new(["Pat Ocelot Zebra"]);
+        Assert.AreEqual("Signed in as [redacted] today", DiagnosticTextSanitizer.Sanitize("Signed in as " + written + " today", 4096, name).Value);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void ACutIsCheckedByCleaningSoAShapeThePredictionMissesStillShowsNothing()
+    {
+        // Independent review of 4d2e238 (the fix that ends the class): after the predicted cut, the kept text is cleaned and compared
+        // with the whole text cleaned the same way, and the cut moves back until it shows only what the whole shows. A quoted secret
+        // whose value holds spaces must stay hidden at every cut, whichever step catches it.
+        string line = "token = \"Zebra Quokka Ocelot Lynx\" end";
+        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(line, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(line, 4000).Value])
+            Assert.DoesNotContain("Quokka", clean ?? string.Empty, "pasted short, the value is removed");
+        for (int at = line.IndexOf("Quokka", StringComparison.Ordinal); at < line.IndexOf("Lynx", StringComparison.Ordinal); at++)
+        {
+            string evidence = new string(' ', (16 * 1024) - at) + line + " tail";
+            string? clean = AdvisoryAiRedaction.SanitizeEvidence(evidence, 2048).Value;
+            Assert.DoesNotContain("Zebra", clean ?? string.Empty, $"evidence cut at {at}");
+            (string cut, _) = AdvisoryAiRedaction.BoundAnswer(line, at);
+            Assert.DoesNotContain("Zebra", AdvisoryAiRedaction.SanitizeAnswer(cut, 4000).Value ?? string.Empty, $"answer cut at {at}");
+        }
+    }
 }

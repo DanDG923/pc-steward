@@ -1,3 +1,9 @@
+**Advisory AI, independent review of the sixth Task 71C retest build failed; fixes (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-DIA-03` ([Task 90 record §18](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `4d2e238`.** One Medium finding, new in #145: an owner's evidence edit over 16,384 characters could be cut inside a double-quoted path inside a single-quoted command line, leaving words of the file name. Seven Low. The model, route and retest procedure passed. The report is not in the repository.
+- **Fixed.** Every cut is now checked by cleaning the kept text and comparing it with the whole text cleaned the same way, so a shape the predicted cut misses is still caught. The quote check follows each kind of quote on its own. Apostrophes in single-quoted paths, file links with spaces, unclosed HTML comments and names written with extra whitespace in the timeline are handled.
+- **Next.** A new retest build from `phase/4-beta`, reviewed by both reviewers, then the owner's separate approvals for the key step and the one send.
+
 **Advisory AI, review of the fifth Task 71C retest build failed; fixes (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-BUD-02`, `FR-DIA-03` ([Task 90 record §17](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `cd04620`.** The owner's review returned FAIL: four Medium findings (an invisible character could hide where a path starts or a name's first word at a cut; text under a name the byte counter skipped wasn't counted; some contradicted replies kept the reservation with no pause) and two Low (HTML comments; spacing in fenced code). The independent review was stopped when the build was superseded, and its notes added an old single-quoted path fault. Artifact identity, model, route, arithmetic, migration and the stored key passed. The reports are not in the repository.

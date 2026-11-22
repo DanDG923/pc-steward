@@ -267,18 +267,33 @@ public static partial class AdvisoryAiAnswerFormat
             nextDouble[at] = masked[at] == '"' ? at : nextDouble[at + 1];
             nextSingle[at] = masked[at] == '\'' ? at : nextSingle[at + 1];
         }
+        // Where the next "-->" and "--!>" start, found again only once the scan has passed them, so the scan stays linear.
+        int nextArrow = -2, nextBang = -2;
         for (int index = 0; index + 1 < masked.Length; index++)
         {
             if (masked[index] != '<' || !(char.IsAsciiLetter(masked[index + 1]) || masked[index + 1] is '/' or '!' or '?')) continue;
             // Codex review of cd04620, 71C-05: a comment runs to its closing "-->", whatever it holds, so a ">" or a quote inside it
-            // ends nothing. An unclosed comment means no tag ends after this point.
+            // ends nothing. Independent review of 4d2e238, Q5: "<!-->" and "<!--->" are closed at once and "--!>" closes one too, as
+            // browsers read them; a comment that never closes is read as an ordinary tag, so the tags after it are still kept as written.
             if (text.AsSpan(index).StartsWith("<!--", StringComparison.Ordinal))
             {
-                int end = text.IndexOf("-->", index + 4, StringComparison.Ordinal);
-                if (end < 0) break;
-                for (int inside = index + 1; inside < end + 2; inside++) masked[inside] = 'x';
-                index = end + 2;
-                continue;
+                int body = index + 4;
+                int end = -1;
+                if (body < text.Length && text[body] == '>') end = body;
+                else if (text.AsSpan(body).StartsWith("->", StringComparison.Ordinal)) end = body + 1;
+                else
+                {
+                    if (nextArrow != -1 && nextArrow < body) nextArrow = text.IndexOf("-->", body, StringComparison.Ordinal);
+                    if (nextBang != -1 && nextBang < body) nextBang = text.IndexOf("--!>", body, StringComparison.Ordinal);
+                    if (nextArrow >= 0) end = nextArrow + 2;
+                    if (nextBang >= 0 && (end < 0 || nextBang + 3 < end)) end = nextBang + 3;
+                }
+                if (end >= 0)
+                {
+                    for (int inside = index + 1; inside < end; inside++) masked[inside] = 'x';
+                    index = end;
+                    continue;
+                }
             }
             // Codex review of ce0eaf3, C4: a quoted attribute value may hold "<" or ">" (title="A > B"), so neither ends the tag
             // inside quotes. Independent review of 4056e3f, L3: only a quote just after "=" (spaces allowed) opens a value, so an
