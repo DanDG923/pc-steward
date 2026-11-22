@@ -61,10 +61,12 @@ public static class DiagnosticTextSanitizer
     // it is removed the way a drive path is: whole folders, then a last part that runs to whitespace, so a query string or fragment
     // goes with it as it did with the general link pattern (Codex review of #146). Quoted paths are removed before links, so a quoted
     // command line holding a file link is removed whole before this pattern could take its closing quote.
-    // Independent review of 1e57444, R5: a host may come before the drive (file://localhost/C:/...). R6 is left as it is: the pattern
+    // Independent review of 1e57444, R5: a host may come before the drive (file://localhost/C:/...), and a host may be an IPv6
+    // address in brackets or carry a port (Codex review of #147); otherwise it holds no colon, so "file:file:///C:/..." is not
+    // read as a host named "file:". R6 is left as it is: the pattern
     // also matches inside a longer word ("profile:C:\..." becomes "pro[link]"), which only removes more, and a scheme such as
     // "logfile:///C:/My Documents/x.txt" would otherwise go to the general link pattern, which ends at the first space.
-    private static readonly Regex FileLink = new(@"[Ff][Ii][Ll][Ee]:[\\/]*(?:[A-Za-z]:[\\/]|[^\\/\s""<>|*?:]+[\\/](?:[A-Za-z]:[\\/])?)(?:[^\\/\r\n""<>|:*?]*[\\/])*\S*", Options, MatchTimeout);
+    private static readonly Regex FileLink = new(@"[Ff][Ii][Ll][Ee]:[\\/]*(?:[A-Za-z]:[\\/]|(?:\[[^\]\s\\/]*\]|[^\\/\s""<>|*?:]+)(?::[0-9]+)?[\\/](?:[A-Za-z]:[\\/])?)(?:[^\\/\r\n""<>|:*?]*[\\/])*\S*", Options, MatchTimeout);
     // A quoted path is removed up to its closing quote, so a file or folder name with spaces cannot leave a suffix behind.
     private static readonly Regex DoubleQuotedPath = new(@"""(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%)[^""\r\n]*""", Options, MatchTimeout);
     // Independent review of cd04620, P7: an apostrophe followed by a letter or digit (O'Brien) is part of a single-quoted path, so the

@@ -744,6 +744,8 @@ public sealed class AdvisoryAiRedactionTests
     [TestMethod]
     [TestCategory("FR-AI-05")]
     [DataRow("Opened file://localhost/C:/Users/Pat/Tax Returns 2026/Final Copy/return.pdf today", "Opened [link] today", DisplayName = "a host before the drive (R5)")]
+    [DataRow("Opened file://[2001:db8::1]/share/Tax Returns/Private Copy/return.pdf today", "Opened [link] today", DisplayName = "an IPv6 host (Codex review of #147)")]
+    [DataRow("Opened file://nas:445/share/Tax Returns/Private Copy/return.pdf today", "Opened [link] today", DisplayName = "a host with a port")]
     [DataRow("Paths C:\\a\\b.txt;D:\\Users\\Pat\\c.txt and \\\\srv\\share\\x;C:\\y\\z.txt done", "Paths [path][path] and [path][path] done", DisplayName = "a drive or share path, then a drive path with no space (R6)")]
     public void AFileLinkAfterAHostAndTwoPathsJoinedWithNoSpaceAreRemovedWhole(string text, string expected)
     {
