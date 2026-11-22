@@ -219,6 +219,30 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    public void ANameThatEndsASecretIsNotDroppedBeforeTheSecretIsRemoved()
+    {
+        // Codex review of #142: dropping the first word of a name that is also the last group of a product key would leave the
+        // key's first four groups, which no longer look like a key, so they would be kept. The whole key must still be removed.
+        DiagnosticRedactionContext name = new(["Alice Smith"]);
+        const string key = "AAAAA-BBBBB-CCCCC-DDDDD-ALICE";
+        string evidence = new string(' ', (16 * 1024) - key.Length) + key + " tail";
+        DiagnosticSanitizedText clean = AdvisoryAiRedaction.SanitizeEvidence(evidence, 2048, name);
+        Assert.IsTrue(clean.Truncated);
+        Assert.DoesNotContain("AAAAA", clean.Value ?? string.Empty);
+        Assert.DoesNotContain("DDDDD", clean.Value ?? string.Empty);
+        string answer = "The key is " + key + " and more";
+        (string cut, bool wasCut) = AdvisoryAiRedaction.BoundAnswer(answer, answer.IndexOf(" and", StringComparison.Ordinal), name);
+        Assert.IsTrue(wasCut);
+        string? shown = AdvisoryAiRedaction.SanitizeAnswer(cut, 4000, name).Value;
+        Assert.DoesNotContain("AAAAA", shown!);
+        Assert.DoesNotContain("DDDDD", shown!);
+        // A first name that is still plain text after cleaning is dropped as before.
+        (string plain, _) = AdvisoryAiRedaction.BoundAnswer("Signed in as Alice Smith today", "Signed in as Alice Sm".Length, name);
+        Assert.AreEqual("Signed in as", plain);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     public void AnAnswerKeepsEachLinesIndentationSoCodeKeepsItsMeaning()
     {
         // Task 71C review 71C-04: leading spaces survive redaction (spaces inside a line still collapse), capped, and the result is
