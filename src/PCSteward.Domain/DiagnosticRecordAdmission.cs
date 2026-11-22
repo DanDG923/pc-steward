@@ -231,6 +231,7 @@ public static class DiagnosticTextSanitizer
                 }
                 end = close + 1;
             }
+            bool stoppedAtOpener = false;
             while (runOn)
             {
                 // The rest of a path after an apostrophe before a space ('C:\Music\Guns N' Roses\x.mp3') runs on to the next quote
@@ -240,9 +241,18 @@ public static class DiagnosticTextSanitizer
                 // A quote that a path or link start follows opens that path or link, so the run-on never ends there
                 // (independent review of 5526f3d, S1).
                 if (OpensAPathOrLink(value, next)) break;
+                // A quote glued to a word before it (a flag such as -I'C:\…', a Python r'C:\…' or a SQL N'D:\…', or the end of a
+                // path holding an apostrophe, ….mp3'C:\…) with a path or link start right after it ends the run-on but is left to
+                // open what follows (independent review of 44678e4, T1).
+                if (PathOrLinkFollows(value, next))
+                {
+                    end = next;
+                    stoppedAtOpener = true;
+                    break;
+                }
                 end = next + 1;
             }
-            end = PastLinkTail(value, match.Index, end);
+            if (!stoppedAtOpener) end = PastLinkTail(value, match.Index, end);
             result.Append(value, position, match.Index - position).Append(quote).Append(PathPlaceholder).Append(quote);
             position = end;
             match = end < value.Length ? pattern.Match(value, end) : Match.Empty;
@@ -352,9 +362,12 @@ public static class DiagnosticTextSanitizer
     /// starts right after it (or after the doubled quote it starts), and no letter or number comes right before it (independent
     /// review of 5526f3d, S1). Only a quote glued to the end of a word ("….mp3'C:\…") still closes that word.
     /// </summary>
-    private static bool OpensAPathOrLink(string value, int index)
+    private static bool OpensAPathOrLink(string value, int index) =>
+        (index == 0 || !IsLetterOrNumber(value[index - 1])) && PathOrLinkFollows(value, index);
+
+    /// <summary>Whether a path or link starts right after the quote at <paramref name="index"/>, or after the doubled quote it starts.</summary>
+    private static bool PathOrLinkFollows(string value, int index)
     {
-        if (index > 0 && IsLetterOrNumber(value[index - 1])) return false;
         int after = index + 1 < value.Length && value[index + 1] == value[index] ? index + 2 : index + 1;
         return after < value.Length
             && (StartsAPath(value, after)

@@ -730,6 +730,24 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    [DataRow("'C:\\Tools\\my cc.exe' -c src\\main.c -I'C:\\Program Files\\Acme SDK\\Include Files' -o out.exe", "'[path]''[path]' -o out.exe", DisplayName = "a compiler flag glued to a quoted path")]
+    [DataRow("paths = [r'C:\\Data\\in file.csv', rel\\path, r'D:\\Clients\\Smith Estate\\Will Draft.docx']", "paths = [r'[path]''[path]']", DisplayName = "a Python raw string")]
+    [DataRow("RESTORE DATABASE Pay FROM DISK = N'C:\\Bak\\pay db.bak' ON SRV01\\SQLEXPRESS WITH MOVE TO N'D:\\Data\\Payroll Ledger.mdf'", "RESTORE DATABASE Pay FROM DISK = N'[path]''[path]'", DisplayName = "a SQL Unicode string")]
+    [DataRow("set a='C:\\Temp\\a b.txt' x\\y 2'D:\\Private\\Medical History.pdf'", "set a='[path]''[path]'", DisplayName = "a digit before the quote")]
+    [DataRow("tool 'C:\\Temp\\a b.txt' bin\\x -f'%USERPROFILE%\\Documents\\Loan Application.pdf'", "tool '[path]''[path]'", DisplayName = "a variable path after a flag")]
+    public void AQuotedPathAfterALetterIsRemovedWholeAfterAnEarlierQuotedPath(string text, string expected)
+    {
+        // Independent review of 44678e4, T1: a quote with a letter or number right before it (a flag such as -I, a Python r, a
+        // SQL N) was still taken as the close of an earlier single-quoted path's run-on, so the later path lost its head and kept the
+        // words after its first space. The run-on now ends before such a quote, which is left to open the later path.
+        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000).Value, DiagnosticTextSanitizer.Sanitize(text, 4096).Value])
+        {
+            Assert.AreEqual(expected, clean);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     [DataRow("Opened file://pat:pw@nas01/share/Pat Smith/Tax Returns/return.pdf today", "Opened [link] today", DisplayName = "a user name and password before the host")]
     [DataRow("Opened file://pat@nas01/share/Pat Smith/Tax Returns/return.pdf today", "Opened [link] today", DisplayName = "a user name before the host")]
     public void AFileLinkWithAUserNameBeforeTheHostIsRemovedWhole(string text, string expected)
@@ -746,13 +764,14 @@ public sealed class AdvisoryAiRedactionTests
     [TestCategory("FR-AI-05")]
     public void ACutInsideTheSecondOfTwoQuotedPathsLeavesNoPartOfIt()
     {
-        // Independent review of 5526f3d, S1, for the evidence and timeline cuts: wherever the cut falls, no part of the second
-        // quoted path's private folder or file name is kept. (A text that itself ends inside an unclosed quoted path with a space
+        // Independent review of 5526f3d, S1 (and of 44678e4, T1, for the flag line), for the evidence and timeline cuts: wherever the
+        // cut falls, no part of the second quoted path's private folder or file name is kept. (A text that itself ends inside an unclosed quoted path with a space
         // keeps the words after that space, the same limit an unquoted drive path has.)
         string[] lines =
         [
             "Cannot find path 'C:\\Temp\\setup.log' because it does not exist. HKLM\\SOFTWARE\\Contoso was read. Copy-Item 'C:\\Users\\Pat Smith\\My Notes\\Budget Plan.txt' failed",
             "Copy 'C:\\Temp\\a.txt' to bin\\x64 then open 'D:\\Private Folder\\Tax Return 2025.pdf' please",
+            "'C:\\Tools\\my cc.exe' -c src\\main.c -I'C:\\Users\\Pat Smith\\Budget Plan' -o out.exe",
         ];
         string[] secrets = ["Pat", "Smith", "Notes", "Budget", "Plan", "Private", "Folder", "Tax", "Return", "2025"];
         string padding = string.Concat(Enumerable.Repeat("The update was checked. ", 625));
