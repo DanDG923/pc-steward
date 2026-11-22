@@ -1,3 +1,9 @@
+**Advisory AI, independent review of the ninth Task 71C retest build failed; fix (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-DIA-03` ([Task 90 record §21](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `44678e4`.** One Medium finding sent ahead of the report, the rest of §20's S1: a quoted path right after a letter or number (a flag such as `-I'C:\…'`, a Python `r'…'`, a SQL `N'…'`) that followed an earlier quoted path could still lose its head and keep its later words. The retest's one send can't reach it. The report is not in the repository.
+- **Fixed.** The earlier path's removal now ends before such a quote, which then opens the later path, so the later path is removed whole, at any cut.
+- **Next.** A new retest build from `phase/4-beta`, reviewed by both reviewers, then the owner's separate approvals for the key step and the one send.
+
 **Advisory AI, independent review of the eighth Task 71C retest build failed; fix (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-DIA-03` ([Task 90 record §20](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `5526f3d`.** One Medium finding, new in #147: when the text between two single-quoted paths held a backslash, the first path's removal ended inside the second path's opening quote and left the second path's tail. Three Low and two Info. The model, route and retest procedure passed; the retest's one send can't reach the finding. The report is not in the repository.

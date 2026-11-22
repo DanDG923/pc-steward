@@ -286,3 +286,17 @@ On the review's well-formed random lines (properly quoted and unquoted paths, li
 Carried over, unchanged: F2 and F5 (§14, §19), the file-name-with-spaces limit (§19 R5) and R4.
 
 The schema stays at 17.
+
+## 21. Task 71C independent review of the ninth retest build at `44678e4`, and fixes
+
+The independent review of the ninth retest build (commit `44678e4`; run 45065262179, artifact SHA-256 `937bc56c…d6d4`) sent one finding ahead of its report: T1 (provisional Medium, privacy), the part of S1 that the §20 rule left open. Provenance matched the pins and S1's own shapes were clean. The retest's one short synthetic send can't reach T1. The report is not committed.
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **T1 (Medium, privacy, the rest of S1). A quoted path after a letter or number was still split.** The §20 rule lets a quote with a letter or number right before it close an earlier single-quoted path's run-on, so that a quote glued to the end of a path (`….mp3'C:\…`) closes it. Well-formed text often has a letter there: a flag glued to its value (`-I'C:\…'`, `-o'D:\…'`, `git -C'…'`), a Python raw string (`r'C:\…'`), a SQL Unicode string (`N'D:\…'`), or a digit. After an earlier quoted path with a backslash between, the run-on ended just inside such a quote, and the later path lost its head and kept the words after its first space (`… -I'C:\Program Files\Acme SDK\Include Files'` left `Files'`). The fifth to seventh builds removed these whole. | A quote with a path or link start right after it (or after its doubled quote) and a letter or number right before it now ends the run-on before it. The text up to it goes with the earlier path, as the run-on took it before, and the quote is left to open the later path, which is removed whole. A quote glued to the end of a path still ends that path, so the glued case is unchanged. The review suggested this form. | `AdvisoryAiRedactionTests.AQuotedPathAfterALetterIsRemovedWholeAfterAnEarlierQuotedPath` (a flag, a Python raw string, a SQL string, a digit and a variable path after a flag, in evidence, answers and the timeline), and a flag line in `ACutInsideTheSecondOfTwoQuotedPathsLeavesNoPartOfIt` (every cut) |
+
+On the review's well-formed random lines the fix still leaves no private word (0 of 20,000 plain lines, and 0 of 30,000 wide lines for each of three settings). Against the ninth build, on the review's 20,000 mixed random lines, it shows nothing the ninth build hid and hides a private word the ninth build showed in 3 lines. A quoted link with a space in its last part still keeps the words after the space, the limit §19 R5 records.
+
+Carried over, unchanged: F2 and F5 (§14, §19), R4 and the §19 R5 limit, S3 and S4 (§20).
+
+The schema stays at 17.
