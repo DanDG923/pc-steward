@@ -1,3 +1,8 @@
+**Advisory AI, independent review of the tenth Task 71C retest build passed (2026-11-22; docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-DIA-03` ([Task 90 record §21](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `bf637b5`.** PASS: T1 is fixed end to end, and well-formed random text, with and without glued prefixes, shows nothing private, also at every cut. One Low (U1, glued text) is recorded beside T2. The pass approves neither the key step nor the send. The report is not in the repository.
+- **Before any release can send.** The run-on after a single-quoted path is to be settled with one of two plain ends rather than narrowed again (§21, U1).
+
 **Advisory AI, independent review of the ninth Task 71C retest build failed; fix (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-DIA-03` ([Task 90 record §21](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `44678e4`.** One Medium finding, the rest of §20's S1, and two Low recorded for the owner: a quoted path right after a letter or number (a flag such as `-I'C:\…'`, a Python `r'…'`, a SQL `N'…'`) that followed an earlier quoted path could still lose its head and keep its later words. The retest's one send can't reach it. The report is not in the repository.
