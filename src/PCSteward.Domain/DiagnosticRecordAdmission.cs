@@ -59,10 +59,9 @@ public static class DiagnosticTextSanitizer
     private static readonly Regex Link = new(@"[A-Za-z][A-Za-z0-9+.\-]*://\S+", Options, MatchTimeout);
     // Independent review of 4d2e238, Q7: a file link names a path, so its folder names may hold spaces as a drive path's may, and
     // it is removed the way a drive path is: whole folders, then a last part that runs to whitespace, so a query string or fragment
-    // goes with it as it did with the general link pattern (Codex review of #146). The last part stops at a quote (an apostrophe
-    // followed by a letter or number, as in O'Brien, is part of it), so a quoted command line holding a file link keeps the quote
-    // that closes it and is still removed whole.
-    private static readonly Regex FileLink = new(@"[Ff][Ii][Ll][Ee]:[\\/]*(?:[A-Za-z]:[\\/]|[^\\/\s""<>|*?]+[\\/])(?:[^\\/\r\n""<>|:*?]*[\\/])*(?:[^\s""']|'[\p{L}\p{N}])*", Options, MatchTimeout);
+    // goes with it as it did with the general link pattern (Codex review of #146). Quoted paths are removed before links, so a quoted
+    // command line holding a file link is removed whole before this pattern could take its closing quote.
+    private static readonly Regex FileLink = new(@"[Ff][Ii][Ll][Ee]:[\\/]*(?:[A-Za-z]:[\\/]|[^\\/\s""<>|*?]+[\\/])(?:[^\\/\r\n""<>|:*?]*[\\/])*\S*", Options, MatchTimeout);
     // A quoted path is removed up to its closing quote, so a file or folder name with spaces cannot leave a suffix behind.
     private static readonly Regex DoubleQuotedPath = new(@"""(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%)[^""\r\n]*""", Options, MatchTimeout);
     // Independent review of cd04620, P7: an apostrophe followed by a letter or digit (O'Brien) is part of a single-quoted path, so the
@@ -133,10 +132,13 @@ public static class DiagnosticTextSanitizer
     {
         // Structured values go first, so an identity token can never break a path, link, SID or address apart before it is
         // recognised (a one-letter account name "c" would otherwise turn "C:\Users\..." into text no path pattern matches).
-        value = FileLink.Replace(value, LinkPlaceholder);
-        value = Link.Replace(value, LinkPlaceholder);
+        // A quoted path goes before links (Codex review of #146): a quoted command line may hold a link, and the link's pattern
+        // would otherwise take the quote that closes it. A quoted path needs a drive, share or variable just after its quote, so a
+        // quoted link is left for the link patterns.
         value = DoubleQuotedPath.Replace(value, "\"" + PathPlaceholder + "\"");
         value = SingleQuotedPath.Replace(value, "'" + PathPlaceholder + "'");
+        value = FileLink.Replace(value, LinkPlaceholder);
+        value = Link.Replace(value, LinkPlaceholder);
         value = UncPath.Replace(value, PathPlaceholder);
         value = DrivePath.Replace(value, PathPlaceholder);
         value = VariablePath.Replace(value, PathPlaceholder);

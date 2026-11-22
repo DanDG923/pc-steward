@@ -638,6 +638,8 @@ public sealed class AdvisoryAiRedactionTests
     [DataRow("Ran \"C:\\Users\\Pat\\Tax Return.exe --input=file:///C:/My Documents/foo.txt\" now", "Ran \"[path]\" now", DisplayName = "a double-quoted command line (Codex review of #146)")]
     [DataRow("Ran 'C:\\Users\\Pat\\Tax Return.exe --input=file:///C:/My Documents/foo.txt' now", "Ran '[path]' now", DisplayName = "a single-quoted command line")]
     [DataRow("Open file:///C:/Users/Tax Returns/O'Brien.txt now", "Open [link] now", DisplayName = "an apostrophe in the last part")]
+    [DataRow("Open file:///C:/Clients/Tax Returns/O'-Brien.pdf now", "Open [link] now", DisplayName = "an apostrophe before punctuation in the last part (Codex review of #146)")]
+    [DataRow("Ran \"C:\\Tools\\x.exe --url=https://example.test/a\" now", "Ran \"[path]\" now", DisplayName = "a web link in a quoted command line")]
     public void AFileLinkInsideAQuotedCommandLineLeavesTheClosingQuote(string text, string expected)
     {
         // Codex review of #146: the file link's last part ran to whitespace and took the command line's closing quote, so the quoted
