@@ -120,7 +120,8 @@ public static class DiagnosticTextSanitizer
             .ThenBy(token => token, StringComparer.Ordinal))
             value = ReplaceWholeWord(value, token);
         value = Whitespace.Replace(value, " ").Trim();
-        if (value.Length == 0) return new(null, false);
+        // A text whose only word ran past the working bound keeps nothing but is still marked cut (Codex review of #142).
+        if (value.Length == 0) return new(null, cutEarly);
         if (!cutEarly) return Truncate(value, maximumScalars);
         // A text cut at the working bound is marked with the ellipsis too, inside the same scalar limit (Codex review of #142).
         DiagnosticSanitizedText early = Truncate(value, maximumScalars - 1);

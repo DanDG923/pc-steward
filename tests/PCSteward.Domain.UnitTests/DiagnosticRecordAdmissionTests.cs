@@ -235,6 +235,17 @@ public sealed class DiagnosticRecordAdmissionTests
             Assert.IsLessThanOrEqualTo(limit, fitted.Value!.EnumerateRunes().Count(), $"limit {limit}");
             StringAssert.EndsWith(fitted.Value, DiagnosticTextSanitizer.Ellipsis);
         }
+
+        // Codex review of #142: one word longer than the working bound keeps nothing, and the admitted record still says text was cut.
+        DiagnosticSanitizedText word = DiagnosticTextSanitizer.Sanitize(new string('a', (16 * 1024) + 1), 4096);
+        Assert.IsNull(word.Value);
+        Assert.IsTrue(word.Truncated);
+        DiagnosticAdmission admitted = DiagnosticRecordAdmission.Admit(
+            Candidate(DiagnosticSourceKind.SystemEventLog, DiagnosticEventKind.UnexpectedShutdown) with { Summary = new string('a', (16 * 1024) + 1) });
+        Assert.IsTrue(admitted.Admitted);
+        Assert.IsNull(admitted.Record!.Summary);
+        Assert.IsTrue(admitted.Record.TextTruncated);
+        Assert.IsTrue(DiagnosticRecordAdmission.IsValidStored(admitted.Record));
     }
 
     private static DiagnosticRecordCandidate Candidate(DiagnosticSourceKind source, DiagnosticEventKind kind) =>
