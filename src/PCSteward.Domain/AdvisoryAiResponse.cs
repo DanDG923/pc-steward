@@ -211,7 +211,7 @@ public static class AdvisoryAiResponseReader
     /// Reads one body for <paramref name="expectedModel"/>. <paramref name="expectedServiceTier"/> is the tier requested and priced: a
     /// body naming another is a departure (null checks only that a named tier is readable). When <paramref name="noPromptCache"/> is
     /// set, the request asked for no prompt cache, so any cached input is a departure. When <paramref name="maximumTokenUtf8Bytes"/> is
-    /// above 0, answer text longer than the reported output tokens (or the approved output) could decode to contradicts the usage.
+    /// above 0, any text under output longer than the reported output tokens (or the approved output) could decode to contradicts the usage.
     /// </summary>
     public static AdvisoryAiResponse Read(ReadOnlySpan<byte> body, string expectedModel, long maximumBytes, long approvedInputTokens, long approvedOutputTokens,
         string? expectedServiceTier = null, bool noPromptCache = false, int maximumTokenUtf8Bytes = 0)
@@ -224,7 +224,7 @@ public static class AdvisoryAiResponseReader
             if (!DecodesInFull(body)) return Undecodable;
             using JsonDocument document = JsonDocument.Parse(body.ToArray(),
                 new JsonDocumentOptions { MaxDepth = MaximumDepth, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
-            AdvisoryAiResponse response = Read(document.RootElement, expectedModel, approvedInputTokens, approvedOutputTokens, maximumTokenUtf8Bytes);
+            AdvisoryAiResponse response = Read(document.RootElement, expectedModel, approvedInputTokens, approvedOutputTokens);
             (long? written, bool unreadable) = CacheWriteReport(document.RootElement);
             (string? tier, AdvisoryAiServiceTierReport tierReport, AdvisoryAiResponseDeparture departures, AdvisoryAiUsageFieldLocation unknownAt) =
                 DepartureReport(document.RootElement, expectedServiceTier, noPromptCache);
@@ -232,7 +232,11 @@ public static class AdvisoryAiResponseReader
             // body is refused earlier for another reason, so it always stops paid requests for review. Independent review F1/F2: so is
             // another service tier, an unknown usage counter, cached input on a no-cache request, or conversation state. Usage is then
             // never trusted, so the whole reservation is kept.
-            bool unexpected = unreadable || written > 0 || departures != AdvisoryAiResponseDeparture.None;
+            // Codex review of ce0eaf3, C1, the independent review of 4056e3f, G2, and Codex review of cd04620, 71C-03: output text longer
+            // than the reported output tokens could decode to contradicts the usage, whatever else is wrong with the body, so the check
+            // runs here, after every early return.
+            bool unexpected = unreadable || written > 0 || departures != AdvisoryAiResponseDeparture.None ||
+                OutputContradictsUsage(document.RootElement, approvedOutputTokens, maximumTokenUtf8Bytes);
             // A body that continues other state isn't an answer to this request, so its text is never shown or saved.
             if (departures.HasFlag(AdvisoryAiResponseDeparture.ConversationState) && response.Status != AdvisoryAiAnswerStatus.Malformed)
                 response = response with { Status = AdvisoryAiAnswerStatus.Malformed, IncompleteReason = AdvisoryAiIncompleteReason.None,
@@ -301,7 +305,7 @@ public static class AdvisoryAiResponseReader
     public static AdvisoryAiResponse Undecodable { get; } =
         AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.UndecodableText) with { UsageAboveApprovedBounds = true };
 
-    private static AdvisoryAiResponse Read(JsonElement root, string expectedModel, long approvedInputTokens, long approvedOutputTokens, int maximumTokenUtf8Bytes)
+    private static AdvisoryAiResponse Read(JsonElement root, string expectedModel, long approvedInputTokens, long approvedOutputTokens)
     {
         if (root.ValueKind != JsonValueKind.Object) return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.NotAResponseObject);
         if (HasDuplicate(root)) return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.DuplicateProperty);
@@ -344,21 +348,6 @@ public static class AdvisoryAiResponseReader
         // Task 69: a reported cache write was never requested and is billed above the input rate, so the usage can't settle the
         // request and paid requests stop for review, as for usage above the approved bounds.
         bool above = cacheWritten || reliable && (usage!.InputTokens > approvedInputTokens || usage.OutputTokens > approvedOutputTokens);
-
-        // Codex review of ce0eaf3, C1, and the independent review of 4056e3f, G2: every output token decodes to at most
-        // maximumTokenUtf8Bytes, so output text longer than the reported output tokens (or, when they can't be trusted, the approved
-        // output) could produce contradicts the usage. All text under output counts (answer text, a refusal, a reasoning summary),
-        // and it is checked before anything else in the output is read, so a body refused for another reason is checked too. Such
-        // usage is never trusted: the whole reservation is kept, and the reply stops paid requests for review.
-        if (maximumTokenUtf8Bytes > 0 && root.TryGetProperty("output", out JsonElement counted))
-        {
-            long tokens = reliable ? Math.Min(usage!.OutputTokens, approvedOutputTokens) : approvedOutputTokens;
-            if (OutputTextBytes(counted) > tokens * maximumTokenUtf8Bytes)
-            {
-                reliable = false;
-                above = true;
-            }
-        }
 
         StringBuilder text = new();
         bool refused = false;
@@ -405,8 +394,32 @@ public static class AdvisoryAiResponseReader
     }
 
     /// <summary>
-    /// Independent review of 4056e3f, G2: the UTF-8 bytes of every string value under <paramref name="element"/>, except the item and
-    /// part kinds, ids, roles and statuses, which the provider writes rather than the model.
+    /// Codex review of ce0eaf3, C1, the independent review of 4056e3f, G2, and Codex review of cd04620, 71C-02 and 71C-03: every output
+    /// token decodes to at most <paramref name="maximumTokenUtf8Bytes"/>, so text under output longer than the reported output tokens
+    /// could produce contradicts the usage. The reported count is used whenever one is a plain count, even when other usage figures
+    /// can't be trusted (the smallest, if it is repeated); only when there is none is the approved output used. Either way it is never
+    /// more than the approved output.
+    /// </summary>
+    private static bool OutputContradictsUsage(JsonElement root, long approvedOutputTokens, int maximumTokenUtf8Bytes)
+    {
+        if (maximumTokenUtf8Bytes <= 0 || root.ValueKind != JsonValueKind.Object) return false;
+        long tokens = approvedOutputTokens;
+        long bytes = 0;
+        foreach (JsonProperty property in root.EnumerateObject())
+        {
+            if (property.NameEquals("output")) bytes += OutputTextBytes(property.Value);
+            else if (property.NameEquals("usage") && property.Value.ValueKind == JsonValueKind.Object)
+                foreach (JsonProperty count in property.Value.EnumerateObject())
+                    if (count.NameEquals("output_tokens") && count.Value.ValueKind == JsonValueKind.Number && count.Value.TryGetInt64(out long reported) && reported >= 0)
+                        tokens = Math.Min(tokens, reported);
+        }
+        return bytes > tokens * maximumTokenUtf8Bytes;
+    }
+
+    /// <summary>
+    /// The UTF-8 bytes of every string value under <paramref name="element"/>, except the plain string kinds, ids, roles and statuses,
+    /// which the provider writes rather than the model. Codex review of cd04620, 71C-02: a value under one of those names that isn't a
+    /// string (an object or array that could hold text) is counted in full.
     /// </summary>
     private static long OutputTextBytes(JsonElement element)
     {
@@ -420,7 +433,8 @@ public static class AdvisoryAiResponseReader
                 return bytes;
             case JsonValueKind.Object:
                 foreach (JsonProperty property in element.EnumerateObject())
-                    if (property.Name is not ("type" or "id" or "role" or "status")) bytes += OutputTextBytes(property.Value);
+                    if (property.Value.ValueKind != JsonValueKind.String || property.Name is not ("type" or "id" or "role" or "status"))
+                        bytes += OutputTextBytes(property.Value);
                 return bytes;
             default:
                 return 0;

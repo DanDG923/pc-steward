@@ -211,3 +211,20 @@ The independent review of the fourth retest build (commit `4056e3f`; run 4497316
 | **L1 (Low), not changed.** An answer over its approved output that also has another fault is kept without a pause. | Recorded with §14 F2, which would change ADR-029 and is the owner's choice. | — |
 
 The schema stays at 17.
+
+## 17. Task 71C review of the fifth retest build at `cd04620`, and fixes
+
+The owner's review of the fifth retest build (commit `cd04620`; run 45037404846, artifact SHA-256 `dcfec46e…62c9`) returned FAIL: four Medium findings and two Low. Artifact identity, the compiled model and route, the first request's settlement ($0.004192), migration 17, the envelope and the stored key passed. The independent review of the same build was stopped before its verdict because the build was superseded, and its notes were used too (P1 to P7). Neither report is committed.
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **71C-01 (Medium, privacy), with P1 and P4. An invisible character could hide where a path starts.** §16 G1 replaced a character cleaning removes with a letter, so a zero-width space after a drive's colon, a direction mark before the drive or an astral format character inside it still let the evidence, answer and saved-answer cuts split a path with spaces. | Every cut before cleaning is chosen on a view of the text as cleaning sees it, which leaves such characters out and maps each view index back to the text. | `AdvisoryAiRedactionTests.ACutNeverSplitsAPathThatAnInvisibleCharacterInterrupts` (four kinds of character, every answer and evidence cut position) |
+| **71C-02 (Medium, paid bound), with P5. The byte counter skipped whole values named status, role, type or id.** | Only plain string values under those names are skipped. An object or array under one is counted in full. | `AdvisoryAiResponseTests.TextUnderANameTheCounterSkipsIsCountedWhenItIsNotAPlainString` |
+| **71C-03 (Medium). Some contradicted replies kept the reservation with no pause.** A body refused early (for example for echoing `store`) returned before the check. An inconsistent total made the check use the approved output instead of the reported count. | The check runs after the reader, whatever it returned, and uses the reported output count whenever it is a plain count (the smallest, if repeated). A contradicted reply always stops paid requests for review. | `AdvisoryAiResponseTests.OutputTextThatContradictsAPlainOutputCountAlwaysPauses` |
+| **71C-04 (Medium, privacy), with P2 and P3. Part of a name could stay after a cut.** An invisible character inside a name's first word hid it from the name step, and the timeline's working cut had no name step. | The name step matches on the text as cleaning sees it, and the timeline's working cut drops the first words of a name it splits. | `AdvisoryAiRedactionTests.ACutBetweenTheWordsOfANameDropsTheFirstWordsWhateverInvisibleCharacterIsInThem` (answer, evidence and timeline) |
+| **71C-05 (Low), with P6. HTML comments and unmatched quotes.** A ">" inside a comment ended it, and an unmatched quote after "=" hid later tags. | A comment runs to its "-->". A quote opens a value only when its partner follows. | `AdvisoryAiAnswerFormatTests.MarksInsideAnHtmlTagStayAsWritten` (three new rows) |
+| **71C-06 (Low). Spacing inside fenced code collapsed.** | Inside a fence, a line that cleaning left unchanged apart from its spacing keeps its spacing. A line that had anything removed keeps the cleaned text. | `AdvisoryAiRedactionTests.AnAnswerKeepsEachLinesIndentationSoCodeKeepsItsMeaning`, `AdvisoryAiAnswerFormatTests.AnIndentedFenceInAListStaysCodeAfterRedaction` |
+| **P7 (independent review, old code, privacy). An apostrophe in a single-quoted path.** `'C:\Users\O'Brien\…'` ended at the first apostrophe and left the rest visible. | An apostrophe followed by a letter or digit is part of a single-quoted path, both when it is removed and when a cut looks for an open quoted path. | `AdvisoryAiRedactionTests.ASingleQuotedPathWithAnApostropheInAFolderNameIsRemovedWhole` (evidence, answer and timeline) |
+
+The new privacy and paid-bound tests fail on `cd04620`. The schema stays at 17.
+

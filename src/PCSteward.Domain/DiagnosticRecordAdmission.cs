@@ -59,7 +59,9 @@ public static class DiagnosticTextSanitizer
     private static readonly Regex Link = new(@"[A-Za-z][A-Za-z0-9+.\-]*://\S+", Options, MatchTimeout);
     // A quoted path is removed up to its closing quote, so a file or folder name with spaces cannot leave a suffix behind.
     private static readonly Regex DoubleQuotedPath = new(@"""(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%)[^""\r\n]*""", Options, MatchTimeout);
-    private static readonly Regex SingleQuotedPath = new(@"'(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%)[^'\r\n]*'", Options, MatchTimeout);
+    // Independent review of cd04620, P7: an apostrophe followed by a letter or digit (O'Brien) is part of a single-quoted path, so the
+    // rest of the path isn't left visible after the first one.
+    private static readonly Regex SingleQuotedPath = new(@"'(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%)(?:[^'\r\n]|'[\p{L}\p{N}])*'", Options, MatchTimeout);
     private static readonly Regex UncPath = new(@"\\\\[^\\/\s]+(?:[\\/](?:[^\\/\r\n""<>|:*?]*[\\/])*[^\\/\s""<>|:*?]*)?", Options, MatchTimeout);
     private static readonly Regex DrivePath = new(@"[A-Za-z]:[\\/](?:[^\\/\r\n""<>|:*?]*[\\/])*[^\\/\s""<>|:*?]*", Options, MatchTimeout);
     // Same structure as a drive path: folders may contain spaces, the last segment ends at whitespace.
@@ -113,6 +115,9 @@ public static class DiagnosticTextSanitizer
         value = VariablePath.Replace(value, PathPlaceholder);
         value = Sid.Replace(value, AccountPlaceholder);
         value = Email.Replace(value, EmailPlaceholder);
+        // Codex review of cd04620, 71C-04, and the independent review's P3: a cut between the words of a name of several words keeps
+        // its first words, which no longer match the whole name, so they are dropped too when they end the text.
+        if (cutEarly) value = DropPartialName(value, context);
         foreach (string token in (context ?? DiagnosticRedactionContext.None).IdentityTokens
             .Where(token => !string.IsNullOrWhiteSpace(token))
             .Select(token => token.Trim())
@@ -127,6 +132,50 @@ public static class DiagnosticTextSanitizer
         // A text cut at the working bound is marked with the ellipsis too, inside the same scalar limit (Codex review of #142).
         DiagnosticSanitizedText early = Truncate(value, maximumScalars - 1);
         return early.Truncated ? early : new(early.Value + Ellipsis, true);
+    }
+
+    /// <summary>
+    /// The text without the first words of any name of several words in <paramref name="context"/> that it ends with, when a cut
+    /// fell between them. Names are matched as the cleaned text shows them: whitespace of any kind separates their words.
+    /// </summary>
+    internal static string DropPartialName(string text, DiagnosticRedactionContext? context)
+    {
+        if (context is null) return text;
+        string trimmed = text.TrimEnd();
+        foreach (string token in context.IdentityTokens)
+        {
+            if (string.IsNullOrWhiteSpace(token)) continue;
+            string[] words = token.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            for (int count = words.Length - 1; count >= 1; count--)
+            {
+                int start = StartOfWordsAtEnd(trimmed, words, count);
+                if (start >= 0) return trimmed[..start].TrimEnd();
+            }
+        }
+        return text;
+    }
+
+    /// <summary>
+    /// Where the first <paramref name="count"/> of <paramref name="words"/> start when <paramref name="text"/> ends with them, at a
+    /// boundary that isn't a letter or digit, or -1. Independent review of 4056e3f, L2: any run of whitespace between them counts (a tab,
+    /// two spaces, a no-break space or a line break), as cleaning makes each one a single space.
+    /// </summary>
+    internal static int StartOfWordsAtEnd(string text, string[] words, int count)
+    {
+        int end = text.Length;
+        for (int word = count - 1; word >= 0; word--)
+        {
+            if (word < count - 1)
+            {
+                int gapEnd = end;
+                while (end > 0 && char.IsWhiteSpace(text[end - 1])) end--;
+                if (end == gapEnd) return -1;
+            }
+            string expected = words[word];
+            if (end < expected.Length || !text.AsSpan(end - expected.Length, expected.Length).Equals(expected, StringComparison.OrdinalIgnoreCase)) return -1;
+            end -= expected.Length;
+        }
+        return end == 0 || !char.IsLetterOrDigit(text[end - 1]) ? end : -1;
     }
 
     /// <summary>The longest Windows path, in UTF-16 units: no path that a cut could split starts or ends further than this from it.</summary>
@@ -153,16 +202,22 @@ public static class DiagnosticTextSanitizer
     /// <summary>Where a quoted path still open at <paramref name="cut"/> starts (its opening quote), or <paramref name="cut"/>.</summary>
     private static int OpenQuotedPathStart(string text, int cut)
     {
-        // A quoted path holds no quote of its own kind and no line break, so if one is open at the cut, the last such quote before
-        // the cut on its line opens it.
-        int lineStart = text.AsSpan(0, cut).LastIndexOfAny(['\r', '\n']) + 1;
-        int start = cut;
-        foreach (char quote in (ReadOnlySpan<char>)['"', '\''])
+        // A quoted path holds no line break and is no longer than the longest path. It is closed by its own kind of quote, except an
+        // apostrophe followed by a letter or digit (O'Brien) inside a single-quoted path (independent review of cd04620, P7), so the
+        // line before the cut is read forward to find the first quote that opens a path still open at the cut.
+        int lineStart = Math.Max(text.AsSpan(0, cut).LastIndexOfAny(['\r', '\n']) + 1, Math.Max(0, cut - MaximumPathLength - 2));
+        int open = -1;
+        char quote = '\0';
+        for (int index = lineStart; index < cut; index++)
         {
-            int at = text.AsSpan(lineStart, cut - lineStart).LastIndexOf(quote);
-            if (at >= 0 && StartsAPath(text, lineStart + at + 1)) start = Math.Min(start, lineStart + at);
+            char at = text[index];
+            if (open < 0)
+            {
+                if (at is '"' or '\'' && StartsAPath(text, index + 1)) { open = index; quote = at; }
+            }
+            else if (at == quote && !(quote == '\'' && index + 1 < text.Length && char.IsLetterOrDigit(text[index + 1]))) open = -1;
         }
-        return start;
+        return open >= 0 ? open : cut;
     }
 
     private static bool StartsAPath(string text, int index)

@@ -257,22 +257,44 @@ public static partial class AdvisoryAiAnswerFormat
     {
         if (!text.Contains('<', StringComparison.Ordinal)) return text;
         char[] masked = text.ToCharArray();
+        // Codex review of cd04620, 71C-05, and the independent review's P6: a quote opens a value only when its partner follows, so an
+        // unmatched quote can't hide later tags. Where each quote's next partner is, found in one backward pass.
+        int[] nextDouble = new int[masked.Length + 1];
+        int[] nextSingle = new int[masked.Length + 1];
+        nextDouble[masked.Length] = nextSingle[masked.Length] = -1;
+        for (int at = masked.Length - 1; at >= 0; at--)
+        {
+            nextDouble[at] = masked[at] == '"' ? at : nextDouble[at + 1];
+            nextSingle[at] = masked[at] == '\'' ? at : nextSingle[at + 1];
+        }
         for (int index = 0; index + 1 < masked.Length; index++)
         {
             if (masked[index] != '<' || !(char.IsAsciiLetter(masked[index + 1]) || masked[index + 1] is '/' or '!' or '?')) continue;
+            // Codex review of cd04620, 71C-05: a comment runs to its closing "-->", whatever it holds, so a ">" or a quote inside it
+            // ends nothing. An unclosed comment means no tag ends after this point.
+            if (text.AsSpan(index).StartsWith("<!--", StringComparison.Ordinal))
+            {
+                int end = text.IndexOf("-->", index + 4, StringComparison.Ordinal);
+                if (end < 0) break;
+                for (int inside = index + 1; inside < end + 2; inside++) masked[inside] = 'x';
+                index = end + 2;
+                continue;
+            }
             // Codex review of ce0eaf3, C4: a quoted attribute value may hold "<" or ">" (title="A > B"), so neither ends the tag
-            // inside quotes. A quote left open to the end means no tag ends after this point. Independent review of 4056e3f, L3: only
-            // a quote just after "=" (spaces allowed) opens a value, so an apostrophe in a comment ("don't") is just a character.
+            // inside quotes. Independent review of 4056e3f, L3: only a quote just after "=" (spaces allowed) opens a value, so an
+            // apostrophe in a comment ("don't") is just a character.
             int close = index + 1;
-            char quote = '\0';
             char previous = '\0';
             while (close < masked.Length)
             {
                 char at = masked[close];
-                if (quote != '\0') { if (at == quote) quote = '\0'; }
-                else if (at is '"' or '\'' && previous == '=') quote = at;
+                if (at is '"' or '\'' && previous == '=')
+                {
+                    int partner = (at == '"' ? nextDouble : nextSingle)[close + 1];
+                    if (partner >= 0) close = partner;
+                }
                 else if (at is '<' or '>') break;
-                if (quote == '\0' && !char.IsWhiteSpace(at)) previous = at;
+                if (!char.IsWhiteSpace(at)) previous = at;
                 close++;
             }
             if (close == masked.Length) break;

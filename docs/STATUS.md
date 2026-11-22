@@ -1,3 +1,9 @@
+**Advisory AI, review of the fifth Task 71C retest build failed; fixes (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-BUD-02`, `FR-DIA-03` ([Task 90 record §17](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `cd04620`.** The owner's review returned FAIL: four Medium findings (an invisible character could hide where a path starts or a name's first word at a cut; text under a name the byte counter skipped wasn't counted; some contradicted replies kept the reservation with no pause) and two Low (HTML comments; spacing in fenced code). The independent review was stopped when the build was superseded, and its notes added an old single-quoted path fault. Artifact identity, model, route, arithmetic, migration and the stored key passed. The reports are not in the repository.
+- **Fixed.** Every cut before cleaning is chosen on the text as cleaning sees it. The timeline's cut drops a split name. All text under the output is counted, and a contradicted reply always pauses. Comments, unmatched quotes, fenced spacing and apostrophes in quoted paths are handled.
+- **Next.** A new retest build from `phase/4-beta`, reviewed by both reviewers, then the owner's separate approvals for the key step and the one send.
+
 **Advisory AI, independent review of the fourth Task 71C retest build failed; fixes (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-BUD-02` ([Task 90 record §16](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `4056e3f`.** Two Medium findings of its own: an owner's evidence edit over 16,384 characters could be cut inside a path wrapped over a line break, leaving part of it as plain text; and the check that output text can't exceed what its reported tokens decode to counted answer text only. Four Low. The retest procedure, model and route passed. The report is not in the repository.
