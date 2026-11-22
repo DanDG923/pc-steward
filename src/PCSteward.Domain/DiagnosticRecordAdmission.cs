@@ -360,7 +360,8 @@ public static class DiagnosticTextSanitizer
     /// <summary>
     /// Whether the quote at <paramref name="index"/> opens a path or link rather than closing what came before: a path or link
     /// starts right after it (or after the doubled quote it starts), and no letter or number comes right before it (independent
-    /// review of 5526f3d, S1). Only a quote glued to the end of a word ("….mp3'C:\…") still closes that word.
+    /// review of 5526f3d, S1). A quote glued to the end of a word ("….mp3'C:\…") doesn't open: it ends the run-on before it
+    /// and is left to open the path that follows (independent review of 44678e4, T1).
     /// </summary>
     private static bool OpensAPathOrLink(string value, int index) =>
         (index == 0 || !IsLetterOrNumber(value[index - 1])) && PathOrLinkFollows(value, index);
