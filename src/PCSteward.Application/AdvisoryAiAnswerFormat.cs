@@ -100,12 +100,16 @@ public static partial class AdvisoryAiAnswerFormat
     {
         List<AdvisoryAiAnswerBlock> blocks = [];
         StringBuilder paragraph = new();
-        int runs = 0;
+        // The dialog may add one closing " …" run after the last block.
+        int runs = 1;
 
         void Add(AdvisoryAiAnswerBlock block)
         {
             blocks.Add(block);
-            runs += block.Spans.Count + (block.Marker is null ? 0 : 1) + (block.Kind == AdvisoryAiAnswerBlockKind.Literal ? block.PlainText.Count(character => character == '\n') : 0);
+            // Codex review of ce0eaf3, C5: the dialog shows a literal block as one run per line and one line break between lines, so
+            // both are charged, as the elements the dialog actually makes.
+            int lineBreaks = block.Kind == AdvisoryAiAnswerBlockKind.Literal ? block.PlainText.Count(character => character == '\n') : 0;
+            runs += (block.Marker is null ? 0 : 1) + (block.Kind == AdvisoryAiAnswerBlockKind.Literal ? (2 * lineBreaks) + 1 : block.Spans.Count);
             if (blocks.Count > MaximumBlocks || runs > MaximumRuns) throw new TimeoutException("The answer has too many blocks to format.");
         }
 
@@ -246,7 +250,7 @@ public static partial class AdvisoryAiAnswerFormat
 
     /// <summary>
     /// Task 71C review 71C-R3: a copy of the text, the same length, with the inside of each HTML tag (from a "&lt;" followed by a
-    /// letter, "/", "!" or "?" to the next "&gt;", with no other "&lt;" between) replaced by a letter, so an attribute such as
+    /// letter, "/", "!" or "?" to the next "&gt;" outside quotes, with no other "&lt;" between) replaced by a letter, so an attribute such as
     /// title="**ready**" is shown exactly as written. HTML is never interpreted: it is only kept literal. One forward pass.
     /// </summary>
     private static string MaskHtmlTags(string text)
@@ -256,8 +260,18 @@ public static partial class AdvisoryAiAnswerFormat
         for (int index = 0; index + 1 < masked.Length; index++)
         {
             if (masked[index] != '<' || !(char.IsAsciiLetter(masked[index + 1]) || masked[index + 1] is '/' or '!' or '?')) continue;
+            // Codex review of ce0eaf3, C4: a quoted attribute value may hold "<" or ">" (title="A > B"), so neither ends the tag
+            // inside quotes. A quote left open to the end means no tag ends after this point.
             int close = index + 1;
-            while (close < masked.Length && masked[close] is not ('<' or '>')) close++;
+            char quote = '\0';
+            while (close < masked.Length)
+            {
+                char at = masked[close];
+                if (quote != '\0') { if (at == quote) quote = '\0'; }
+                else if (at is '"' or '\'') quote = at;
+                else if (at is '<' or '>') break;
+                close++;
+            }
             if (close == masked.Length) break;
             if (masked[close] == '>')
                 for (int inside = index + 1; inside < close; inside++) masked[inside] = 'x';

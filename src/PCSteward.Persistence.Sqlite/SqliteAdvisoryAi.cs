@@ -875,7 +875,8 @@ public sealed partial class SqliteDatabase : IAdvisoryAiSettingsStore, IAdvisory
             {
                 (string bounded, bool cut) = AdvisoryAiRedaction.BoundAnswer(answer, AdvisoryAiAnswerFormat.MaximumFormattedCharacters);
                 string? clean = AdvisoryAiRedaction.SanitizeAnswer(bounded, int.MaxValue).Value;
-                item = item with { Text = clean, TextTruncated = clean is not null && (item.TextTruncated || cut) };
+                // Codex review of ce0eaf3, C6: a row cut to nothing here stays marked cut, so the dialog says it was too long to show.
+                item = item with { Text = clean, TextTruncated = cut || (clean is not null && item.TextTruncated) };
             }
             result.Add(item);
         }

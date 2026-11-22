@@ -278,6 +278,7 @@ public sealed partial class MainWindow
             IReadOnlyList<AdvisoryAiAnswerBlock> blocks = await Task.Run(() => AdvisoryAiAnswerFormat.Parse(answer));
             body.Children.Add(AnswerText(blocks, outcome.AnswerTruncated));
         }
+        else if (outcome.AnswerTruncated) body.Children.Add(Wrapped(AdvisoryAiExplainText.AnswerOmitted));
         await new ContentDialog { XamlRoot = Content.XamlRoot, Title = $"AI explanation: {subject}", Content = new ScrollViewer { Content = body }, CloseButtonText = "Close" }.ShowAsync();
     }
 
@@ -398,7 +399,7 @@ public sealed partial class MainWindow
             }
             else
             {
-                item.Children.Add(new TextBlock { Text = "No answer text was saved.", TextWrapping = TextWrapping.Wrap });
+                item.Children.Add(new TextBlock { Text = AdvisoryAiExplainText.NoSavedText(answer), TextWrapping = TextWrapping.Wrap });
             }
             Button delete = StewardVisuals.ActionButton("Delete this answer", "(removes it from this PC)");
             TextBlock deleted = Wrapped(string.Empty);

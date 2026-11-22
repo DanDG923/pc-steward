@@ -1,3 +1,9 @@
+**Advisory AI, third Task 71C retest build review failed; fixes (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-05`, `FR-BUD-02/03`, `FR-DIA-03` ([Task 90 record §15](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `ce0eaf3`.** The owner's review returned FAIL: three Medium findings (usage was trusted even when the answer text was longer than its reported output could decode to; the evidence cut fixed in §14; a cut at a space inside a path left part of a private folder or file name visible) and three Low (a quoted ">" in an HTML attribute; code lines charged as half the elements the dialog makes; a cut that left nothing lost its notice). Artifact identity, model, route, arithmetic, migration and credentials passed. The report is not in the repository.
+- **Fixed.** Text longer than the reported output tokens could decode to keeps the whole reservation and pauses paid requests. Every cut before cleaning moves before any path it would split. Quoted attribute values stay literal, code blocks are charged for every run and line break, and an answer cut to nothing says it was too long to show.
+- **Next.** A new retest build from `phase/4-beta`, reviewed by both reviewers, then the owner's separate approvals for the key step and the one send.
+
 **Advisory AI, independent review of the third retest build: one Medium fix (2026-11-22; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-05`, `FR-DIA-03` ([Task 90 record §14](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `ce0eaf3`.** Every check the prompt asked for passed, including each earlier fix. One Medium finding of its own (F1): an owner's evidence edit over 16,384 characters was cut inside a word before it was cleaned, so part of a secret could stay in the text to send. The retest's one send can't reach it. The report is not in the repository.

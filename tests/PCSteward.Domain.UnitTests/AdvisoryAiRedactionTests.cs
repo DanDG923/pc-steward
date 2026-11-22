@@ -219,6 +219,42 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    [DataRow("\"C:\\Data\\Project Amber Notes.txt\"", DisplayName = "quoted file name with spaces")]
+    [DataRow("'D:\\Shared\\Project Amber Notes.txt'", DisplayName = "single-quoted file name with spaces")]
+    [DataRow("C:\\Project Amber\\Notes\\plan.txt", DisplayName = "unquoted path with a space in a folder")]
+    [DataRow("\\\\server\\Project Amber\\Notes\\plan.txt", DisplayName = "network path with a space in a folder")]
+    [DataRow("%USERPROFILE%\\Project Amber\\Notes\\plan.txt", DisplayName = "variable path with a space in a folder")]
+    public void ACutNeverSplitsAPathThatHoldsSpaces(string path)
+    {
+        // Codex review of ce0eaf3, C3: a cut at a space inside a path left its first words as a shorter path and "Amber" as plain
+        // text. Every cut (an answer, a saved answer, an evidence item and the timeline's working bound) moves before the path.
+        string answer = "See " + path + " for details.";
+        Assert.DoesNotContain("Amber", AdvisoryAiRedaction.SanitizeAnswer(answer, 4000).Value!, "the whole path is removed");
+        int split = answer.IndexOf(" Notes", StringComparison.Ordinal) > 0 ? answer.IndexOf(" Notes", StringComparison.Ordinal) : answer.IndexOf("\\Notes", StringComparison.Ordinal);
+        for (int bound = answer.IndexOf("Amber", StringComparison.Ordinal) + 1; bound < answer.Length - 1; bound++)
+        {
+            (string cut, bool wasCut) = AdvisoryAiRedaction.BoundAnswer(answer, bound);
+            Assert.IsTrue(wasCut);
+            string? shown = AdvisoryAiRedaction.SanitizeAnswer(cut, 4000).Value;
+            Assert.DoesNotContain("Amber", shown ?? string.Empty, $"answer cut at {bound}");
+        }
+        Assert.IsGreaterThan(0, split);
+
+        string evidence = new string(' ', (16 * 1024) - path.IndexOf(" Notes", StringComparison.Ordinal) - 4) + "See " + path + " tail";
+        if (!path.Contains(" Notes", StringComparison.Ordinal))
+            evidence = new string(' ', (16 * 1024) - path.IndexOf("\\Notes", StringComparison.Ordinal) - 4) + "See " + path + " tail";
+        DiagnosticSanitizedText clean = AdvisoryAiRedaction.SanitizeEvidence(evidence, 2048);
+        Assert.IsTrue(clean.Truncated);
+        Assert.DoesNotContain("Amber", clean.Value ?? string.Empty, "evidence");
+
+        string timeline = new string('a', 10) + new string(' ', (16 * 1024) - 14 - answer.IndexOf("Amber", StringComparison.Ordinal)) + answer + " tail";
+        DiagnosticSanitizedText record = DiagnosticTextSanitizer.Sanitize(timeline, 4096);
+        Assert.IsTrue(record.Truncated);
+        Assert.DoesNotContain("Amber", record.Value ?? string.Empty, "timeline");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     public void ANameThatEndsASecretIsNotDroppedBeforeTheSecretIsRemoved()
     {
         // Codex review of #142: dropping the first word of a name that is also the last group of a product key would leave the
