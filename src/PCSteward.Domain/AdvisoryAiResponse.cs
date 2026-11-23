@@ -441,12 +441,22 @@ public static class AdvisoryAiResponseReader
     /// <summary>
     /// Codex review of bf637b5, 71C-01: true when any plain count under any "usage" object reports more input, output or total tokens
     /// than the approved request allows, whether or not the usage as a whole can be trusted and whatever else refuses the body.
+    /// Independent review of be08c02, W1: a "usage" object at any depth counts, so a response wrapped in an array, an event or a list
+    /// (refused as not a response object) can't hide a charge above the reservation. The parse bounds the depth, and each element is
+    /// visited once.
     /// </summary>
-    private static bool CountsAboveApprovedBounds(JsonElement root, long approvedInputTokens, long approvedOutputTokens)
+    private static bool CountsAboveApprovedBounds(JsonElement element, long approvedInputTokens, long approvedOutputTokens)
     {
-        if (root.ValueKind != JsonValueKind.Object) return false;
-        foreach (JsonProperty property in root.EnumerateObject())
+        if (element.ValueKind == JsonValueKind.Array)
         {
+            foreach (JsonElement child in element.EnumerateArray())
+                if (CountsAboveApprovedBounds(child, approvedInputTokens, approvedOutputTokens)) return true;
+            return false;
+        }
+        if (element.ValueKind != JsonValueKind.Object) return false;
+        foreach (JsonProperty property in element.EnumerateObject())
+        {
+            if (CountsAboveApprovedBounds(property.Value, approvedInputTokens, approvedOutputTokens)) return true;
             if (!property.NameEquals("usage") || property.Value.ValueKind != JsonValueKind.Object) continue;
             foreach (JsonProperty count in property.Value.EnumerateObject())
             {
