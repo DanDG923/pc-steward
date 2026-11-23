@@ -831,6 +831,9 @@ public sealed class AdvisoryAiRedactionTests
     [DataRow("{\\\"url\\\":\\\"https://example.invalid/My Violet Folder/Quarterly Amber Notes.txt\\\"}", "{\\\"url\\\":\\\"[link]\"}", DisplayName = "after an escaped quote (P3)")]
     [DataRow("Open \"\"https://example.invalid/My Violet Folder/Quarterly Amber Notes.txt\"\" failed", "Open \"\"[link]\"\" failed", DisplayName = "after a doubled quote (P3)")]
     [DataRow("<td>\"https://example.invalid/My Violet Folder/Quarterly Amber Notes.txt\"</td>", "<td>\"[link]\"</td>", DisplayName = "after a tag (P3)")]
+    [DataRow("var u = base+\"https://example.invalid/My Violet Folder/Quarterly Amber Notes.txt\";", "var u = base+\"[link]\";", DisplayName = "after a plus")]
+    [DataRow("<\"https://example.invalid/My Violet Folder/Quarterly Amber Notes.txt\">", "<\"[link]\">", DisplayName = "after an angle bracket")]
+    [DataRow("x=\"C:\\Temp\\a.txt\"\"https://example.invalid/My Violet Folder/Quarterly Amber Notes.txt\"", "x=\"[path]\"\"[link]\"", DisplayName = "after another value's close")]
     public void AQuotedWebLinkWithASpaceIsRemovedToItsClose(string text, string expected)
     {
         // Independent review of be08c02, V1: a quoted file link ran to its closing quote, but a web link still ended at its first
@@ -874,6 +877,31 @@ public sealed class AdvisoryAiRedactionTests
         string clean = AdvisoryAiRedaction.SanitizeAnswer(line, 400_000).Value ?? string.Empty;
         Assert.IsLessThan(TimeSpan.FromSeconds(10), watch.Elapsed);
         Assert.DoesNotContain("file:", clean);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("Open `https://example.invalid/My Violet Folder/` failed", "Open `[link]` failed")]
+    [DataRow("Open \u201Chttps://contoso.example/sites/Team Violet Site/Shared Amber Documents/\u201D failed", "Open \u201C[link]\u201D failed")]
+    [DataRow("Ouvrir \u00ABhttps://example.invalid/My Violet Folder/\u00BB maintenant", "Ouvrir \u00AB[link]\u00BB maintenant")]
+    [DataRow("Datei \u201Eftp://example.invalid/My Violet Folder/\u201C fehlt", "Datei \u201E[link]\u201C fehlt")]
+    [DataRow("Open &quot;https://example.invalid/My Violet Folder/&quot; failed", "Open &quot;[link]&quot; failed")]
+    [DataRow("|https://example.invalid/My Violet Folder/|failed|", "|[link]|failed|")]
+    [DataRow("|https://example.invalid/My Violet Folder/|12/11/2026|ok|", "|[link]|12/11/2026|ok|")]
+    [DataRow("|https://example.invalid/My Violet Folder/|C:\\Users\\Pat\\Other Amber Dir\\Second File.txt|", "|[link]|[path]|")]
+    [DataRow("| https://example.invalid/My Violet Folder/ | C:\\Users\\Pat\\Amber Files\\ |", "| [link]| [path]|")]
+    [DataRow("Open \u201Dhttps://example.invalid/My Violet Folder/\u201D failed", "Open \u201D[link]\u201D failed")]
+    [DataRow("Ouvrir \u00BBhttps://example.invalid/My Violet Folder/\u00AB maintenant", "Ouvrir \u00BB[link]\u00AB maintenant")]
+    [DataRow("Ouvrir \u2039https://example.invalid/My Violet Folder/\u203A maintenant", "Ouvrir \u2039[link]\u203A maintenant")]
+    [DataRow("Ouvrir \u203Ahttps://example.invalid/My Violet Folder/\u2039 maintenant", "Ouvrir \u203A[link]\u2039 maintenant")]
+    [DataRow("Open &#34;https://example.invalid/My Violet Folder/&#34; failed", "Open &#34;[link]&#34; failed")]
+    [DataRow("Open \u201CC:\\Users\\Pat\\My Violet Folder\\\u201D failed", "Open \u201C[path]\u201D failed")]
+    public void AFolderLinkEndingInASlashInsideADelimiterIsRemovedToItsClose(string text, string expected)
+    {
+        // Independent review of d16ab4c, Y1: a close right after a slash was read as part of a path that goes on, so a web link to
+        // a folder kept the words after its first space. A close after a slash now ends the value as any other close does.
+        AssertCleanedEverywhere(text, expected);
+        AssertNoCutShows(text, text.IndexOf("://", StringComparison.Ordinal), text.LastIndexOf('/') + 1, ["Violet", "Amber"]);
     }
 
     [TestMethod]

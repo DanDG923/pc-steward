@@ -346,7 +346,7 @@ public static class DiagnosticTextSanitizer
                     if (end < 0)
                     {
                         // Only a first-close delimiter with no close at all: a later opener of nested brackets may still be matched.
-                        if (end == -1 && delimiter.Pairing == DelimiterPairing.First) noCloseBefore[kind] = lineEnd;
+                        if (delimiter.Pairing == DelimiterPairing.First) noCloseBefore[kind] = lineEnd;
                         break;
                     }
                     // A table bar that closes one cell opens the next (independent look at #152, P2: | C:\a b | C:\c d |).
@@ -367,7 +367,7 @@ public static class DiagnosticTextSanitizer
 
         /// <summary>
         /// Where the removal ends (the close, which is kept, or the line's end) and how long the close is; -1 when there is no close on
-        /// the line, -2 when the first close is refused.
+        /// the line.
         /// </summary>
         private (int End, int CloseLength) Close(Delimiter delimiter, int opener, int start)
         {
@@ -387,10 +387,10 @@ public static class DiagnosticTextSanitizer
                         int at = NextClose(close, start);
                         if (at >= 0 && (best < 0 || at < best)) { best = at; length = close.Length; }
                     }
-                    // A close right after a slash or backslash is read as part of a path that goes on (|file:///C:/|Users/…), so the
-                    // value is left to the unquoted patterns.
-                    if (best < 0) return (-1, 0);
-                    return best > 0 && line[best - 1] is '\\' or '/' ? (-2, 0) : (start + best, length);
+                    // Independent review of d16ab4c, Y1: a close right after a slash ends the value too (“https://host/Team Violet
+                    // Site/”, |https://host/My Folder/|12/11/2026|), as a folder link is written. A close inside a path that goes on
+                    // past it (|file:///C:/|Users/…) is broken text.
+                    return best < 0 ? (-1, 0) : (start + best, length);
                 }
                 default:
                 {
@@ -524,15 +524,15 @@ public static class DiagnosticTextSanitizer
     private const int MaximumQuoteRecoveries = 16;
 
     /// <summary>
-    /// Whether the double quote at <paramref name="quote"/> can open a quoted value: it starts the text or follows whitespace or a
-    /// mark that comes before a value (=, a bracket, a tag's close, a comma, a semicolon or a colon). An escaped (\") or doubled ("")
-    /// quote is judged by what comes before it (independent look at #152, P3: {\"url\":\"https://…\"}). A quote right after other
-    /// text (the close of "[path]" before a glued link) closes something instead.
+    /// Whether the double quote at <paramref name="quote"/> can open a quoted value: it starts the text or follows anything but a
+    /// letter or number (independent review of d16ab4c: a quote after +, &lt;, ! or another value's closing quote opens a link too). An
+    /// escaped (\") or doubled ("") quote is judged by what comes before it (independent look at #152, P3: {\"url\":\"https://…\"}).
+    /// A quote glued to the end of a word (-url"…, T1's exception) closes something instead.
     /// </summary>
     private static bool OpensAQuote(string value, int quote)
     {
         if (quote > 0 && value[quote - 1] is '\\' or '"') quote--;
-        return quote == 0 || char.IsWhiteSpace(value[quote - 1]) || value[quote - 1] is '=' or '(' or '[' or '{' or '>' or ',' or ';' or ':';
+        return quote == 0 || !IsLetterOrNumber(value[quote - 1]);
     }
 
     /// <summary>Whether the word holding <paramref name="index"/> starts with a double quote, looking back at most 256 characters.</summary>
