@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -74,7 +75,7 @@ public static class DiagnosticTextSanitizer
     // rest of the path isn't left visible after the first one. Independent review of 4d2e238, Q6: so is a doubled apostrophe
     // (PowerShell's O''Brien), and so is one before a letter outside the Basic Multilingual Plane (Codex review of bf637b5, 71C-04).
     // The rest of the line after an apostrophe before a space ('C:\Music\Guns N' Roses\x.mp3') is taken by RemoveSingleQuotedPaths.
-    private static readonly Regex SingleQuotedPath = new(@"'(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%|[Ff][Ii][Ll][Ee]:(?:[\\/]|[A-Za-z]:[\\/]))(?:[^'\r\n]|'[\p{L}\p{N}\uD800-\uDBFF]|'')*'", Options, MatchTimeout);
+    private static readonly Regex SingleQuotedPath = new(@"'(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%|[Ff][Ii][Ll][Ee]:(?:[\\/]|[A-Za-z]:[\\/])|[A-Za-z][A-Za-z0-9+.\-]*://)(?:[^'\r\n]|'[\p{L}\p{N}\uD800-\uDBFF]|'')*'", Options, MatchTimeout);
     private static readonly Regex UncPath = new(@"\\\\[^\\/\s]+(?:[\\/](?:[^\\/\r\n""<>|:*?]*[\\/])*[^\\/\s""<>|:*?]*)?", Options, MatchTimeout);
     private static readonly Regex DrivePath = new(@"[A-Za-z]:[\\/](?:[^\\/\r\n""<>|:*?]*[\\/])*[^\\/\s""<>|:*?]*", Options, MatchTimeout);
     // Same structure as a drive path: folders may contain spaces, the last segment ends at whitespace.
@@ -144,6 +145,7 @@ public static class DiagnosticTextSanitizer
         // ReplaceLinks) and any other quoted link are left for the link patterns.
         value = RemoveDoubleQuotedPaths(value);
         value = RemoveSingleQuotedPaths(value);
+        value = RemoveDelimitedValues(value);
         value = ReplaceLinks(value, FileLink);
         value = ReplaceLinks(value, Link);
         value = ReplacePaths(value, UncPath);
@@ -241,6 +243,208 @@ public static class DiagnosticTextSanitizer
     }
 
     /// <summary>
+    /// Independent review of be08c02, V2: a path or link with a space in its last part, inside a delimiter other than a straight
+    /// quote (a backtick, typographic quotes, guillemets, brackets, an HTML-escaped quote, a Markdown link target), kept the words
+    /// after the space, as an unquoted one does. When a path or link starts right after such an opening delimiter and its closing
+    /// delimiter is on the same line, everything up to the close is removed, so the delimiter is read as a quote is. Brackets are
+    /// matched with any brackets nested inside them (C:\Program Files (x86)\…). A typographic single quote or an escaped apostrophe can
+    /// also be an apostrophe in a name, so it is read as a straight single quote is (<see cref="RemoveSingleQuotedPaths"/>): it takes
+    /// the rest of the line unless it closes and nothing after its close holds a backslash, a slash or another such quote. With no
+    /// close on the line, any other delimiter leaves the value to the unquoted patterns, as before.
+    /// </summary>
+    private static string RemoveDelimitedValues(string value)
+    {
+        DelimitedScan scan = new(value);
+        if (!scan.Next(0, out DelimitedValue found)) return value;
+        StringBuilder result = new(value.Length);
+        int position = 0;
+        do
+        {
+            result.Append(value, position, found.Start - position).Append(StartsALink(value.AsSpan(found.Start)) ? LinkPlaceholder : PathPlaceholder);
+            position = found.End;
+        }
+        while (scan.Next(found.Resume, out found));
+        return result.Append(value, position, value.Length - position).ToString();
+    }
+
+    /// <summary>How a delimiter finds its close: the first close; the close that matches it, counting nested brackets; or as a single quote.</summary>
+    private enum DelimiterPairing
+    {
+        First,
+        Nested,
+        Apostrophe
+    }
+
+    private sealed record Delimiter(string Open, string[] Close, DelimiterPairing Pairing);
+
+    private static readonly Delimiter[] Delimiters =
+    [
+        new("`", ["`"], DelimiterPairing.First),
+        new("\u201C", ["\u201D", "\u201C"], DelimiterPairing.First),
+        new("\u201E", ["\u201C", "\u201D"], DelimiterPairing.First),
+        new("\u201D", ["\u201D"], DelimiterPairing.First),
+        new("\u00AB", ["\u00BB"], DelimiterPairing.First),
+        new("\u00BB", ["\u00AB"], DelimiterPairing.First),
+        new("\u2039", ["\u203A"], DelimiterPairing.First),
+        new("\u203A", ["\u2039"], DelimiterPairing.First),
+        new("&quot;", ["&quot;"], DelimiterPairing.First),
+        new("&#34;", ["&#34;"], DelimiterPairing.First),
+        new("\u2018", ["\u2019", "\u2018"], DelimiterPairing.Apostrophe),
+        new("\u201A", ["\u2018", "\u2019"], DelimiterPairing.Apostrophe),
+        new("&apos;", ["&apos;"], DelimiterPairing.Apostrophe),
+        new("&#39;", ["&#39;"], DelimiterPairing.Apostrophe),
+        new("(", [")"], DelimiterPairing.Nested),
+        new("[", ["]"], DelimiterPairing.Nested),
+        new("{", ["}"], DelimiterPairing.Nested),
+        new("<", [">"], DelimiterPairing.Nested),
+        new("|", ["|"], DelimiterPairing.First)
+    ];
+
+    private static readonly SearchValues<char> DelimiterStarts = SearchValues.Create("`\u201C\u201E\u201D\u00AB\u00BB\u2039\u203A&\u2018\u201A([{<|");
+    private static readonly SearchValues<char> Brackets = SearchValues.Create("()[]{}<>");
+
+    /// <summary>A delimited path or link: its value starts at <see cref="Start"/>, its removal ends at <see cref="End"/>, and the scan resumes at <see cref="Resume"/>.</summary>
+    private readonly record struct DelimitedValue(int Opener, int Start, int End, int Resume);
+
+    /// <summary>
+    /// Finds delimited paths and links in one text, left to right. Each line's nested brackets are matched once, and a delimiter with
+    /// no close after one opener on a line is not looked for again on that line, so a whole scan stays linear in the text.
+    /// </summary>
+    private sealed class DelimitedScan(string value)
+    {
+        private readonly int[] noCloseBefore = Enumerable.Repeat(-1, Delimiters.Length).ToArray();
+        private int lineStart = -1;
+        private int lineEnd = -1;
+        private int[]? bracketMatch;
+        // For each close of a first-close delimiter, where its next occurrence on the line was found from (From) and where it is
+        // (At, or -1 for none to the line's end). Values only move forward, so a found close is reused until it is passed and an
+        // absent one is never searched for again on the line (Codex review of #152: repeated „C:\a“ values each searched the whole
+        // rest of the line for the absent ”).
+        private readonly Dictionary<string, (int From, int At)> nextClose = new(StringComparer.Ordinal);
+
+        public bool Next(int from, out DelimitedValue found)
+        {
+            for (int index = NextStart(from); index >= 0; index = NextStart(index + 1))
+            {
+                for (int kind = 0; kind < Delimiters.Length; kind++)
+                {
+                    Delimiter delimiter = Delimiters[kind];
+                    if (!value.AsSpan(index).StartsWith(delimiter.Open, StringComparison.Ordinal)) continue;
+                    int start = index + delimiter.Open.Length;
+                    // One space may stand between the delimiter and the value, as French guillemets are written (« C:\… »).
+                    if (start < value.Length && value[start] is ' ' or '\u00A0' or '\u202F') start++;
+                    if (!(StartsAPath(value, start) || StartsALink(value.AsSpan(start)))) break;
+                    if (index >= lineEnd)
+                    {
+                        lineStart = value.AsSpan(0, index).LastIndexOfAny('\r', '\n') + 1;
+                        lineEnd = LineEnd(value, index);
+                        bracketMatch = null;
+                        nextClose.Clear();
+                    }
+                    if (noCloseBefore[kind] > index) break;
+                    (int end, int closeLength) = Close(delimiter, index, start);
+                    if (end < 0)
+                    {
+                        // Only a first-close delimiter with no close at all: a later opener of nested brackets may still be matched.
+                        if (end == -1 && delimiter.Pairing == DelimiterPairing.First) noCloseBefore[kind] = lineEnd;
+                        break;
+                    }
+                    // A table bar that closes one cell opens the next (independent look at #152, P2: | C:\a b | C:\c d |).
+                    found = new(index, start, end, delimiter.Open == "|" ? end : end + closeLength);
+                    return true;
+                }
+            }
+            found = default;
+            return false;
+        }
+
+        private int NextStart(int from)
+        {
+            if (from >= value.Length) return -1;
+            int next = value.AsSpan(from).IndexOfAny(DelimiterStarts);
+            return next < 0 ? -1 : from + next;
+        }
+
+        /// <summary>
+        /// Where the removal ends (the close, which is kept, or the line's end) and how long the close is; -1 when there is no close on
+        /// the line, -2 when the first close is refused.
+        /// </summary>
+        private (int End, int CloseLength) Close(Delimiter delimiter, int opener, int start)
+        {
+            ReadOnlySpan<char> line = value.AsSpan(start, lineEnd - start);
+            switch (delimiter.Pairing)
+            {
+                case DelimiterPairing.Nested:
+                    bracketMatch ??= MatchBrackets();
+                    // The opener's own index: a space may stand between it and the value (Codex review of #152).
+                    int match = bracketMatch[opener - lineStart];
+                    return match < 0 ? (-1, 0) : (lineStart + match, 1);
+                case DelimiterPairing.First:
+                {
+                    int best = -1, length = 0;
+                    foreach (string close in delimiter.Close)
+                    {
+                        int at = NextClose(close, start);
+                        if (at >= 0 && (best < 0 || at < best)) { best = at; length = close.Length; }
+                    }
+                    // A close right after a slash or backslash is read as part of a path that goes on (|file:///C:/|Users/…), so the
+                    // value is left to the unquoted patterns.
+                    if (best < 0) return (-1, 0);
+                    return best > 0 && line[best - 1] is '\\' or '/' ? (-2, 0) : (start + best, length);
+                }
+                default:
+                {
+                    // Read as a single quote: the first close not glued to a letter or number after it, and only when nothing after it
+                    // on the line holds a backslash, a slash or another such quote; otherwise the rest of the line.
+                    for (int offset = 0; offset < line.Length; offset++)
+                    {
+                        foreach (string close in delimiter.Close)
+                        {
+                            if (!line[offset..].StartsWith(close, StringComparison.Ordinal)) continue;
+                            int after = offset + close.Length;
+                            if (after < line.Length && IsLetterOrNumber(line[after])) continue;
+                            ReadOnlySpan<char> rest = line[after..];
+                            bool clean = rest.IndexOfAny('\\', '/') < 0;
+                            foreach (string other in delimiter.Close) clean &= rest.IndexOf(other, StringComparison.Ordinal) < 0;
+                            clean &= rest.IndexOf(delimiter.Open, StringComparison.Ordinal) < 0;
+                            return clean ? (start + offset, close.Length) : (lineEnd, 0);
+                        }
+                    }
+                    return (lineEnd, 0);
+                }
+            }
+        }
+
+        /// <summary>The line offset from <paramref name="start"/> of the first <paramref name="close"/> on the current line, or -1.</summary>
+        private int NextClose(string close, int start)
+        {
+            if (nextClose.TryGetValue(close, out (int From, int At) cached) && cached.From <= start && (cached.At < 0 || cached.At >= start))
+                return cached.At < 0 ? -1 : cached.At - start;
+            int at = value.AsSpan(start, lineEnd - start).IndexOf(close, StringComparison.Ordinal);
+            nextClose[close] = (start, at < 0 ? -1 : start + at);
+            return at;
+        }
+
+        /// <summary>For each opening bracket on the current line, the line offset of the bracket that closes it, or -1.</summary>
+        private int[] MatchBrackets()
+        {
+            int[] matches = new int[lineEnd - lineStart];
+            Array.Fill(matches, -1);
+            Stack<int>[] open = [new(), new(), new(), new()];
+            ReadOnlySpan<char> line = value.AsSpan(lineStart, lineEnd - lineStart);
+            for (int offset = line.IndexOfAny(Brackets); offset >= 0;)
+            {
+                int kind = "([{<)]}>".IndexOf(line[offset], StringComparison.Ordinal);
+                if (kind < 4) open[kind].Push(offset);
+                else if (open[kind - 4].Count > 0) matches[open[kind - 4].Pop()] = offset;
+                int next = offset + 1 < line.Length ? line[(offset + 1)..].IndexOfAny(Brackets) : -1;
+                offset = next < 0 ? -1 : offset + 1 + next;
+            }
+            return matches;
+        }
+    }
+
+    /// <summary>
     /// Where the removal of the single-quoted path or file link whose opening quote is at <paramref name="opener"/> ends: the end of
     /// its line when it doesn't close on it or a backslash, slash or apostrophe follows its close there; otherwise its close, or the
     /// end of a link word that runs on past it.
@@ -265,9 +469,12 @@ public static class DiagnosticTextSanitizer
         return -1;
     }
 
-    /// <summary>Whether a drive, network or variable path, or a file link, starts at <paramref name="index"/>.</summary>
+    /// <summary>
+    /// Whether a drive, network or variable path, or a link, starts at <paramref name="index"/>. Independent review of be08c02, V1: a
+    /// quoted web link may hold spaces as a quoted path may, so it is read to its closing quote too.
+    /// </summary>
     private static bool StartsAQuotedValue(string value, int index) =>
-        index < value.Length && (StartsAPath(value, index) || StartsAFileLink(value.AsSpan(index)));
+        index < value.Length && (StartsAPath(value, index) || StartsALink(value.AsSpan(index)));
 
     private static bool StartsAFileLink(ReadOnlySpan<char> rest) =>
         rest.StartsWith("file:", StringComparison.OrdinalIgnoreCase) && StartsALink(rest);
@@ -304,7 +511,7 @@ public static class DiagnosticTextSanitizer
 
     /// <summary>Appends the quoted placeholder for the quoted value whose opening quote is at <paramref name="opener"/>.</summary>
     private static void AppendPlaceholder(StringBuilder result, string value, int opener, char quote) =>
-        result.Append(quote).Append(StartsAFileLink(value.AsSpan(opener + 1)) ? LinkPlaceholder : PathPlaceholder).Append(quote);
+        result.Append(quote).Append(StartsALink(value.AsSpan(opener + 1)) ? LinkPlaceholder : PathPlaceholder).Append(quote);
 
     /// <summary>Where the line holding <paramref name="index"/> ends: its first line break at or after it, or the text's end.</summary>
     private static int LineEnd(string value, int index)
@@ -315,6 +522,29 @@ public static class DiagnosticTextSanitizer
 
     /// <summary>The most times one text's double-quoted paths are matched again before the rest of a line is removed with its path.</summary>
     private const int MaximumQuoteRecoveries = 16;
+
+    /// <summary>
+    /// Whether the double quote at <paramref name="quote"/> can open a quoted value: it starts the text or follows whitespace or a
+    /// mark that comes before a value (=, a bracket, a tag's close, a comma, a semicolon or a colon). An escaped (\") or doubled ("")
+    /// quote is judged by what comes before it (independent look at #152, P3: {\"url\":\"https://…\"}). A quote right after other
+    /// text (the close of "[path]" before a glued link) closes something instead.
+    /// </summary>
+    private static bool OpensAQuote(string value, int quote)
+    {
+        if (quote > 0 && value[quote - 1] is '\\' or '"') quote--;
+        return quote == 0 || char.IsWhiteSpace(value[quote - 1]) || value[quote - 1] is '=' or '(' or '[' or '{' or '>' or ',' or ';' or ':';
+    }
+
+    /// <summary>Whether the word holding <paramref name="index"/> starts with a double quote, looking back at most 256 characters.</summary>
+    private static bool QuotedWordStart(string value, int index)
+    {
+        for (int back = index - 1; back >= 0 && index - back <= 256; back--)
+        {
+            if (value[back] == '"') return OpensAQuote(value, back);
+            if (char.IsWhiteSpace(value[back])) return false;
+        }
+        return false;
+    }
 
     /// <summary>The most values cut from one run of joined links before the rest of the run is removed as one link.</summary>
     private const int MaximumJoinedValues = 16;
@@ -350,11 +580,24 @@ public static class DiagnosticTextSanitizer
             // Codex review of bf637b5, 71C-03: a file link right after a double quote runs to the closing quote on its line, so a
             // last part holding spaces ("file:///C:/Shared/Quarterly Notes.txt") goes whole. (A single-quoted one is taken with
             // the single-quoted paths.)
-            if (last.Success && match.Index > 0 && value[match.Index - 1] == '"')
+            // Independent review of be08c02, V1: so does any other link ("https://host/My Folder/Notes.txt"), and a link inside a
+            // quoted word that starts with the quote ("ms-word:ofe|u|https://host/My Folder/Notes.docx").
+            // A file link takes any quote right before it, as since #151; another link only a quote that can open a value.
+            if (match.Index > 0 && (value[match.Index - 1] == '"' && (last.Success || OpensAQuote(value, match.Index - 1)) || QuotedWordStart(value, match.Index)))
             {
-                int closing = value.AsSpan(match.Index, LineEnd(value, match.Index) - match.Index).IndexOf('"');
-                if (closing >= 0)
+                // The close and the line's end are looked for together, so a long line of quoted links is read once (Codex review
+                // of #152).
+                int closing = value.AsSpan(match.Index).IndexOfAny('"', '\r', '\n');
+                if (closing >= 0 && value[match.Index + closing] != '"') closing = -1;
+                // For any other link the quote only ever extends the match: a close inside the match's own word
+                // ("https://ex"ample.org/…) leaves the word to the join rule below, as before. A file link ends at its close, as
+                // since #151, and the next value is matched on its own; independent review of be08c02, X1: after
+                // MaximumJoinedValues such cuts in one run the rest of the run goes with the link, so glued quotes can't make the
+                // scan match the same run again and again.
+                bool cutsTheMatch = closing >= 0 && match.Index + closing < end;
+                if (closing >= 0 && (!cutsTheMatch || (last.Success && joined < MaximumJoinedValues)))
                 {
+                    if (cutsTheMatch) joined++;
                     end = match.Index + closing;
                     result.Append(value, position, match.Index - position).Append(LinkPlaceholder);
                     position = end;
@@ -575,6 +818,13 @@ public static class DiagnosticTextSanitizer
         // file link is removed as RemoveSingleQuotedPaths removes it, read on the whole line past the cut: when that runs past the
         // cut (the rest of the line goes, or the path is still open there), the cut moves before its opening quote.
         int lineStart = text.AsSpan(0, cut).LastIndexOfAny(['\r', '\n']) + 1;
+        // Independent review of be08c02, V2: so is a path or link inside another delimiter whose removal runs past the cut.
+        int delimited = cut;
+        DelimitedScan scan = new(text);
+        for (int from = lineStart; scan.Next(from, out DelimitedValue found) && found.Opener < cut; from = found.Resume)
+        {
+            if (found.End > cut) { delimited = found.Opener; break; }
+        }
         int single = cut;
         for (int opener = NextSingleQuoteOpener(text, lineStart); opener >= 0 && opener < cut;)
         {
@@ -582,7 +832,7 @@ public static class DiagnosticTextSanitizer
             if (end > cut) { single = opener; break; }
             opener = NextSingleQuoteOpener(text, end);
         }
-        return Math.Min(OpenDoubleQuotedPathStart(text, lineStart, cut), single);
+        return Math.Min(Math.Min(OpenDoubleQuotedPathStart(text, lineStart, cut), single), delimited);
     }
 
     private static int OpenDoubleQuotedPathStart(string text, int lineStart, int cut)

@@ -824,6 +824,88 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    [DataRow("Open \"https://example.invalid/My Violet Folder/Quarterly Amber Notes.txt\" failed", "Open \"[link]\" failed")]
+    [DataRow("Open 'https://example.invalid/My Violet Folder/Quarterly Amber Notes.txt' failed", "Open '[link]' failed")]
+    [DataRow("url=\"https://example.invalid/search?q=violet clinic amber results&lang=en\" next", "url=\"[link]\" next")]
+    [DataRow("Opening \"ms-word:ofe|u|https://example.invalid/Violet Folder/Amber Notes.docx\" now", "Opening \"ms-word:ofe|u|[link]\" now")]
+    [DataRow("{\\\"url\\\":\\\"https://example.invalid/My Violet Folder/Quarterly Amber Notes.txt\\\"}", "{\\\"url\\\":\\\"[link]\"}", DisplayName = "after an escaped quote (P3)")]
+    [DataRow("Open \"\"https://example.invalid/My Violet Folder/Quarterly Amber Notes.txt\"\" failed", "Open \"\"[link]\"\" failed", DisplayName = "after a doubled quote (P3)")]
+    [DataRow("<td>\"https://example.invalid/My Violet Folder/Quarterly Amber Notes.txt\"</td>", "<td>\"[link]\"</td>", DisplayName = "after a tag (P3)")]
+    public void AQuotedWebLinkWithASpaceIsRemovedToItsClose(string text, string expected)
+    {
+        // Independent review of be08c02, V1: a quoted file link ran to its closing quote, but a web link still ended at its first
+        // space and kept its later folder and file words.
+        AssertCleanedEverywhere(text, expected);
+        AssertNoCutShows(text, text.IndexOf("://", StringComparison.Ordinal), text.Length, ["Violet", "violet", "Amber", "amber"]);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("Open `C:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt` failed", "Open `[path]` failed")]
+    [DataRow("Open \u201CC:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt\u201D failed", "Open \u201C[path]\u201D failed")]
+    [DataRow("Datei \u201EC:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt\u201C nicht gefunden", "Datei \u201E[path]\u201C nicht gefunden")]
+    [DataRow("Fichier \u00AB C:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt \u00BB introuvable", "Fichier \u00AB [path]\u00BB introuvable")]
+    [DataRow("Open \u2018C:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt\u2019 failed", "Open \u2018[path]\u2019 failed")]
+    [DataRow("Open (C:\\Program Files (x86)\\My Violet Folder\\Quarterly Amber Notes.txt) failed", "Open ([path]) failed")]
+    [DataRow("See [the log](C:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt) for details", "See [the log]([path]) for details")]
+    [DataRow("Open {C:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt} failed", "Open {[path]} failed")]
+    [DataRow("Open ( C:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt ) failed", "Open ( [path]) failed")]
+    [DataRow("Open [ C:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt ] failed", "Open [ [path]] failed")]
+    [DataRow("Open <https://example.invalid/My Violet Folder/Quarterly Amber Notes.txt> failed", "Open <[link]> failed")]
+    [DataRow("Open &quot;C:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt&quot; failed", "Open &quot;[path]&quot; failed")]
+    [DataRow("| C:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt | failed |", "| [path]| failed |")]
+    [DataRow("| C:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt | C:\\Users\\Pat\\Amber Violet Files\\b.txt |", "| [path]| [path]|")]
+    public void APathOrLinkInsideAnotherDelimiterIsRemovedToItsClose(string text, string expected)
+    {
+        // Independent review of be08c02, V2: inside a backtick, typographic quotes, guillemets, brackets, an escaped quote or a
+        // table bar, a path or link with a space in its last part kept the words after the space, as an unquoted one does.
+        AssertCleanedEverywhere(text, expected);
+        AssertNoCutShows(text, text.IndexOf("Violet", StringComparison.Ordinal) - 8, text.IndexOf(".txt", StringComparison.Ordinal), ["Violet", "Amber"]);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void GluedQuotesBeforeFileLinksAreCleanedInLinearTime()
+    {
+        // Independent review of be08c02, X1: each glued opener ("file:///C:/a"file:///C:/a…) was matched again to the end of the
+        // run, so one answer line inside the reply bound took minutes. The cuts are bounded as for joined links.
+        string line = string.Concat(Enumerable.Repeat("\"file:///C:/a", 393_216 / 13));
+        System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+        string clean = AdvisoryAiRedaction.SanitizeAnswer(line, 400_000).Value ?? string.Empty;
+        Assert.IsLessThan(TimeSpan.FromSeconds(10), watch.Elapsed);
+        Assert.DoesNotContain("file:", clean);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("\u201EC:\\a\u201C ")]
+    [DataRow("\u201EC:\\a\u201D ")]
+    [DataRow("\u201CC:\\a\u201D ")]
+    [DataRow("\u201CC:\\a\u201C ")]
+    [DataRow("\"https://a/x y\" ")]
+    public void ManyQuotedValuesWithAnAbsentOtherCloseAreCleanedInLinearTime(string value)
+    {
+        // Codex review of #152: each well-formed value searched the whole rest of the line for the close it didn't use, so a long
+        // answer line cost the square of its length, as did the line's end for each quoted web link. Each close is now looked for
+        // once until it is passed, and a link's close and its line's end are looked for together.
+        string line = string.Concat(Enumerable.Repeat(value, 393_216 / value.Length));
+        System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+        string clean = AdvisoryAiRedaction.SanitizeAnswer(line, 400_000).Value ?? string.Empty;
+        Assert.IsLessThan(TimeSpan.FromSeconds(10), watch.Elapsed);
+        Assert.DoesNotContain("C:\\", clean);
+        Assert.DoesNotContain("://", clean);
+    }
+
+    private static void AssertCleanedEverywhere(string text, string expected)
+    {
+        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000).Value, DiagnosticTextSanitizer.Sanitize(text, 4096).Value])
+        {
+            Assert.AreEqual(expected, clean);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     [DataRow("https://example.invalid/Violet/x")]
     [DataRow("file:///C:/Shared/Violet/Notes.txt")]
     [DataRow("file:///C:/a.txt+C:\\Violet\\b.txt")]

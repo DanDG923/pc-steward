@@ -702,6 +702,30 @@ public sealed class AdvisoryAiResponseTests
 
     [TestMethod]
     [TestCategory("FR-BUD-03")]
+    [DataRow("[{0}]")]
+    [DataRow("{{\"type\":\"response.completed\",\"response\":{0}}}")]
+    [DataRow("{{\"object\":\"list\",\"data\":[{0}]}}")]
+    public void AResponseWrappedInAnotherShapeStillStopsPaidRequestsWhenItsUsageIsAboveTheBounds(string wrapper)
+    {
+        // Independent review of be08c02, W1: a response one level down was refused as not a response object before any usage was
+        // read, so a count above the approval kept only the reservation, with no pause.
+        string above = "\"usage\":{\"input_tokens\":491,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":99999,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":100490}";
+        string body = string.Format(System.Globalization.CultureInfo.InvariantCulture, wrapper, Body(usage: above));
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.AreEqual(AdvisoryAiMalformedReason.NotAResponseObject, response.MalformedReason);
+        Assert.IsTrue(response.UsageAboveApprovedBounds);
+        AdvisoryAiSettlement kept = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(40_100), ReviewTariff);
+        Assert.IsTrue(kept.NeedsReview);
+        Assert.AreEqual(40_100, kept.Committed.Value);
+
+        string within = above.Replace("99999", "300", StringComparison.Ordinal).Replace("100490", "791", StringComparison.Ordinal);
+        string calm = string.Format(System.Globalization.CultureInfo.InvariantCulture, wrapper, Body(usage: within));
+        Assert.IsFalse(AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(calm), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true).UsageAboveApprovedBounds,
+            "a wrapped reply within the bounds keeps the reservation without a pause, as before");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
     public void AnAnswerReportingFewerInputTokensThanItsTextCanBeIsNotSettled()
     {
         // Codex review of bf637b5, 71C-02: one input token for hundreds of bytes of approved text settled at almost nothing.

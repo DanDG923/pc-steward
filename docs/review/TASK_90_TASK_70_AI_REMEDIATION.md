@@ -326,3 +326,48 @@ The pull request's own Codex review found that each value cut from a run of join
 Carried over, unchanged: F2 and F5 (§14, §19), R4 to R6 and the §19 R5 limit, S3 to S6 (§20), T3 (§21), and 71C-05 and 71C-07 here. T2 and U1 (§21) are closed by 71C-04's rule.
 
 The schema stays at 17.
+
+## 23. Task 71C independent review of the eleventh retest build at `be08c02`, and fixes
+
+The independent review of the eleventh retest build (commit `be08c02`; run 45176918945, artifact SHA-256 `04bb2674…4ea2`) returned FAIL: two Medium privacy findings (V1, V2) and one Medium paid-bound finding (W1), all present on every build back to `12852c3`, and four Low. Provenance, the compiled model and tier, the route and the retest arithmetic passed. The retest procedure failed only on a stale zip digest in the key-step paste (G1), which fails closed. The owner's review of this build was held. The report is not in the repository.
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **V1 (Medium, privacy). A quoted web link with a space** (`"https://host/…/Violet Clinic letters/Amber results.docx"`, `url="https://…?q=violet clinic"`, the same in single quotes) kept everything after its first space. #151 had done this for file links only. | A link right after a double quote that can open a value (at the start, after whitespace, `=`, a bracket, a tag's `>`, a comma, a semicolon or a colon, also when the quote is escaped as `\"` or doubled as `""`), or in a word that starts with such a quote (`"ms-word:ofe|u|https://…"`), runs to its closing quote when that is past the link's own word. A single quote followed by any link is read as a single-quoted path is (§22). | `AQuotedWebLinkWithASpaceIsRemovedToItsClose` |
+| **V2 (Medium, privacy). A path or link inside another delimiter** (a backtick, typographic quotes, guillemets, brackets, `&quot;`, a Markdown link target, a table bar) kept the words after a space in its last part. | When a path or link starts right after such an opening delimiter (one space allowed, as guillemets are written), everything up to its close on the same line is removed. Brackets are matched with brackets nested inside them (`C:\Program Files (x86)\…`). A typographic single quote and `&apos;` are read as a straight single quote is. A close right after a slash or backslash is no close. A table bar that closes one cell opens the next. With no close on the line, the value is left to the unquoted patterns, as before. Each line's brackets are matched once, and each close is looked for once until the scan passes it (Codex review of #152: a close a value didn't use was looked for again from every value; so was the line's end for each quoted web link, now looked for with its close), so the scan stays linear. A cut moves before such a value whose removal runs past it. | `APathOrLinkInsideAnotherDelimiterIsRemovedToItsClose`, `ManyQuotedValuesWithAnAbsentOtherCloseAreCleanedInLinearTime` |
+| **W1 (Medium, paid bound). A response one level down** (`[ {…} ]`, `{"type":"response.completed","response":{…}}`, `{"object":"list","data":[{…}]}`) was refused as not a response object before any usage was read, so a count above the approval kept only the reservation, with no pause. | A `usage` object at any depth is read for counts above the approved bounds (the parse bounds the depth). | `AResponseWrappedInAnotherShapeStillStopsPaidRequestsWhenItsUsageIsAboveTheBounds` |
+| **G1 (release path).** The key-step paste still held the tenth build's zip digest. | Fixed in the project files when they were refreshed. Every repin now checks all five pins (zip digest, manifest, commit, run, expiry). | Not in the repository |
+| **X1 (Low, timing, new in #151).** A file link after a glued quote was matched again to the end of the run from each closing quote, so one answer line inside the reply bound took minutes. | Such cuts are counted with the joined-link cuts: after 16 in one run, the rest of the run goes with the link. A 393,216-character line of glued openers now cleans in well under a second. | `GluedQuotesBeforeFileLinksAreCleanedInLinearTime` |
+| **W2 (Low, recorded choice).** A 200 reply that is not JSON, or is larger than the admitted bytes, keeps the reservation with no pause. | Not changed: nothing in it can be read, and a proxy's error page would otherwise pause paid requests. | Recorded |
+| **V3 (Low, scope).** Path forms the patterns don't know pass whole: `\Device\HarddiskVolume3\…`, a rooted `\Users\…`, `~\…`, `$env:USERPROFILE\…`, `/mnt/c/…`, `//server/share/…`, `C:Users\…`, a host with no scheme, and `onenote:///C:\…` with a space. | Not changed; recorded in the cleaner's scope below. | Recorded |
+| **N1 (quality).** In evidence, one single-quoted path whose close is followed by a backslash, slash or apostrophe takes the rest of the item. | The owner's choice in §22; recorded. | Recorded |
+
+**What the cleaner promises.** So that both reviews measure against one written scope:
+
+- *Removed whole, at any cut.* A drive, network or variable path, a file link and a web link, written:
+  - unquoted with no space in its last part;
+  - with its opener directly before it and its close on the same line, where the opener is: a single quote; a double quote at the start, after whitespace, `=`, a bracket, `>`, a comma, a semicolon or a colon, or escaped (`\"`) or doubled (`""`) there (a file link takes any double quote); a backtick, typographic quotes, guillemets, a bracket `(`, `[`, `{` or `<` (paired with nested brackets on its line), `&quot;`, `&#34;`, `&apos;`, `&#39;` or a table bar. One space may stand after any opener but a straight quote.
+
+  This covers apostrophes and letters outside the Basic Multilingual Plane in names, both slash directions, and joined values (`a.txt,file:///…`). Also removed: SIDs, e-mail addresses, and the PC's account and machine names.
+- *Removed with more than the value.* A single-quoted path or link that doesn't close cleanly, or after whose close its line holds a backslash, a slash or another apostrophe, takes the rest of its line (in evidence and the timeline, the rest of the item); so does one in a typographic single quote or `&apos;`. After 16 joined values in one run, the rest of the run goes as one link.
+- *Accepted limits, not promised.*
+  - An unquoted path or link with a space in its last part keeps the words after the space. So does one later inside a quoted sentence (`"see https://…/My Folder/a b.txt"`), which is read as unquoted.
+  - Delimiters not listed above (`*`, `**`, `_`, CJK brackets, `&ldquo;`, `&#x22;`, `&lt;`, `&QUOT;`, two spaces after an opener) are read as ordinary text.
+  - A value whose close is on a later line of an answer (71C-05), and T3 (§21).
+  - Unknown path forms (V3) pass whole.
+  - A name that holds its delimiter's own closing mark (`(C:\…\Photos 1) Violet\…)`, `“…\17” Screen\…”`) ends the removal at that mark, and the rest is read as unquoted text. The independent reviewer's pre-merge look at this change tried two ways to run on past it; both showed more on well-formed lines.
+  - A quote glued to the end of a word (`-url"https://…"`) is read as a close, not an opener, so a web link after it is read as unquoted.
+  - In quality: a single-quoted web link followed on its line by a slash or an apostrophe takes the rest of the line, as a single-quoted path does (`{'url': 'https://…', 'error': 'timeout'}` keeps only `{'url': '[link]'`) (N2). An escaped closing quote loses its backslash (`{\"url\":\"[link]"}`).
+  - Broken or glued text (a stray quote inside a value, a close glued to the next value) may keep part of a name. Against the eleventh build, on seven seeds of 20,000 mixed lines, this change newly shows a word in 0 or 1 line a seed and newly hides one in about 55 to 90.
+
+The independent reviewer also looked at this change before it merged; from that look, a web link after an escaped, doubled or tag-closed quote, and every cell of a table row, are now removed whole (P2, P3), and a space after a bracket opener is honoured (P4, also from the pull request's own review). P1 and N2 are the limits listed above.
+
+The fixes were checked in the cloud:
+- the independent reviewer's 20 delimiters by 8 value kinds: only the unquoted forms are left;
+- well-formed random text (Well8, Well9 and Well10, every setting, three seeds of 20,000 lines): no private word left;
+- every cut of 5,400 lines across three settings (about 2 million cuts): nothing shown;
+- the reviewer's timing shapes: the slowest is about 3.3 s, on one 393,216-character answer line of joined web links, as on the tenth build.
+
+Carried over, unchanged: F2 and F5 (§14, §19), R4 to R6 and the §19 R5 limit, S4 to S6 (§20), T3 (§21), 71C-05 and 71C-07 (§22), and W2, V3 and N1 here. The join rule (§22) closes S3.
+
+The schema stays at 17.

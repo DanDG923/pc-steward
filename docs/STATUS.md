@@ -1,3 +1,9 @@
+**Advisory AI, independent review of the eleventh Task 71C retest build failed; fixes (2026-11-23; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-BUD-03`, `FR-DIA-03` ([Task 90 record §23](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `be08c02`.** Three Medium findings, all on every build since the first retest: a quoted web link with a space kept the words after it; a path or link inside a backtick, typographic quotes, guillemets, brackets or an escaped quote did too; and a response wrapped one level down hid usage above the approval. Four Low. The owner's review of this build was held. The report is not in the repository.
+- **Fixed.** Quoted web links and delimited paths and links are removed to their close. A usage count above the approval pauses paid requests wherever it sits in the reply. Glued quotes before file links stay linear. The record now states what the cleaner promises and which limits are accepted.
+- **Next.** A new retest build from `phase/4-beta`, reviewed by both reviewers, then the owner's separate approvals for the key step and the one send.
+
 **Advisory AI, the owner's review of the tenth Task 71C retest build failed; fixes (2026-11-23; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-BUD-03`, `FR-DIA-03` ([Task 90 record §22](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `bf637b5`.** One High: a reply refused early for being stored, holding tools or an unknown status lost its usage, so a larger reported charge kept only the reservation with no pause. Three Medium privacy findings (a quoted or joined file link, a single-quoted path with an apostrophe after forward slashes or a rare letter, a quoted command running into a file link) and four Low. Artifact, model, tier, route and arithmetic passed. The report is not in the repository.
