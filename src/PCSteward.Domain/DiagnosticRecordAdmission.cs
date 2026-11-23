@@ -346,7 +346,7 @@ public static class DiagnosticTextSanitizer
                     if (end < 0)
                     {
                         // Only a first-close delimiter with no close at all: a later opener of nested brackets may still be matched.
-                        if (end == -1 && delimiter.Pairing == DelimiterPairing.First) noCloseBefore[kind] = lineEnd;
+                        if (delimiter.Pairing == DelimiterPairing.First) noCloseBefore[kind] = lineEnd;
                         break;
                     }
                     // A table bar that closes one cell opens the next (independent look at #152, P2: | C:\a b | C:\c d |).
@@ -367,7 +367,7 @@ public static class DiagnosticTextSanitizer
 
         /// <summary>
         /// Where the removal ends (the close, which is kept, or the line's end) and how long the close is; -1 when there is no close on
-        /// the line, -2 when the first close is refused.
+        /// the line.
         /// </summary>
         private (int End, int CloseLength) Close(Delimiter delimiter, int opener, int start)
         {
@@ -387,12 +387,10 @@ public static class DiagnosticTextSanitizer
                         int at = NextClose(close, start);
                         if (at >= 0 && (best < 0 || at < best)) { best = at; length = close.Length; }
                     }
-                    // A close right after a slash or backslash, glued to more path after it (|file:///C:/|Users/…), is read as part of
-                    // a path that goes on, so the value is left to the unquoted patterns. Independent review of d16ab4c, Y1: any other
-                    // close after a slash ends the value (“https://host/Team Violet Site/” failed, |https://host/My Folder/|failed|),
-                    // as a folder link is written.
-                    if (best < 0) return (-1, 0);
-                    return best > 0 && line[best - 1] is '\\' or '/' && PathGoesOn(line[(best + length)..], delimiter) ? (-2, 0) : (start + best, length);
+                    // Independent review of d16ab4c, Y1: a close right after a slash ends the value too (“https://host/Team Violet
+                    // Site/”, |https://host/My Folder/|12/11/2026|), as a folder link is written. A close inside a path that goes on
+                    // past it (|file:///C:/|Users/…) is broken text.
+                    return best < 0 ? (-1, 0) : (start + best, length);
                 }
                 default:
                 {
@@ -415,23 +413,6 @@ public static class DiagnosticTextSanitizer
                     return (lineEnd, 0);
                 }
             }
-        }
-
-        /// <summary>
-        /// Whether the word right after a close holds a slash or backslash before whitespace or another close of the same delimiter, so
-        /// the close sits inside a path that goes on.
-        /// </summary>
-        private static bool PathGoesOn(ReadOnlySpan<char> rest, Delimiter delimiter)
-        {
-            for (int offset = 0; offset < rest.Length; offset++)
-            {
-                char mark = rest[offset];
-                if (char.IsWhiteSpace(mark)) return false;
-                if (mark is '\\' or '/') return offset > 0;
-                foreach (string close in delimiter.Close)
-                    if (rest[offset..].StartsWith(close, StringComparison.Ordinal)) return false;
-            }
-            return false;
         }
 
         /// <summary>The line offset from <paramref name="start"/> of the first <paramref name="close"/> on the current line, or -1.</summary>

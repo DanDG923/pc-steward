@@ -887,6 +887,8 @@ public sealed class AdvisoryAiRedactionTests
     [DataRow("Datei \u201Eftp://example.invalid/My Violet Folder/\u201C fehlt", "Datei \u201E[link]\u201C fehlt")]
     [DataRow("Open &quot;https://example.invalid/My Violet Folder/&quot; failed", "Open &quot;[link]&quot; failed")]
     [DataRow("|https://example.invalid/My Violet Folder/|failed|", "|[link]|failed|")]
+    [DataRow("|https://example.invalid/My Violet Folder/|12/11/2026|ok|", "|[link]|12/11/2026|ok|")]
+    [DataRow("|https://example.invalid/My Violet Folder/|C:\\Users\\Pat\\Other Amber Dir\\Second File.txt|", "|[link]|[path]|")]
     [DataRow("| https://example.invalid/My Violet Folder/ | C:\\Users\\Pat\\Amber Files\\ |", "| [link]| [path]|")]
     [DataRow("Open \u201Dhttps://example.invalid/My Violet Folder/\u201D failed", "Open \u201D[link]\u201D failed")]
     [DataRow("Ouvrir \u00BBhttps://example.invalid/My Violet Folder/\u00AB maintenant", "Ouvrir \u00BB[link]\u00AB maintenant")]
@@ -897,7 +899,7 @@ public sealed class AdvisoryAiRedactionTests
     public void AFolderLinkEndingInASlashInsideADelimiterIsRemovedToItsClose(string text, string expected)
     {
         // Independent review of d16ab4c, Y1: a close right after a slash was read as part of a path that goes on, so a web link to
-        // a folder kept the words after its first space. Only a close with a letter or number glued after it is read that way now.
+        // a folder kept the words after its first space. A close after a slash now ends the value as any other close does.
         AssertCleanedEverywhere(text, expected);
         AssertNoCutShows(text, text.IndexOf("://", StringComparison.Ordinal), text.LastIndexOf('/') + 1, ["Violet", "Amber"]);
     }
