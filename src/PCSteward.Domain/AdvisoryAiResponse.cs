@@ -192,7 +192,21 @@ public static class AdvisoryAiResponseReader
         ArgumentNullException.ThrowIfNull(approval);
         AdvisoryAiRequestPreview preview = approval.Preview;
         return Read(body, preview.Model.ModelId, AdmittedBytes(approval), preview.InputTokenUpperBound, preview.Limits.MaximumOutputTokens,
-            preview.Model.ServiceTier, preview.Model.RequestNoPromptCache, preview.Model.MaximumTokenUtf8Bytes);
+            preview.Model.ServiceTier, preview.Model.RequestNoPromptCache, preview.Model.MaximumTokenUtf8Bytes, MinimumInputTokens(preview));
+    }
+
+    /// <summary>
+    /// Codex review of bf637b5, 71C-02: the fewest input tokens the approved text can be. The tokenizer is byte-level, and its
+    /// longest token decodes to at most <see cref="AdvisoryAiModelProfile.MaximumTokenUtf8Bytes"/>, so the instructions and input
+    /// sent need at least their UTF-8 bytes divided by that, rounded up. Framing the route adds is left out, so this only ever
+    /// errs low.
+    /// </summary>
+    public static long MinimumInputTokens(AdvisoryAiRequestPreview preview)
+    {
+        ArgumentNullException.ThrowIfNull(preview);
+        long bytes = (long)Encoding.UTF8.GetByteCount(AdvisoryAiInstructions.Text) + Encoding.UTF8.GetByteCount(preview.InputText);
+        int perToken = preview.Model.MaximumTokenUtf8Bytes;
+        return perToken <= 0 ? 1 : Math.Max(1, (bytes + perToken - 1) / perToken);
     }
 
     /// <summary>
@@ -214,7 +228,7 @@ public static class AdvisoryAiResponseReader
     /// above 0, any text under output longer than the reported output tokens (or the approved output) could decode to contradicts the usage.
     /// </summary>
     public static AdvisoryAiResponse Read(ReadOnlySpan<byte> body, string expectedModel, long maximumBytes, long approvedInputTokens, long approvedOutputTokens,
-        string? expectedServiceTier = null, bool noPromptCache = false, int maximumTokenUtf8Bytes = 0)
+        string? expectedServiceTier = null, bool noPromptCache = false, int maximumTokenUtf8Bytes = 0, long minimumInputTokens = 1)
     {
         ArgumentNullException.ThrowIfNull(expectedModel);
         if (body.Length > maximumBytes) return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.TooLarge);
@@ -224,7 +238,7 @@ public static class AdvisoryAiResponseReader
             if (!DecodesInFull(body)) return Undecodable;
             using JsonDocument document = JsonDocument.Parse(body.ToArray(),
                 new JsonDocumentOptions { MaxDepth = MaximumDepth, CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false });
-            AdvisoryAiResponse response = Read(document.RootElement, expectedModel, approvedInputTokens, approvedOutputTokens);
+            AdvisoryAiResponse response = Read(document.RootElement, expectedModel, approvedInputTokens, approvedOutputTokens, minimumInputTokens);
             (long? written, bool unreadable) = CacheWriteReport(document.RootElement);
             (string? tier, AdvisoryAiServiceTierReport tierReport, AdvisoryAiResponseDeparture departures, AdvisoryAiUsageFieldLocation unknownAt) =
                 DepartureReport(document.RootElement, expectedServiceTier, noPromptCache);
@@ -235,8 +249,11 @@ public static class AdvisoryAiResponseReader
             // Codex review of ce0eaf3, C1, the independent review of 4056e3f, G2, and Codex review of cd04620, 71C-03: output text longer
             // than the reported output tokens could decode to contradicts the usage, whatever else is wrong with the body, so the check
             // runs here, after every early return.
+            // Codex review of bf637b5, 71C-01: so is a usage count above the approved bounds, read on its own, so a body refused
+            // early (stored, another model, no id) can't hide a charge above the reservation.
             bool unexpected = unreadable || written > 0 || departures != AdvisoryAiResponseDeparture.None ||
-                OutputContradictsUsage(document.RootElement, approvedOutputTokens, maximumTokenUtf8Bytes);
+                OutputContradictsUsage(document.RootElement, approvedOutputTokens, maximumTokenUtf8Bytes) ||
+                CountsAboveApprovedBounds(document.RootElement, approvedInputTokens, approvedOutputTokens);
             // A body that continues other state isn't an answer to this request, so its text is never shown or saved.
             if (departures.HasFlag(AdvisoryAiResponseDeparture.ConversationState) && response.Status != AdvisoryAiAnswerStatus.Malformed)
                 response = response with { Status = AdvisoryAiAnswerStatus.Malformed, IncompleteReason = AdvisoryAiIncompleteReason.None,
@@ -305,7 +322,7 @@ public static class AdvisoryAiResponseReader
     public static AdvisoryAiResponse Undecodable { get; } =
         AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.UndecodableText) with { UsageAboveApprovedBounds = true };
 
-    private static AdvisoryAiResponse Read(JsonElement root, string expectedModel, long approvedInputTokens, long approvedOutputTokens)
+    private static AdvisoryAiResponse Read(JsonElement root, string expectedModel, long approvedInputTokens, long approvedOutputTokens, long minimumInputTokens)
     {
         if (root.ValueKind != JsonValueKind.Object) return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.NotAResponseObject);
         if (HasDuplicate(root)) return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.DuplicateProperty);
@@ -314,12 +331,24 @@ public static class AdvisoryAiResponseReader
             return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.MissingOrInvalidId);
         string id = idElement.GetString()!;
         if (!IsString(root, "model", expectedModel)) return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.ModelMismatch);
-        if (root.TryGetProperty("store", out JsonElement store) && store.ValueKind != JsonValueKind.False) return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.StoredResponse);
+
+        (AdvisoryAiUsage? usage, bool reliable, bool cacheWritten) = ReadUsage(root);
+        // Independent review F2: an answer always has input (the instructions at least), so usage reporting none can't settle it at $0.
+        // Codex review of bf637b5, 71C-02: nor can usage reporting fewer input tokens than the approved text could be.
+        if (reliable && usage!.InputTokens < Math.Max(1, minimumInputTokens) && !IsString(root, "status", "failed") && !IsString(root, "status", "cancelled"))
+            reliable = false;
+        // Task 69: a reported cache write was never requested and is billed above the input rate, so the usage can't settle the
+        // request and paid requests stop for review, as for usage above the approved bounds.
+        bool above = cacheWritten || reliable && (usage!.InputTokens > approvedInputTokens || usage.OutputTokens > approvedOutputTokens);
+
+        // Codex review of bf637b5, 71C-01: a body for this request and model that is refused here keeps its usage for the ledger, so a
+        // charge above the reservation is recorded in full and stops paid requests, as for a body refused for its output.
+        if (root.TryGetProperty("store", out JsonElement store) && store.ValueKind != JsonValueKind.False) return Unbound(AdvisoryAiMalformedReason.StoredResponse, usage, reliable, above, id);
         if (root.TryGetProperty("tools", out JsonElement tools) && !(tools.ValueKind == JsonValueKind.Array && tools.GetArrayLength() == 0))
-            return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.ToolsPresent);
+            return Unbound(AdvisoryAiMalformedReason.ToolsPresent, usage, reliable, above, id);
 
         if (!root.TryGetProperty("status", out JsonElement statusElement) || statusElement.ValueKind != JsonValueKind.String)
-            return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.UnknownStatus);
+            return Unbound(AdvisoryAiMalformedReason.UnknownStatus, usage, reliable, above, id);
         AdvisoryAiAnswerStatus? status = statusElement.GetString() switch
         {
             "completed" => AdvisoryAiAnswerStatus.Completed,
@@ -327,7 +356,7 @@ public static class AdvisoryAiResponseReader
             "failed" or "cancelled" => AdvisoryAiAnswerStatus.ProviderFailed,
             _ => null
         };
-        if (status is null) return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.UnknownStatus);
+        if (status is null) return Unbound(AdvisoryAiMalformedReason.UnknownStatus, usage, reliable, above, id);
 
         AdvisoryAiIncompleteReason incomplete = AdvisoryAiIncompleteReason.None;
         if (status == AdvisoryAiAnswerStatus.Incomplete)
@@ -341,13 +370,6 @@ public static class AdvisoryAiResponseReader
                 _ => AdvisoryAiIncompleteReason.Other
             };
         }
-
-        (AdvisoryAiUsage? usage, bool reliable, bool cacheWritten) = ReadUsage(root);
-        // Independent review F2: an answer always has input (the instructions at least), so usage reporting none can't settle it at $0.
-        if (reliable && usage!.InputTokens == 0 && status != AdvisoryAiAnswerStatus.ProviderFailed) reliable = false;
-        // Task 69: a reported cache write was never requested and is billed above the input rate, so the usage can't settle the
-        // request and paid requests stop for review, as for usage above the approved bounds.
-        bool above = cacheWritten || reliable && (usage!.InputTokens > approvedInputTokens || usage.OutputTokens > approvedOutputTokens);
 
         StringBuilder text = new();
         bool refused = false;
@@ -414,6 +436,31 @@ public static class AdvisoryAiResponseReader
                         tokens = Math.Min(tokens, reported);
         }
         return bytes > tokens * maximumTokenUtf8Bytes;
+    }
+
+    /// <summary>
+    /// Codex review of bf637b5, 71C-01: true when any plain count under any "usage" object reports more input, output or total tokens
+    /// than the approved request allows, whether or not the usage as a whole can be trusted and whatever else refuses the body.
+    /// </summary>
+    private static bool CountsAboveApprovedBounds(JsonElement root, long approvedInputTokens, long approvedOutputTokens)
+    {
+        if (root.ValueKind != JsonValueKind.Object) return false;
+        foreach (JsonProperty property in root.EnumerateObject())
+        {
+            if (!property.NameEquals("usage") || property.Value.ValueKind != JsonValueKind.Object) continue;
+            foreach (JsonProperty count in property.Value.EnumerateObject())
+            {
+                if (count.Value.ValueKind != JsonValueKind.Number) continue;
+                long bound = count.NameEquals("input_tokens") ? approvedInputTokens
+                    : count.NameEquals("output_tokens") ? approvedOutputTokens
+                    : count.NameEquals("total_tokens") ? approvedInputTokens + approvedOutputTokens
+                    : -1;
+                if (bound < 0) continue;
+                // A count too large for a long or a double, or one with a fraction above the bound, is above it too.
+                if (count.Value.TryGetInt64(out long whole) ? whole > bound : !count.Value.TryGetDouble(out double approximate) || approximate > bound) return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>

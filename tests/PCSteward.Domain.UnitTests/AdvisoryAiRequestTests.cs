@@ -62,6 +62,20 @@ public sealed class AdvisoryAiRequestTests
     }
 
     [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void TheFewestInputTokensAreTheApprovedTextsBytesOverTheLongestToken()
+    {
+        // Codex review of bf637b5, 71C-02: the reader's input floor is the instructions and input sent, in UTF-8 bytes, divided by
+        // the longest token the profile allows, rounded up.
+        AdvisoryAiRequestPreview preview = Preview(Draft());
+        long bytes = Encoding.UTF8.GetByteCount(AdvisoryAiInstructions.Text) + Encoding.UTF8.GetByteCount(preview.InputText);
+        long expected = (bytes + Profile.MaximumTokenUtf8Bytes - 1) / Profile.MaximumTokenUtf8Bytes;
+        Assert.AreEqual(expected, AdvisoryAiResponseReader.MinimumInputTokens(preview));
+        Assert.IsTrue(expected > 1);
+        Assert.IsTrue(expected <= preview.InputTokenUpperBound);
+    }
+
+    [TestMethod]
     [TestCategory("FR-AI-02")]
     public void TheDiagnosticDraftTakesTheIncidentCoverageNearbyChangesThenOtherNearbyRecordsInTimelineOrder()
     {
