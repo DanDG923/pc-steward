@@ -316,6 +316,9 @@ public static class DiagnosticTextSanitizer
     /// <summary>The most times one text's double-quoted paths are matched again before the rest of a line is removed with its path.</summary>
     private const int MaximumQuoteRecoveries = 16;
 
+    /// <summary>The most values cut from one run of joined links before the rest of the run is removed as one link.</summary>
+    private const int MaximumJoinedValues = 16;
+
     /// <summary>
     /// Codex review of bf637b5, 71C-03: replaces each file link (or, with <paramref name="pattern"/> set to <see cref="Link"/>, each
     /// other link) with the link placeholder. A link's last part runs to whitespace, so it could take the head of a second path or
@@ -329,8 +332,15 @@ public static class DiagnosticTextSanitizer
         StringBuilder result = new(value.Length);
         int position = 0;
         bool endedAtAnother = false;
+        // Codex review of #151: each value cut from a link is matched again on its own, and that match runs to the end of the
+        // joined run, so a long run of joined links (https://a/x,https://a/x,…) cost the square of its length. After
+        // MaximumJoinedValues cuts in one run, the rest of the run is removed as one link, as it was before the cuts.
+        int joined = 0;
+        int runEnd = 0;
         while (match.Success)
         {
+            if (match.Index >= runEnd) joined = 0;
+            runEnd = Math.Max(runEnd, match.Index + match.Length);
             // A link cut short where a scheme glued to it began (…#tagfile:///C:/…) leaves that scheme's letters before the next
             // match, which starts at "file:"; they belong to the link that follows and go with it.
             if (endedAtAnother && match.Index > position && IsSchemeText(value.AsSpan(position, match.Index - position))) position = match.Index;
@@ -353,9 +363,9 @@ public static class DiagnosticTextSanitizer
                 }
             }
             int tail = last.Success ? last.Index : match.Index + match.Value.IndexOf("://", StringComparison.Ordinal) + 3;
-            for (int index = Math.Max(tail, match.Index + 1); index < end; index++)
+            for (int index = Math.Max(tail, match.Index + 1); joined < MaximumJoinedValues && index < end; index++)
             {
-                if (JoinsTwoValues(value[index - 1]) && StartsAJoinedPathOrLink(value, index)) { end = index; endedAtAnother = true; break; }
+                if (JoinsTwoValues(value[index - 1]) && StartsAJoinedPathOrLink(value, index)) { end = index; endedAtAnother = true; joined++; break; }
             }
             result.Append(value, position, match.Index - position).Append(LinkPlaceholder);
             position = end;

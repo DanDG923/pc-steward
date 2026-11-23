@@ -824,6 +824,24 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
+    [DataRow("https://example.invalid/Violet/x")]
+    [DataRow("file:///C:/Shared/Violet/Notes.txt")]
+    [DataRow("file:///C:/a.txt+C:\\Violet\\b.txt")]
+    public void ALongRunOfJoinedLinksIsRemovedWholeWithABoundedNumberOfCuts(string link)
+    {
+        // Codex review of #151: each value cut from a joined run was matched again to the run's end, so a long run cost the square
+        // of its length. After 16 cuts the rest of the run goes as one link, and nothing of any link in it is left.
+        string text = "Links " + string.Join(",", Enumerable.Repeat(link, 3000)) + " done";
+        string clean = AdvisoryAiRedaction.SanitizeAnswer(text, 200_000).Value ?? string.Empty;
+        Assert.DoesNotContain("Violet", clean);
+        Assert.DoesNotContain("Notes", clean);
+        StringAssert.StartsWith(clean, "Links [link]");
+        StringAssert.EndsWith(clean, " done");
+        Assert.IsLessThan(200, clean.Length);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
     public void AQuotedPathsRemovalLeavesALaterAccountNameToBeRemoved()
     {
         // Independent review of 1e57444, R1: with O'Brien as the PC's account name, the quoted path's removal took "CORP\O'". With
