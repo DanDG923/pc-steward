@@ -585,7 +585,10 @@ public static class DiagnosticTextSanitizer
             // A file link takes any quote right before it, as since #151; another link only a quote that can open a value.
             if (match.Index > 0 && (value[match.Index - 1] == '"' && (last.Success || OpensAQuote(value, match.Index - 1)) || QuotedWordStart(value, match.Index)))
             {
-                int closing = value.AsSpan(match.Index, LineEnd(value, match.Index) - match.Index).IndexOf('"');
+                // The close and the line's end are looked for together, so a long line of quoted links is read once (Codex review
+                // of #152).
+                int closing = value.AsSpan(match.Index).IndexOfAny('"', '\r', '\n');
+                if (closing >= 0 && value[match.Index + closing] != '"') closing = -1;
                 // For any other link the quote only ever extends the match: a close inside the match's own word
                 // ("https://ex"ample.org/…) leaves the word to the join rule below, as before. A file link ends at its close, as
                 // since #151, and the next value is matched on its own; independent review of be08c02, X1: after

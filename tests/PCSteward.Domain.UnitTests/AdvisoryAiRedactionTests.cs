@@ -882,15 +882,18 @@ public sealed class AdvisoryAiRedactionTests
     [DataRow("\u201EC:\\a\u201D ")]
     [DataRow("\u201CC:\\a\u201D ")]
     [DataRow("\u201CC:\\a\u201C ")]
+    [DataRow("\"https://a/x y\" ")]
     public void ManyQuotedValuesWithAnAbsentOtherCloseAreCleanedInLinearTime(string value)
     {
         // Codex review of #152: each well-formed value searched the whole rest of the line for the close it didn't use, so a long
-        // answer line cost the square of its length. Each close is now looked for once until it is passed.
-        string line = string.Concat(Enumerable.Repeat(value, 32_768));
+        // answer line cost the square of its length, as did the line's end for each quoted web link. Each close is now looked for
+        // once until it is passed, and a link's close and its line's end are looked for together.
+        string line = string.Concat(Enumerable.Repeat(value, 393_216 / value.Length));
         System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
         string clean = AdvisoryAiRedaction.SanitizeAnswer(line, 400_000).Value ?? string.Empty;
         Assert.IsLessThan(TimeSpan.FromSeconds(10), watch.Elapsed);
         Assert.DoesNotContain("C:\\", clean);
+        Assert.DoesNotContain("://", clean);
     }
 
     private static void AssertCleanedEverywhere(string text, string expected)
