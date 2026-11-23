@@ -846,6 +846,8 @@ public sealed class AdvisoryAiRedactionTests
     [DataRow("Open (C:\\Program Files (x86)\\My Violet Folder\\Quarterly Amber Notes.txt) failed", "Open ([path]) failed")]
     [DataRow("See [the log](C:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt) for details", "See [the log]([path]) for details")]
     [DataRow("Open {C:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt} failed", "Open {[path]} failed")]
+    [DataRow("Open ( C:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt ) failed", "Open ( [path]) failed")]
+    [DataRow("Open [ C:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt ] failed", "Open [ [path]] failed")]
     [DataRow("Open <https://example.invalid/My Violet Folder/Quarterly Amber Notes.txt> failed", "Open <[link]> failed")]
     [DataRow("Open &quot;C:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt&quot; failed", "Open &quot;[path]&quot; failed")]
     [DataRow("| C:\\Users\\Pat\\My Violet Folder\\Quarterly Amber Notes.txt | failed |", "| [path]| failed |")]

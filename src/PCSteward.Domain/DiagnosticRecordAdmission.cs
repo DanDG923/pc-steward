@@ -336,7 +336,7 @@ public static class DiagnosticTextSanitizer
                         bracketMatch = null;
                     }
                     if (noCloseBefore[kind] > index) break;
-                    (int end, int closeLength) = Close(delimiter, start);
+                    (int end, int closeLength) = Close(delimiter, index, start);
                     if (end < 0)
                     {
                         // Only a first-close delimiter with no close at all: a later opener of nested brackets may still be matched.
@@ -362,14 +362,15 @@ public static class DiagnosticTextSanitizer
         /// Where the removal ends (the close, which is kept, or the line's end) and how long the close is; -1 when there is no close on
         /// the line, -2 when the first close is refused.
         /// </summary>
-        private (int End, int CloseLength) Close(Delimiter delimiter, int start)
+        private (int End, int CloseLength) Close(Delimiter delimiter, int opener, int start)
         {
             ReadOnlySpan<char> line = value.AsSpan(start, lineEnd - start);
             switch (delimiter.Pairing)
             {
                 case DelimiterPairing.Nested:
                     bracketMatch ??= MatchBrackets();
-                    int match = bracketMatch[start - 1 - lineStart];
+                    // The opener's own index: a space may stand between it and the value (Codex review of #152).
+                    int match = bracketMatch[opener - lineStart];
                     return match < 0 ? (-1, 0) : (lineStart + match, 1);
                 case DelimiterPairing.First:
                 {
