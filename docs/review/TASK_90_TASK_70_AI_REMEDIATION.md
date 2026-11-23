@@ -321,6 +321,8 @@ The owner's Codex review of the tenth retest build (commit `bf637b5`; run 450705
 
 The fixes were checked against the independent reviewer's random-text probes, in the cloud, on the tenth build and on this change. Well-formed text (Well8, Well9 and Well10, every setting including compact and rich joins, three seeds each, 20,000 lines a run) leaves no private word, and the same holds at every cut of 1,180 such lines (about 470,000 cuts). On mixed text with broken and glued pieces (Diff7, five seeds of 20,000 lines), this change hides a private word the tenth build showed in about 1,550 lines per seed and shows one it hid in 0 to 20; those are broken or glued shapes, mostly an unquoted file link with a space in its file name that the tenth build happened to swallow along with later text (the same limit an unquoted drive path has).
 
+The pull request's own Codex review found that each value cut from a run of joined links was matched again to the run's end, so a long run (`https://a/x,https://a/x,…`) cost the square of its length. After 16 cuts in one run, the rest of the run is now removed as one link, as the tenth build removed it (`ALongRunOfJoinedLinksIsRemovedWholeWithABoundedNumberOfCuts`).
+
 Carried over, unchanged: F2 and F5 (§14, §19), R4 to R6 and the §19 R5 limit, S3 to S6 (§20), T3 (§21), and 71C-05 and 71C-07 here. T2 and U1 (§21) are closed by 71C-04's rule.
 
 The schema stays at 17.
