@@ -349,7 +349,8 @@ public static class DiagnosticTextSanitizer
                         if (end == -1 && delimiter.Pairing == DelimiterPairing.First) noCloseBefore[kind] = lineEnd;
                         break;
                     }
-                    found = new(index, start, end, end + closeLength);
+                    // A table bar that closes one cell opens the next (independent look at #152, P2: | C:\a b | C:\c d |).
+                    found = new(index, start, end, delimiter.Open == "|" ? end : end + closeLength);
                     return true;
                 }
             }
@@ -524,11 +525,15 @@ public static class DiagnosticTextSanitizer
 
     /// <summary>
     /// Whether the double quote at <paramref name="quote"/> can open a quoted value: it starts the text or follows whitespace or a
-    /// mark that comes before a value (=, a bracket, a comma, a semicolon or a colon). A quote right after other text (the close of
-    /// "[path]" before a glued link) closes something instead.
+    /// mark that comes before a value (=, a bracket, a tag's close, a comma, a semicolon or a colon). An escaped (\") or doubled ("")
+    /// quote is judged by what comes before it (independent look at #152, P3: {\"url\":\"https://…\"}). A quote right after other
+    /// text (the close of "[path]" before a glued link) closes something instead.
     /// </summary>
-    private static bool OpensAQuote(string value, int quote) =>
-        quote == 0 || char.IsWhiteSpace(value[quote - 1]) || value[quote - 1] is '=' or '(' or '[' or '{' or ',' or ';' or ':';
+    private static bool OpensAQuote(string value, int quote)
+    {
+        if (quote > 0 && value[quote - 1] is '\\' or '"') quote--;
+        return quote == 0 || char.IsWhiteSpace(value[quote - 1]) || value[quote - 1] is '=' or '(' or '[' or '{' or '>' or ',' or ';' or ':';
+    }
 
     /// <summary>Whether the word holding <paramref name="index"/> starts with a double quote, looking back at most 256 characters.</summary>
     private static bool QuotedWordStart(string value, int index)
