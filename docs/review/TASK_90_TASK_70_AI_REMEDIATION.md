@@ -346,7 +346,7 @@ The independent review of the eleventh retest build (commit `be08c02`; run 45176
 
 - *Removed whole, at any cut.* A drive, network or variable path, a file link and a web link, written:
   - unquoted with no space in its last part;
-  - with its opener directly before it and its close on the same line, where the opener is: a single quote; a double quote at the start, after whitespace, `=`, a bracket, `>`, a comma, a semicolon or a colon, or escaped (`\"`) or doubled (`""`) there (a file link takes any double quote); a backtick, typographic quotes, guillemets, a bracket `(`, `[`, `{` or `<` (paired with nested brackets on its line), `&quot;`, `&#34;`, `&apos;`, `&#39;` or a table bar. One space may stand after any opener but a straight quote.
+  - with its opener directly before it and its close on the same line, where the opener is: a single quote; a double quote at the start or after anything but a letter or number (§24), or escaped (`\"`) or doubled (`""`) there (a file link takes any double quote); a backtick, typographic quotes, guillemets, a bracket `(`, `[`, `{` or `<` (paired with nested brackets on its line), `&quot;`, `&#34;`, `&apos;`, `&#39;` or a table bar. One space may stand after any opener but a straight quote.
 
   This covers apostrophes and letters outside the Basic Multilingual Plane in names, both slash directions, and joined values (`a.txt,file:///…`). Also removed: SIDs, e-mail addresses, and the PC's account and machine names.
 - *Removed with more than the value.* A single-quoted path or link that doesn't close cleanly, or after whose close its line holds a backslash, a slash or another apostrophe, takes the rest of its line (in evidence and the timeline, the rest of the item); so does one in a typographic single quote or `&apos;`. After 16 joined values in one run, the rest of the run goes as one link.
@@ -358,7 +358,7 @@ The independent review of the eleventh retest build (commit `be08c02`; run 45176
   - A name that holds its delimiter's own closing mark (`(C:\…\Photos 1) Violet\…)`, `“…\17” Screen\…”`) ends the removal at that mark, and the rest is read as unquoted text. The independent reviewer's pre-merge look at this change tried two ways to run on past it; both showed more on well-formed lines.
   - A quote glued to the end of a word (`-url"https://…"`) is read as a close, not an opener, so a web link after it is read as unquoted.
   - In quality: a single-quoted web link followed on its line by a slash or an apostrophe takes the rest of the line, as a single-quoted path does (`{'url': 'https://…', 'error': 'timeout'}` keeps only `{'url': '[link]'`) (N2). An escaped closing quote loses its backslash (`{\"url\":\"[link]"}`).
-  - Broken or glued text (a stray quote inside a value, a close glued to the next value) may keep part of a name. Against the eleventh build, on seven seeds of 20,000 mixed lines, this change newly shows a word in 0 or 1 line a seed and newly hides one in about 55 to 90.
+  - Broken or glued text (a stray quote inside a value, a close glued to the next value, a close inside a path that goes on past it, as in `|file:///C:/|Users/…`) may keep part of a name. Against the eleventh build, on seven seeds of 20,000 mixed lines, this change newly shows a word in 0 or 1 line a seed and newly hides one in about 55 to 90.
 
 The independent reviewer also looked at this change before it merged; from that look, a web link after an escaped, doubled or tag-closed quote, and every cell of a table row, are now removed whole (P2, P3), and a space after a bracket opener is honoured (P4, also from the pull request's own review). P1 and N2 are the limits listed above.
 
@@ -371,3 +371,23 @@ The fixes were checked in the cloud:
 Carried over, unchanged: F2 and F5 (§14, §19), R4 to R6 and the §19 R5 limit, S4 to S6 (§20), T3 (§21), 71C-05 and 71C-07 (§22), and W2, V3 and N1 here. The join rule (§22) closes S3.
 
 The schema stays at 17.
+
+## 24. Task 71C independent review of the twelfth retest build at `d16ab4c`, early finding, and fixes
+
+The independent review of the twelfth retest build (commit `d16ab4c`; run 45189615645, artifact SHA-256 `9dbc2a9d…f6ce`) sent one blocking finding early, while the rest of the review ran; the build's pins, run, artifact and all five pins in the key-step paste checked out. The owner's review of this build was held. The report is not in the repository.
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **Y1 (Medium, privacy; what §23 left of V2).** A web or ftp link ending in a slash inside a first-close delimiter (`“https://host/sites/Team Violet Site/”`, guillemets, low-high quotes, `&quot;`, `&#34;`, a backtick, bars with no spaces) kept the words after its first space: §23 read any close right after a slash as part of a path that goes on, and left the value to the unquoted patterns. On the reviewer's generator of folder values, 2,093 of 20,000 lines kept a word. | Such a close is read as part of a path only when the word right after it holds a slash or backslash before any space or another close (`|file:///C:/|Users/…`); otherwise it ends the value. That broken shape is listed under broken or glued text. | `AFolderLinkEndingInASlashInsideADelimiterIsRemovedToItsClose` (one row per first-close delimiter) |
+| **Quote openers (found with Y1).** A web link with a space after a double quote following `+`, `<`, `!` or another value's closing quote kept the words after the space. | A double quote opens a link unless a letter or number comes right before it (`-url"…` stays a close, as for T1). | `AQuotedWebLinkWithASpaceIsRemovedToItsClose` (three new rows) |
+
+§23's promise list is amended to match: the opener rule above, and the broken shape under its limits.
+
+The fixes were checked in the cloud:
+- the reviewer's folder generator (Delim13, dirs, plain and hard, 20,000 lines each) and Delim12: no word left outside the marked hard lines; the reviewer's hand lines (lines12-2): only a link's own label text is kept;
+- well-formed random text (Well8, Well9 and Well10, four settings, two seeds of 20,000 lines): no private word left;
+- against the eleventh build, seven seeds of 20,000 mixed lines: the same three lines newly show a word as for §23 (the unquoted tail of a file link), and 58 to 91 newly hide one; the opener change alone newly hides 2 to 6 a seed and shows none;
+- the reviewer's timing shapes: the slowest is under half a second on one 393,216-character answer line.
+
+The schema stays at 17.
+

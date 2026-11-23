@@ -387,10 +387,12 @@ public static class DiagnosticTextSanitizer
                         int at = NextClose(close, start);
                         if (at >= 0 && (best < 0 || at < best)) { best = at; length = close.Length; }
                     }
-                    // A close right after a slash or backslash is read as part of a path that goes on (|file:///C:/|Users/…), so the
-                    // value is left to the unquoted patterns.
+                    // A close right after a slash or backslash, glued to more path after it (|file:///C:/|Users/…), is read as part of
+                    // a path that goes on, so the value is left to the unquoted patterns. Independent review of d16ab4c, Y1: any other
+                    // close after a slash ends the value (“https://host/Team Violet Site/” failed, |https://host/My Folder/|failed|),
+                    // as a folder link is written.
                     if (best < 0) return (-1, 0);
-                    return best > 0 && line[best - 1] is '\\' or '/' ? (-2, 0) : (start + best, length);
+                    return best > 0 && line[best - 1] is '\\' or '/' && PathGoesOn(line[(best + length)..], delimiter) ? (-2, 0) : (start + best, length);
                 }
                 default:
                 {
@@ -413,6 +415,23 @@ public static class DiagnosticTextSanitizer
                     return (lineEnd, 0);
                 }
             }
+        }
+
+        /// <summary>
+        /// Whether the word right after a close holds a slash or backslash before whitespace or another close of the same delimiter, so
+        /// the close sits inside a path that goes on.
+        /// </summary>
+        private static bool PathGoesOn(ReadOnlySpan<char> rest, Delimiter delimiter)
+        {
+            for (int offset = 0; offset < rest.Length; offset++)
+            {
+                char mark = rest[offset];
+                if (char.IsWhiteSpace(mark)) return false;
+                if (mark is '\\' or '/') return offset > 0;
+                foreach (string close in delimiter.Close)
+                    if (rest[offset..].StartsWith(close, StringComparison.Ordinal)) return false;
+            }
+            return false;
         }
 
         /// <summary>The line offset from <paramref name="start"/> of the first <paramref name="close"/> on the current line, or -1.</summary>
@@ -524,15 +543,15 @@ public static class DiagnosticTextSanitizer
     private const int MaximumQuoteRecoveries = 16;
 
     /// <summary>
-    /// Whether the double quote at <paramref name="quote"/> can open a quoted value: it starts the text or follows whitespace or a
-    /// mark that comes before a value (=, a bracket, a tag's close, a comma, a semicolon or a colon). An escaped (\") or doubled ("")
-    /// quote is judged by what comes before it (independent look at #152, P3: {\"url\":\"https://…\"}). A quote right after other
-    /// text (the close of "[path]" before a glued link) closes something instead.
+    /// Whether the double quote at <paramref name="quote"/> can open a quoted value: it starts the text or follows anything but a
+    /// letter or number (independent review of d16ab4c: a quote after +, &lt;, ! or another value's closing quote opens a link too). An
+    /// escaped (\") or doubled ("") quote is judged by what comes before it (independent look at #152, P3: {\"url\":\"https://…\"}).
+    /// A quote glued to the end of a word (-url"…, T1's exception) closes something instead.
     /// </summary>
     private static bool OpensAQuote(string value, int quote)
     {
         if (quote > 0 && value[quote - 1] is '\\' or '"') quote--;
-        return quote == 0 || char.IsWhiteSpace(value[quote - 1]) || value[quote - 1] is '=' or '(' or '[' or '{' or '>' or ',' or ';' or ':';
+        return quote == 0 || !IsLetterOrNumber(value[quote - 1]);
     }
 
     /// <summary>Whether the word holding <paramref name="index"/> starts with a double quote, looking back at most 256 characters.</summary>

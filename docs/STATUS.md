@@ -1,3 +1,9 @@
+**Advisory AI, independent review of the twelfth Task 71C retest build: early finding fixed (2026-11-23; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-DIA-03` ([Task 90 record §24](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `d16ab4c`.** One Medium finding sent early: a web link to a folder (ending in a slash) inside quotes, guillemets or similar kept the words after its first space. The owner's review of this build was held.
+- **Fixed.** Such a link is removed to its close, and a double quote after anything but a letter or number opens a quoted link. The promise list in §23 is amended to match.
+- **Next.** A new retest build from `phase/4-beta`, reviewed by both reviewers, then the owner's separate approvals for the key step and the one send.
+
 **Advisory AI, independent review of the eleventh Task 71C retest build failed; fixes (2026-11-23; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-BUD-03`, `FR-DIA-03` ([Task 90 record §23](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `be08c02`.** Three Medium findings, all on every build since the first retest: a quoted web link with a space kept the words after it; a path or link inside a backtick, typographic quotes, guillemets, brackets or an escaped quote did too; and a response wrapped one level down hid usage above the approval. Four Low. The owner's review of this build was held. The report is not in the repository.
