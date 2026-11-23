@@ -646,6 +646,81 @@ public sealed class AdvisoryAiResponseTests
 
     [TestMethod]
     [TestCategory("FR-BUD-03")]
+    [DataRow("store", 60_982, DisplayName = "stored: the reported charge is kept in full")]
+    [DataRow("tools", 60_982, DisplayName = "tools: the reported charge is kept in full")]
+    [DataRow("status", 60_982, DisplayName = "unknown status: the reported charge is kept in full")]
+    [DataRow("model", 45_056, DisplayName = "another model: the reservation is kept")]
+    [DataRow("id", 45_056, DisplayName = "no id: the reservation is kept")]
+    public void ARefusedBodyReportingUsageAboveTheBoundsStillStopsPaidRequests(string change, long committed)
+    {
+        // Codex review of bf637b5, 71C-01: a body refused early (stored, with tools, another model) used to drop its usage, so a
+        // reported 6,000 output tokens on a 2,048-token approval was kept only as the reservation, with no pause.
+        string over = "\"usage\":{\"input_tokens\":491,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":6000,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":6491}";
+        string body = Body(output: "[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\",\"annotations\":[]}]}]", usage: over);
+        body = change switch
+        {
+            "model" => body.Replace(Model, "other-model", StringComparison.Ordinal),
+            "id" => body.Replace("\"resp_abc123\"", "\"\"", StringComparison.Ordinal),
+            "store" => body.Replace("\"store\":false", "\"store\":true", StringComparison.Ordinal),
+            "tools" => body.Replace("\"tools\":[]", "\"tools\":[{}]", StringComparison.Ordinal),
+            _ => body.Replace("\"status\":\"completed\"", "\"status\":\"queued\"", StringComparison.Ordinal)
+        };
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.AreEqual(AdvisoryAiAnswerStatus.Malformed, response.Status);
+        Assert.IsNull(response.Text);
+        Assert.IsFalse(response.UsageReliable);
+        Assert.IsTrue(response.UsageAboveApprovedBounds);
+        AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+        Assert.AreEqual(AdvisoryAiRequestState.Uncertain, settlement.State);
+        Assert.AreEqual(committed, settlement.Committed.Value);
+        Assert.IsTrue(settlement.NeedsReview);
+
+        // Within the bounds, a refused body still only keeps the reservation, without a pause.
+        string within = body.Replace("6000", "300", StringComparison.Ordinal).Replace("6491", "791", StringComparison.Ordinal);
+        AdvisoryAiResponse refused = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(within), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.IsFalse(refused.UsageAboveApprovedBounds);
+        AdvisoryAiSettlement kept = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, refused, new(45_056), ReviewTariff);
+        Assert.AreEqual(45_056, kept.Committed.Value);
+        Assert.IsFalse(kept.NeedsReview);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("\"input_tokens\":12289", DisplayName = "input above the approval")]
+    [DataRow("\"total_tokens\":99999", DisplayName = "total above the approval")]
+    [DataRow("\"output_tokens\":1e400", DisplayName = "a count too large for a double")]
+    [DataRow("\"output_tokens\":2048.5", DisplayName = "a fraction above the approval")]
+    public void AnyCountAboveTheApprovalStopsPaidRequestsEvenWhenTheUsageIsNotTrusted(string count)
+    {
+        // Codex review of bf637b5, 71C-01: each count is read on its own, so one the usage reader can't trust still pauses.
+        string usage = "\"usage\":{\"input_tokens\":491,\"output_tokens\":300,\"total_tokens\":791," + count + "}";
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(Body(usage: usage)), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.IsFalse(response.UsageReliable);
+        Assert.IsTrue(response.UsageAboveApprovedBounds);
+        Assert.IsTrue(AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff).NeedsReview);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void AnAnswerReportingFewerInputTokensThanItsTextCanBeIsNotSettled()
+    {
+        // Codex review of bf637b5, 71C-02: one input token for hundreds of bytes of approved text settled at almost nothing.
+        string one = "\"usage\":{\"input_tokens\":1,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":1,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":2}";
+        AdvisoryAiResponse answer = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(Body(usage: one)), Model, 1_000_000, 8192, 1024, "default", noPromptCache: true, minimumInputTokens: 6);
+        Assert.AreEqual(AdvisoryAiAnswerStatus.Completed, answer.Status);
+        Assert.IsFalse(answer.UsageReliable);
+        Assert.IsFalse(answer.UsageAboveApprovedBounds);
+        AdvisoryAiSettlement kept = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, answer, new(45_056), ReviewTariff);
+        Assert.AreEqual(AdvisoryAiRequestState.Uncertain, kept.State);
+        Assert.AreEqual(45_056, kept.Committed.Value);
+
+        string six = one.Replace("\"input_tokens\":1,", "\"input_tokens\":6,", StringComparison.Ordinal).Replace("\"total_tokens\":2", "\"total_tokens\":7", StringComparison.Ordinal);
+        Assert.IsTrue(AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(Body(usage: six)), Model, 1_000_000, 8192, 1024, "default", noPromptCache: true, minimumInputTokens: 6).UsageReliable,
+            "exactly at the floor");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
     public void AnAnswerReportingNoInputCanNotSettleForNothing()
     {
         // Independent review F2: an answer always has input, so zero usage keeps the reservation (without a pause).

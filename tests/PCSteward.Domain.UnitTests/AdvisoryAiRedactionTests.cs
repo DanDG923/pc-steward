@@ -592,29 +592,36 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
-    [DataRow("Saved 'C:\\Music\\Guns N' Roses\\Tax Return 2026.mp3' today", DisplayName = "an apostrophe followed by a space")]
-    [DataRow("Saved 'C:\\Users\\Parents' House\\Tax Return 2026.mp3' today", DisplayName = "a folder name ending in an apostrophe")]
-    [DataRow("Saved 'C:\\Users\\O''Brien\\Tax Return 2026.mp3' today", DisplayName = "a doubled apostrophe (PowerShell)")]
-    public void ASingleQuotedPathWithAnyApostropheInAFolderNameIsRemovedWhole(string text)
+    [DataRow("Saved 'C:\\Music\\Guns N' Roses\\Tax Return 2026.mp3' today", "Saved '[path]'", DisplayName = "an apostrophe followed by a space")]
+    [DataRow("Saved 'C:\\Users\\Parents' House\\Tax Return 2026.mp3' today", "Saved '[path]'", DisplayName = "a folder name ending in an apostrophe")]
+    [DataRow("Saved 'C:/Music/Guns N' Roses/Tax Return 2026.mp3' today", "Saved '[path]'", DisplayName = "forward slashes (Codex review of bf637b5, 71C-04)")]
+    [DataRow("Saved 'C:\\Music\\Guns N' Roses Tax Return 2026.mp3' today", "Saved '[path]'", DisplayName = "an apostrophe in the file name")]
+    [DataRow("Saved 'C:\\Temp\\Quarterly O'\U00010400Tax Return 2026.mp3' today", "Saved '[path]' today", DisplayName = "a letter outside the Basic Multilingual Plane after the apostrophe (71C-04)")]
+    [DataRow("Saved 'C:\\Users\\O''Brien\\Tax Return 2026.mp3' today", "Saved '[path]' today", DisplayName = "a doubled apostrophe (PowerShell)")]
+    public void ASingleQuotedPathWithAnyApostropheInAFolderNameIsRemovedWhole(string text, string expected)
     {
         // Independent review of 4d2e238, Q6: the path ended at an apostrophe followed by a space or another apostrophe, and the rest
-        // of it was left visible with no cut involved. The text up to the next apostrophe is the rest of the path when it holds a
-        // backslash, and a doubled apostrophe carries the path on.
+        // of it was left visible with no cut involved. Codex review of bf637b5, 71C-04, and the independent review's U1: each rule
+        // that guessed which later apostrophe closed the path left part of a name in some shape, so the rest of the line now goes
+        // whenever a backslash, a slash or another apostrophe follows; a doubled apostrophe carries the path on.
         foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000).Value, DiagnosticTextSanitizer.Sanitize(text, 4096).Value])
         {
-            Assert.AreEqual("Saved '[path]' today", clean);
+            Assert.AreEqual(expected, clean);
         }
-        AssertNoCutShows(text, text.IndexOf("Tax", StringComparison.Ordinal), text.IndexOf(".mp3", StringComparison.Ordinal), ["Tax", "Return", "Roses", "House", "Brien"]);
+        AssertNoCutShows(text, text.IndexOf("Tax", StringComparison.Ordinal), text.IndexOf(".mp3", StringComparison.Ordinal), ["Tax", "Return", "Roses", "House", "Brien", "Quarterly"]);
     }
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
-    public void TwoSingleQuotedPathsOnALineStaySeparate()
+    [DataRow("Copied 'C:\\a\\b.txt' to 'D:\\c\\d.txt' fine", "Copied '[path]'", DisplayName = "another quoted path follows")]
+    [DataRow("Copied 'C:\\a\\b.txt' to bin/x64 fine", "Copied '[path]'", DisplayName = "a slash follows")]
+    [DataRow("Copied 'C:\\a\\b.txt' but couldn't finish", "Copied '[path]'", DisplayName = "an apostrophe follows")]
+    [DataRow("Copied 'C:\\a\\b.txt' to the share fine. Next step done.", "Copied '[path]' to the share fine. Next step done.", DisplayName = "nothing like a path or quote follows")]
+    public void ASingleQuotedPathTakesTheRestOfItsLineWhenASeparatorOrQuoteFollows(string text, string expected)
     {
-        // The rest of a path is taken only when it holds a backslash, so the words between two quoted paths are kept.
-        const string text = "Copied 'C:\\a\\b.txt' to 'D:\\c\\d.txt' fine";
-        Assert.AreEqual("Copied '[path]' to '[path]' fine", DiagnosticTextSanitizer.Sanitize(text, 4096).Value);
-        Assert.AreEqual("Copied '[path]' to '[path]' fine", AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value);
+        // Codex review of bf637b5, 71C-04, and the independent review's U1: the owner's plain rule in place of guessing the close.
+        Assert.AreEqual(expected, DiagnosticTextSanitizer.Sanitize(text, 4096).Value);
+        Assert.AreEqual(expected, AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value);
     }
 
     [TestMethod]
@@ -683,16 +690,16 @@ public sealed class AdvisoryAiRedactionTests
     }
     [TestMethod]
     [TestCategory("FR-AI-05")]
-    [DataRow("Copy-Item : Cannot find path 'C:\\Temp\\setup.log' because it does not exist. At C:\\Users\\O'Brien\\Documents\\Scripts\\backup.ps1:12 char:1", "Copy-Item : Cannot find path '[path]' because it does not exist. At [path]:12 char:1", DisplayName = "a later path under a folder with an apostrophe")]
-    [DataRow("Copied 'C:\\Temp\\setup.log' to C:\\Users\\Pat\\Documents\\Mum's Papers\\Hartwell-Trust-Dispute.pdf", "Copied '[path]' to [path]", DisplayName = "a later path with a possessive folder")]
-    [DataRow("Compared 'C:\\Temp\\a.txt' (from \\\\nas\\backup) with 'C:\\Users\\Pat\\Documents\\Mum's will.pdf'", "Compared '[path]' (from [path] with '[path]'", DisplayName = "a network path between two quoted paths")]
-    [DataRow("Installer 'C:\\Temp\\setup.exe' wrote C:\\Temp\\setup.log, then fetched https://files.example.org/o'brien/Hartwell-Trust/setup.msi?code=4/0AbCdEf", "Installer '[path]' wrote [path] then fetched [link]", DisplayName = "a later link with an apostrophe")]
-    [DataRow("Opened 'C:\\Temp\\a.txt' and C:\\Logs\\b.log then file:///C:/Users/Pat/Mum's Papers/Hartwell-Trust.pdf", "Opened '[path]' and [path] then [link]", DisplayName = "a later file link with a possessive folder")]
-    [DataRow("Faulting application path: 'C:\\Program Files\\App\\app.exe' Faulting module path: C:\\Users\\O'Brien\\AppData\\Local\\Temp\\mod.dll", "Faulting application path: '[path]' Faulting module path: [path]", DisplayName = "an event's module path under a folder with an apostrophe")]
+    [DataRow("Copy-Item : Cannot find path 'C:\\Temp\\setup.log' because it does not exist. At C:\\Users\\O'Brien\\Documents\\Scripts\\backup.ps1:12 char:1", "Copy-Item : Cannot find path '[path]'", DisplayName = "a later path under a folder with an apostrophe")]
+    [DataRow("Copied 'C:\\Temp\\setup.log' to C:\\Users\\Pat\\Documents\\Mum's Papers\\Hartwell-Trust-Dispute.pdf", "Copied '[path]'", DisplayName = "a later path with a possessive folder")]
+    [DataRow("Compared 'C:\\Temp\\a.txt' (from \\\\nas\\backup) with 'C:\\Users\\Pat\\Documents\\Mum's will.pdf'", "Compared '[path]'", DisplayName = "a network path between two quoted paths")]
+    [DataRow("Installer 'C:\\Temp\\setup.exe' wrote C:\\Temp\\setup.log, then fetched https://files.example.org/o'brien/Hartwell-Trust/setup.msi?code=4/0AbCdEf", "Installer '[path]'", DisplayName = "a later link with an apostrophe")]
+    [DataRow("Opened 'C:\\Temp\\a.txt' and C:\\Logs\\b.log then file:///C:/Users/Pat/Mum's Papers/Hartwell-Trust.pdf", "Opened '[path]'", DisplayName = "a later file link with a possessive folder")]
+    [DataRow("Faulting application path: 'C:\\Program Files\\App\\app.exe' Faulting module path: C:\\Users\\O'Brien\\AppData\\Local\\Temp\\mod.dll", "Faulting application path: '[path]'", DisplayName = "an event's module path under a folder with an apostrophe")]
     [DataRow("Log 'C:\\Temp\\x.log shows https://example.org/a?q='x'&code=4/0AbCdEf", "Log '[path]'", DisplayName = "an unclosed quote, then a link holding a quoted value")]
     [DataRow("Log \"C:\\Temp\\x.log shows https://example.org/pa\"th/Hartwell-Trust", "Log \"[path]\"", DisplayName = "an unclosed double quote, then a link holding a double quote")]
-    [DataRow("Opened 'C:\\Users\\O'Brien\\Documents\\x.pdf (access denied)", "Opened '[path] (access denied)", DisplayName = "an unclosed quote around a path with an apostrophe")]
-    [DataRow("Copied 'C:\\Temp\\a.txt' to C:\\Music\\Guns N' Roses\\Hartwell.mp3", "Copied '[path]' to [path]", DisplayName = "a later unquoted path with an apostrophe before a space")]
+    [DataRow("Opened 'C:\\Users\\O'Brien\\Documents\\x.pdf (access denied)", "Opened '[path]'", DisplayName = "an unclosed quote around a path with an apostrophe")]
+    [DataRow("Copied 'C:\\Temp\\a.txt' to C:\\Music\\Guns N' Roses\\Hartwell.mp3", "Copied '[path]'", DisplayName = "a later unquoted path with an apostrophe before a space")]
     public void AQuotedPathsRemovalLeavesNoPartOfALaterPathOrLink(string text, string expected)
     {
         // Independent review of 1e57444, R1: the removal of a single-quoted path ran on to the next apostrophe whenever a backslash
@@ -706,16 +713,16 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
-    [DataRow("Cannot find path 'C:\\Temp\\setup.log' because it does not exist. HKLM\\SOFTWARE\\Contoso was read. Copy-Item 'C:\\Users\\Pat Smith\\My Notes\\Budget Plan.txt' failed", "Cannot find path '[path]' because it does not exist. HKLM\\SOFTWARE\\Contoso was read. Copy-Item '[path]' failed", DisplayName = "a registry key between two quoted paths")]
-    [DataRow("'C:\\Users\\Pat\\a b.txt' was read by CORP\\jbloggs; see 'C:\\Logs\\Xsecret Ysecret.log'", "'[path]' was read by CORP\\jbloggs; see '[path]'", DisplayName = "an account name between two quoted paths")]
-    [DataRow("Copy 'C:\\Temp\\a.txt' to bin\\x64 then open 'D:\\Private Folder\\Tax Return 2025.pdf' please", "Copy '[path]' to bin\\x64 then open '[path]' please", DisplayName = "a relative path between two quoted paths")]
-    [DataRow("Copy '%USERPROFILE%\\a.txt' to bin\\x64 then open '%USERPROFILE%\\Private Folder\\Tax Return 2025.pdf' please", "Copy '[path]' to bin\\x64 then open '[path]' please", DisplayName = "two quoted variable paths")]
-    [DataRow("Copy 'C:\\Temp\\a.txt' to bin\\x64 then Open('D:\\Private Folder\\Tax Return 2025.pdf') now", "Copy '[path]' to bin\\x64 then Open('[path]') now", DisplayName = "a quoted path after a bracket")]
-    [DataRow("Ran 'C:\\Temp\\a.exe' as CORP\\jbloggs &'C:\\Users\\Pat Smith\\out file.txt' done", "Ran '[path]' as CORP\\jbloggs &'[path]' done", DisplayName = "PowerShell's call operator before the second path")]
-    [DataRow("Ran 'C:\\Temp\\a.exe' as CORP\\jbloggs `'C:\\Users\\Pat Smith\\out file.txt' done", "Ran '[path]' as CORP\\jbloggs `'[path]' done", DisplayName = "a backtick before the second path")]
-    [DataRow("Ran 'C:\\Temp\\a.exe' as CORP\\jbloggs \"x\"'C:\\Users\\Pat Smith\\out file.txt' done", "Ran '[path]' as CORP\\jbloggs \"x\"'[path]' done", DisplayName = "a closing double quote before the second path")]
-    [DataRow("Ran 'C:\\Temp\\a.exe' as CORP\\jbloggs \u2014'C:\\Users\\Pat Smith\\out file.txt' done", "Ran '[path]' as CORP\\jbloggs \u2014'[path]' done", DisplayName = "a long dash before the second path")]
-    [DataRow("See 'C:\\Temp\\a.txt' near bin\\x64 and 'file:///C:/Private Folder/TaxReturn.pdf' now", "See '[path]' near bin\\x64 and '[link] now", DisplayName = "a quoted file link after a backslash")]
+    [DataRow("Cannot find path 'C:\\Temp\\setup.log' because it does not exist. HKLM\\SOFTWARE\\Contoso was read. Copy-Item 'C:\\Users\\Pat Smith\\My Notes\\Budget Plan.txt' failed", "Cannot find path '[path]'", DisplayName = "a registry key between two quoted paths")]
+    [DataRow("'C:\\Users\\Pat\\a b.txt' was read by CORP\\jbloggs; see 'C:\\Logs\\Xsecret Ysecret.log'", "'[path]'", DisplayName = "an account name between two quoted paths")]
+    [DataRow("Copy 'C:\\Temp\\a.txt' to bin\\x64 then open 'D:\\Private Folder\\Tax Return 2025.pdf' please", "Copy '[path]'", DisplayName = "a relative path between two quoted paths")]
+    [DataRow("Copy '%USERPROFILE%\\a.txt' to bin\\x64 then open '%USERPROFILE%\\Private Folder\\Tax Return 2025.pdf' please", "Copy '[path]'", DisplayName = "two quoted variable paths")]
+    [DataRow("Copy 'C:\\Temp\\a.txt' to bin\\x64 then Open('D:\\Private Folder\\Tax Return 2025.pdf') now", "Copy '[path]'", DisplayName = "a quoted path after a bracket")]
+    [DataRow("Ran 'C:\\Temp\\a.exe' as CORP\\jbloggs &'C:\\Users\\Pat Smith\\out file.txt' done", "Ran '[path]'", DisplayName = "PowerShell's call operator before the second path")]
+    [DataRow("Ran 'C:\\Temp\\a.exe' as CORP\\jbloggs `'C:\\Users\\Pat Smith\\out file.txt' done", "Ran '[path]'", DisplayName = "a backtick before the second path")]
+    [DataRow("Ran 'C:\\Temp\\a.exe' as CORP\\jbloggs \"x\"'C:\\Users\\Pat Smith\\out file.txt' done", "Ran '[path]'", DisplayName = "a closing double quote before the second path")]
+    [DataRow("Ran 'C:\\Temp\\a.exe' as CORP\\jbloggs \u2014'C:\\Users\\Pat Smith\\out file.txt' done", "Ran '[path]'", DisplayName = "a long dash before the second path")]
+    [DataRow("See 'C:\\Temp\\a.txt' near bin\\x64 and 'file:///C:/Private Folder/TaxReturn.pdf' now", "See '[path]'", DisplayName = "a quoted file link after a backslash")]
     public void AQuotedPathsRemovalEndsBeforeTheNextQuotedPath(string text, string expected)
     {
         // Independent review of 5526f3d, S1: when the text between two single-quoted paths held a backslash, the first path's
@@ -730,11 +737,11 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
-    [DataRow("'C:\\Tools\\my cc.exe' -c src\\main.c -I'C:\\Program Files\\Acme SDK\\Include Files' -o out.exe", "'[path]''[path]' -o out.exe", DisplayName = "a compiler flag glued to a quoted path")]
-    [DataRow("paths = [r'C:\\Data\\in file.csv', rel\\path, r'D:\\Clients\\Smith Estate\\Will Draft.docx']", "paths = [r'[path]''[path]']", DisplayName = "a Python raw string")]
-    [DataRow("RESTORE DATABASE Pay FROM DISK = N'C:\\Bak\\pay db.bak' ON SRV01\\SQLEXPRESS WITH MOVE TO N'D:\\Data\\Payroll Ledger.mdf'", "RESTORE DATABASE Pay FROM DISK = N'[path]''[path]'", DisplayName = "a SQL Unicode string")]
-    [DataRow("set a='C:\\Temp\\a b.txt' x\\y 2'D:\\Private\\Medical History.pdf'", "set a='[path]''[path]'", DisplayName = "a digit before the quote")]
-    [DataRow("tool 'C:\\Temp\\a b.txt' bin\\x -f'%USERPROFILE%\\Documents\\Loan Application.pdf'", "tool '[path]''[path]'", DisplayName = "a variable path after a flag")]
+    [DataRow("'C:\\Tools\\my cc.exe' -c src\\main.c -I'C:\\Program Files\\Acme SDK\\Include Files' -o out.exe", "'[path]'", DisplayName = "a compiler flag glued to a quoted path")]
+    [DataRow("paths = [r'C:\\Data\\in file.csv', rel\\path, r'D:\\Clients\\Smith Estate\\Will Draft.docx']", "paths = [r'[path]'", DisplayName = "a Python raw string")]
+    [DataRow("RESTORE DATABASE Pay FROM DISK = N'C:\\Bak\\pay db.bak' ON SRV01\\SQLEXPRESS WITH MOVE TO N'D:\\Data\\Payroll Ledger.mdf'", "RESTORE DATABASE Pay FROM DISK = N'[path]'", DisplayName = "a SQL Unicode string")]
+    [DataRow("set a='C:\\Temp\\a b.txt' x\\y 2'D:\\Private\\Medical History.pdf'", "set a='[path]'", DisplayName = "a digit before the quote")]
+    [DataRow("tool 'C:\\Temp\\a b.txt' bin\\x -f'%USERPROFILE%\\Documents\\Loan Application.pdf'", "tool '[path]'", DisplayName = "a variable path after a flag")]
     public void AQuotedPathAfterALetterIsRemovedWholeAfterAnEarlierQuotedPath(string text, string expected)
     {
         // Independent review of 44678e4, T1: a quote with a letter or number right before it (a flag such as -I, a Python r, a
@@ -798,24 +805,67 @@ public sealed class AdvisoryAiRedactionTests
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
-    public void AQuotedPathsRemovalLeavesALaterAccountNameToBeRemoved()
+    [DataRow("Open \"file:///C:/Shared/Quarterly Violet Notes.txt\" failed", "Open \"[link]\" failed", DisplayName = "a double-quoted file link with spaces in its last part (71C-03)")]
+    [DataRow("Open \"file:///C:/Shared/Quarterly Violet Notes.txt?q=Violet\" failed", "Open \"[link]\" failed", DisplayName = "and a query after it")]
+    [DataRow("Open 'file:///C:/Shared/Quarterly Violet Notes.txt' failed", "Open '[link]' failed", DisplayName = "a single-quoted file link with spaces in its last part")]
+    [DataRow("Links file:///C:/a/x.txt,file:///C:/Private Violet Folder/note.txt done", "Links [link][link] done", DisplayName = "two file links joined by a comma (71C-03)")]
+    [DataRow("Links https://example.invalid/x,C:\\Users\\Pat\\Private Violet Folder\\note.txt done", "Links [link][path] done", DisplayName = "a web link joined to a drive path")]
+    [DataRow("\"C:\\Tools\\reader.exe https://example.invalid/x\",file:///C:/Private Violet Folder/note.txt", "\"[path]\",[link]", DisplayName = "a quoted command line ending in a link, then a file link (71C-08)")]
+    public void AFileLinkIsRemovedWholeWhenQuotedOrJoinedToAnotherPathOrLink(string text, string expected)
     {
-        // Independent review of 1e57444, R1: with O'Brien as the PC's account name, the quoted path's removal took "CORP\O'".
-        DiagnosticRedactionContext names = new(["CORP", "O'Brien"]);
-        const string text = "Signed in 'C:\\Temp\\a.txt' as CORP\\O'Brien today";
-        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048, names).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000, names).Value, DiagnosticTextSanitizer.Sanitize(text, 4096, names).Value])
+        // Codex review of bf637b5, 71C-03 and 71C-08: a quoted file link's last part ended at its first space, a file link's last
+        // part took the head of a link joined to it, and a quoted command's link tail took the head of the next field.
+        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000).Value, DiagnosticTextSanitizer.Sanitize(text, 4096).Value])
         {
-            Assert.AreEqual("Signed in '[path]' as [redacted]\\[redacted] today", clean);
+            Assert.AreEqual(expected, clean);
         }
+        AssertNoCutShows(text, text.IndexOf("Violet", StringComparison.Ordinal) - 8, text.LastIndexOf(".txt", StringComparison.Ordinal), ["Violet", "Quarterly", "Folder", "note"]);
     }
 
     [TestMethod]
     [TestCategory("FR-AI-05")]
-    [DataRow("Could not open 'C:\\Temp\\a.txt'. Setup log at C:\\Logs\\x.log says the installer couldn't continue because the disk was full", "Could not open '[path]'. Setup log at [path] says the installer couldn't continue because the disk was full")]
-    [DataRow("Check 'C:\\Program Files\\Contoso Editor\\settings.ini' and the folder C:\\ProgramData\\Contoso; if it doesn't exist, reinstall the editor.", "Check '[path]' and the folder [path] if it doesn't exist, reinstall the editor.")]
+    [DataRow("https://example.invalid/Violet/x")]
+    [DataRow("file:///C:/Shared/Violet/Notes.txt")]
+    [DataRow("file:///C:/a.txt+C:\\Violet\\b.txt")]
+    public void ALongRunOfJoinedLinksIsRemovedWholeWithABoundedNumberOfCuts(string link)
+    {
+        // Codex review of #151: each value cut from a joined run was matched again to the run's end, so a long run cost the square
+        // of its length. After 16 cuts the rest of the run goes as one link, and nothing of any link in it is left.
+        string text = "Links " + string.Join(",", Enumerable.Repeat(link, 3000)) + " done";
+        string clean = AdvisoryAiRedaction.SanitizeAnswer(text, 200_000).Value ?? string.Empty;
+        Assert.DoesNotContain("Violet", clean);
+        Assert.DoesNotContain("Notes", clean);
+        StringAssert.StartsWith(clean, "Links [link]");
+        StringAssert.EndsWith(clean, " done");
+        Assert.IsLessThan(200, clean.Length);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    public void AQuotedPathsRemovalLeavesALaterAccountNameToBeRemoved()
+    {
+        // Independent review of 1e57444, R1: with O'Brien as the PC's account name, the quoted path's removal took "CORP\O'". With
+        // the rest of the line taken after a single-quoted path (71C-04), the name goes with it; on a later line it is still replaced.
+        DiagnosticRedactionContext names = new(["CORP", "O'Brien"]);
+        const string text = "Signed in 'C:\\Temp\\a.txt' as CORP\\O'Brien today\nSigned in as CORP\\O'Brien again";
+        foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048, names).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000, names).Value, DiagnosticTextSanitizer.Sanitize(text, 4096, names).Value])
+        {
+            Assert.DoesNotContain("Brien", clean ?? string.Empty);
+            StringAssert.StartsWith(clean, "Signed in '[path]'");
+        }
+        // Evidence and the timeline read a line break as a space, so there the second line goes too; the answer keeps it.
+        StringAssert.EndsWith(AdvisoryAiRedaction.SanitizeAnswer(text, 4000, names).Value, "Signed in as [redacted]\\[redacted] again");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("Could not open 'C:\\Temp\\a.txt'. The installer stopped because the disk was full", "Could not open '[path]'. The installer stopped because the disk was full")]
+    [DataRow("Cannot find path 'C:\\Program Files\\Contoso Editor\\settings.ini' because it does not exist.", "Cannot find path '[path]' because it does not exist.")]
+    [DataRow("Could not open 'C:\\Temp\\a.txt'. Setup log at C:\\Logs\\x.log says the installer couldn't continue", "Could not open '[path]'", DisplayName = "a later path and apostrophe on the line take its words too")]
     public void AQuotedPathsRemovalKeepsTheOrdinaryWordsAfterIt(string text, string expected)
     {
-        // Independent review of 1e57444, R2: the same run-on removed ordinary words up to the apostrophe in "couldn't".
+        // Independent review of 1e57444, R2: ordinary words after a quoted path are kept, unless a backslash, slash or apostrophe
+        // follows on the same line (Codex review of bf637b5, 71C-04), when the rest of the line goes with the path.
         foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000).Value, DiagnosticTextSanitizer.Sanitize(text, 4096).Value])
         {
             Assert.AreEqual(expected, clean);
@@ -826,11 +876,16 @@ public sealed class AdvisoryAiRedactionTests
     [TestCategory("FR-AI-05")]
     public void ACutAfterAQuotedPathKeepsTheOrdinaryTextBeforeIt()
     {
-        // Independent review of 1e57444, R2: with the next apostrophe past the cut, the cut check kept 6 characters of 20,000.
-        string text = "Opened 'C:\\Temp\\a.txt' and C:\\Logs\\b.log. " + string.Concat(Enumerable.Repeat("plain words here ", 1_200)) + "it didn't";
-        string clean = AdvisoryAiRedaction.SanitizeEvidence(text, 16_384).Value ?? string.Empty;
-        Assert.IsGreaterThan(15_000, clean.Length);
-        StringAssert.StartsWith(clean, "Opened '[path]' and [path]");
+        // Independent review of 1e57444, R2: with the next apostrophe past the cut, the cut check kept 6 characters of 20,000. The
+        // rest of a line after a single-quoted path goes when an apostrophe follows on it (71C-04), so on one long line nothing of
+        // it is kept, and with nothing like that after the path the cut keeps the words.
+        string words = string.Concat(Enumerable.Repeat("plain words here ", 1_200)) + "it didn't";
+        string sameLine = AdvisoryAiRedaction.SanitizeEvidence("Opened 'C:\\Temp\\a.txt' and C:\\Logs\\b.log. " + words, 16_384).Value ?? string.Empty;
+        Assert.DoesNotContain("plain", sameLine);
+        Assert.DoesNotContain("Temp", sameLine);
+        string plain = AdvisoryAiRedaction.SanitizeEvidence("Opened 'C:\\Temp\\a.txt' today. " + words.Replace("it didn't", "it did not", StringComparison.Ordinal), 16_384).Value ?? string.Empty;
+        Assert.IsGreaterThan(15_000, plain.Length, "nothing like a path or quote follows, so the cut keeps the words");
+        StringAssert.StartsWith(plain, "Opened '[path]' today. plain words");
     }
 
     [TestMethod]

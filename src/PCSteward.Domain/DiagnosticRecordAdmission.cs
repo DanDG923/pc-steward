@@ -67,14 +67,14 @@ public static class DiagnosticTextSanitizer
     // is left as it is: the pattern
     // also matches inside a longer word ("profile:C:\..." becomes "pro[link]"), which only removes more, and a scheme such as
     // "logfile:///C:/My Documents/x.txt" would otherwise go to the general link pattern, which ends at the first space.
-    private static readonly Regex FileLink = new(@"[Ff][Ii][Ll][Ee]:[\\/]*(?:[A-Za-z]:[\\/]|(?:[^\\/\s""<>|*?:@]+(?::[^\\/\s""<>|*?:@]*)?@)?(?:\[[^\]\s\\/]*\]|[^\\/\s""<>|*?:]+)(?::[0-9]+)?[\\/](?:[A-Za-z]:[\\/])?)(?:[^\\/\r\n""<>|:*?]*[\\/])*\S*", Options, MatchTimeout);
+    private static readonly Regex FileLink = new(@"[Ff][Ii][Ll][Ee]:[\\/]*(?:[A-Za-z]:[\\/]|(?:[^\\/\s""<>|*?:@]+(?::[^\\/\s""<>|*?:@]*)?@)?(?:\[[^\]\s\\/]*\]|[^\\/\s""<>|*?:]+)(?::[0-9]+)?[\\/](?:[A-Za-z]:[\\/])?)(?:[^\\/\r\n""<>|:*?]*[\\/])*(?<last>\S*)", Options, MatchTimeout);
     // A quoted path is removed up to its closing quote, so a file or folder name with spaces cannot leave a suffix behind.
     private static readonly Regex DoubleQuotedPath = new(@"""(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%)[^""\r\n]*""", Options, MatchTimeout);
     // Independent review of cd04620, P7: an apostrophe followed by a letter or digit (O'Brien) is part of a single-quoted path, so the
     // rest of the path isn't left visible after the first one. Independent review of 4d2e238, Q6: so is a doubled apostrophe
-    // (PowerShell's O''Brien). The rest of a path after an apostrophe before a space ('C:\Music\Guns N' Roses\x.mp3') is taken by
-    // RemoveQuotedPaths.
-    private static readonly Regex SingleQuotedPath = new(@"'(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%)(?:[^'\r\n]|'[\p{L}\p{N}]|'')*'", Options, MatchTimeout);
+    // (PowerShell's O''Brien), and so is one before a letter outside the Basic Multilingual Plane (Codex review of bf637b5, 71C-04).
+    // The rest of the line after an apostrophe before a space ('C:\Music\Guns N' Roses\x.mp3') is taken by RemoveSingleQuotedPaths.
+    private static readonly Regex SingleQuotedPath = new(@"'(?:[A-Za-z]:[\\/]|\\\\|%[A-Za-z_][A-Za-z0-9_]*%|[Ff][Ii][Ll][Ee]:(?:[\\/]|[A-Za-z]:[\\/]))(?:[^'\r\n]|'[\p{L}\p{N}\uD800-\uDBFF]|'')*'", Options, MatchTimeout);
     private static readonly Regex UncPath = new(@"\\\\[^\\/\s]+(?:[\\/](?:[^\\/\r\n""<>|:*?]*[\\/])*[^\\/\s""<>|:*?]*)?", Options, MatchTimeout);
     private static readonly Regex DrivePath = new(@"[A-Za-z]:[\\/](?:[^\\/\r\n""<>|:*?]*[\\/])*[^\\/\s""<>|:*?]*", Options, MatchTimeout);
     // Same structure as a drive path: folders may contain spaces, the last segment ends at whitespace.
@@ -139,12 +139,13 @@ public static class DiagnosticTextSanitizer
         // Structured values go first, so an identity token can never break a path, link, SID or address apart before it is
         // recognised (a one-letter account name "c" would otherwise turn "C:\Users\..." into text no path pattern matches).
         // A quoted path goes before links (Codex review of #146): a quoted command line may hold a link, and the link's pattern
-        // would otherwise take the quote that closes it. A quoted path needs a drive, share or variable just after its quote, so a
-        // quoted link is left for the link patterns.
-        value = RemoveQuotedPaths(value, DoubleQuotedPath, '"', false);
-        value = RemoveQuotedPaths(value, SingleQuotedPath, '\'', true);
-        value = FileLink.Replace(value, LinkPlaceholder);
-        value = Link.Replace(value, LinkPlaceholder);
+        // would otherwise take the quote that closes it. A quoted path needs a drive, share or variable just after its quote, or a
+        // single-quoted file link (Codex review of bf637b5, 71C-03), so a double-quoted file link (removed to its closing quote by
+        // ReplaceLinks) and any other quoted link are left for the link patterns.
+        value = RemoveDoubleQuotedPaths(value);
+        value = RemoveSingleQuotedPaths(value);
+        value = ReplaceLinks(value, FileLink);
+        value = ReplaceLinks(value, Link);
         value = ReplacePaths(value, UncPath);
         value = ReplacePaths(value, DrivePath);
         value = ReplacePaths(value, VariablePath);
@@ -167,153 +168,210 @@ public static class DiagnosticTextSanitizer
     }
 
     /// <summary>
-    /// Replaces each quoted path matched by <paramref name="pattern"/> with a placeholder inside the same quotes. Independent review
-    /// of 1e57444, R1 and R2: a single-quoted path's removal runs on past its closing apostrophe (for 'C:\Music\Guns N' Roses\x.mp3')
-    /// only to an apostrophe that itself closes a quote (no letter or number after it, unless another path or link starts there), and
-    /// only over text that holds a backslash and no start of another path or link (a drive, a share, a variable, "://" or "file:"), so
-    /// it can't swallow the head of a later path, link or account name, or ordinary words up
-    /// to an apostrophe in "couldn't". When the last word inside the quotes is a link and the closing quote is followed at once by
-    /// more of a word (a link holding a quote: 'C:\x.log shows https://example.org/a?q='x'&amp;code=...), the rest of that word goes
-    /// too, so no part of the link is left after the placeholder.
+    /// Replaces each double-quoted path or file link with a placeholder inside the same quotes. When the last word inside the quotes
+    /// is a link and the closing quote is followed at once by more of a word (a link holding a quote), the rest of that word goes
+    /// too, so no part of the link is left after the placeholder; it stops before another path or link (Codex review of bf637b5,
+    /// 71C-08), which is left to its own pattern.
     /// </summary>
-    private static string RemoveQuotedPaths(string value, Regex pattern, char quote, bool runOn)
+    private static string RemoveDoubleQuotedPaths(string value)
     {
-        Match match = pattern.Match(value);
+        Match match = DoubleQuotedPath.Match(value);
         if (!match.Success) return value;
         StringBuilder result = new(value.Length);
-        QuoteScanner scan = new(value, quote);
         int position = 0;
         int recoveries = 0;
         while (match.Success)
         {
             int end = match.Index + match.Length;
             bool opensAnother = end - 2 > match.Index && char.IsWhiteSpace(value[end - 2]) && StartsAPath(value, end);
-            bool insideAWord = runOn && end < value.Length && IsLetterOrNumber(value[end]) && !StartsAPath(value, end)
-                && !StartsALink(value.AsSpan(end)) && ContinuesAPath(value, end);
-            if ((opensAnother || insideAWord) && ++recoveries > MaximumQuoteRecoveries)
+            if (opensAnother && ++recoveries > MaximumQuoteRecoveries)
             {
                 // Codex review of #147: each recovery below matches again, so text built to need one at every quote is not scanned
                 // over and over. Past the limit the rest of the line goes with the path, which removes more and never less.
-                end = value.IndexOfAny(['\r', '\n'], match.Index);
-                if (end < 0) end = value.Length;
-                result.Append(value, position, match.Index - position).Append(quote).Append(PathPlaceholder).Append(quote);
+                end = LineEnd(value, match.Index);
+                AppendPlaceholder(result.Append(value, position, match.Index - position), value, match.Index, '"');
                 position = end;
-                match = end < value.Length ? pattern.Match(value, end) : Match.Empty;
+                match = end < value.Length ? DoubleQuotedPath.Match(value, end) : Match.Empty;
                 continue;
             }
             if (opensAnother)
             {
                 // The quote that ends the match follows a space and opens another quoted path, so the match ran on past its own
-                // close ('C:\a.txt'and '\\server\x.txt'): it is matched again in the text before that quote.
-                Match shorter = pattern.Match(value, match.Index, end - 1 - match.Index);
+                // close: it is matched again in the text before that quote.
+                Match shorter = DoubleQuotedPath.Match(value, match.Index, end - 1 - match.Index);
                 if (!shorter.Success || shorter.Index != match.Index)
                 {
-                    match = pattern.Match(value, match.Index + 1);
+                    match = DoubleQuotedPath.Match(value, match.Index + 1);
                     continue;
                 }
                 match = shorter;
                 end = match.Index + match.Length;
             }
-            else if (insideAWord)
-            {
-                // The quote that ends the match is inside a word that goes on as a path (O'Brien\Documents), so it is not the path's
-                // closing quote. The match ends at the last quote inside it that closes one; with none, the quote never closes, and
-                // the path is left for the drive, share or variable path patterns, which take it whole.
-                int close = -1;
-                for (int index = end - 2; index > match.Index; index--)
-                {
-                    if (value[index] == quote && ClosesAQuote(value, index)) { close = index; break; }
-                }
-                if (close < 0)
-                {
-                    match = pattern.Match(value, match.Index + 1);
-                    continue;
-                }
-                end = close + 1;
-            }
-            bool stoppedAtOpener = false;
-            while (runOn)
-            {
-                // The rest of a path after an apostrophe before a space ('C:\Music\Guns N' Roses\x.mp3') runs on to the next quote
-                // that closes one, over text that holds a backslash and no start of another path or link.
-                int next = scan.NextClosingQuote(end);
-                if (next < 0 || scan.NextBackslash(end) >= next || scan.NextPathOrLinkStart(end) < next) break;
-                // A quote that a path or link start follows opens that path or link, so the run-on never ends there
-                // (independent review of 5526f3d, S1).
-                if (OpensAPathOrLink(value, next)) break;
-                // A quote glued to a word before it (a flag such as -I'C:\…', a Python r'C:\…' or a SQL N'D:\…', or the end of a
-                // path holding an apostrophe, ….mp3'C:\…) with a path or link start right after it ends the run-on but is left to
-                // open what follows (independent review of 44678e4, T1).
-                if (PathOrLinkFollows(value, next))
-                {
-                    end = next;
-                    stoppedAtOpener = true;
-                    break;
-                }
-                end = next + 1;
-            }
-            if (!stoppedAtOpener) end = PastLinkTail(value, match.Index, end);
-            result.Append(value, position, match.Index - position).Append(quote).Append(PathPlaceholder).Append(quote);
+            end = PastLinkTail(value, match.Index, end);
+            AppendPlaceholder(result.Append(value, position, match.Index - position), value, match.Index, '"');
             position = end;
-            match = end < value.Length ? pattern.Match(value, end) : Match.Empty;
+            match = end < value.Length ? DoubleQuotedPath.Match(value, end) : Match.Empty;
         }
         return result.Append(value, position, value.Length - position).ToString();
     }
 
-    /// <summary>The most times one text's quoted paths are matched again before the rest of a line is removed with its path.</summary>
-    private const int MaximumQuoteRecoveries = 16;
+    /// <summary>
+    /// The owner's choice after Codex's and the independent review of bf637b5 (71C-04, U1): a single quote that opens a path or file
+    /// link takes the rest of its line with it, unless the path closes and nothing after its close holds a backslash, a slash or
+    /// another apostrophe. An apostrophe inside a file or folder name ('C:\Music\Guns N' Roses\x.mp3', or one before a letter
+    /// outside the Basic Multilingual Plane) can make any closing quote a guess, and each narrower rule (Q6, R1, S1, T1, T2, U1,
+    /// 71C-04) left part of a name in some shape, so the guess is no longer made: ordinary words after such a path on the same
+    /// line are removed too, which removes more and never less. A path that closes with nothing like that after it ends at its
+    /// closing quote, as before, with the rest of a link word that runs on (<see cref="PastLinkTail"/>).
+    /// </summary>
+    private static string RemoveSingleQuotedPaths(string value)
+    {
+        int opener = NextSingleQuoteOpener(value, 0);
+        if (opener < 0) return value;
+        StringBuilder result = new(value.Length);
+        int position = 0;
+        while (opener >= 0)
+        {
+            int end = SingleQuotedEnd(value, opener);
+            AppendPlaceholder(result.Append(value, position, opener - position), value, opener, '\'');
+            position = end;
+            opener = NextSingleQuoteOpener(value, end);
+        }
+        return result.Append(value, position, value.Length - position).ToString();
+    }
 
     /// <summary>
-    /// Codex review of #147: forward scans for the quoted-path run-on, each remembered so the run-on reads every character a bounded
-    /// number of times however many quoted paths a text holds. Each scan is asked for positions that never move back.
+    /// Where the removal of the single-quoted path or file link whose opening quote is at <paramref name="opener"/> ends: the end of
+    /// its line when it doesn't close on it or a backslash, slash or apostrophe follows its close there; otherwise its close, or the
+    /// end of a link word that runs on past it.
     /// </summary>
-    private sealed class QuoteScanner(string value, char quote)
+    private static int SingleQuotedEnd(string value, int opener)
     {
-        private int closingFrom = -1, closingAt = -1;
-        private bool closingIsQuote;
-        private int backslashFrom = -1, backslashAt = -1;
-        private int startFrom = -1, startAt = -1;
+        int lineEnd = LineEnd(value, opener);
+        Match match = SingleQuotedPath.Match(value, opener, lineEnd - opener);
+        if (!match.Success || match.Index != opener) return lineEnd;
+        int end = match.Index + match.Length;
+        // A close glued to a letter or number after it is one the pattern settled for only because no later quote closes the path
+        // ('file://server/share/Zz'abc.txt), so the path never closed and the rest of the line goes with it.
+        if (end < lineEnd && IsLetterOrNumber(value[end])) return lineEnd;
+        return value.AsSpan(end, lineEnd - end).IndexOfAny('\\', '/', '\'') >= 0 ? lineEnd : PastLinkTail(value, opener, end);
+    }
 
-        /// <summary>The first quote at or after <paramref name="from"/> that closes one, or -1 when a line break or the end comes first.</summary>
-        public int NextClosingQuote(int from)
-        {
-            if (closingFrom < 0 || from < closingFrom || from > closingAt)
-            {
-                int index = from;
-                while (index < value.Length && value[index] is not '\r' and not '\n' && (value[index] != quote || !ClosesAQuote(value, index))) index++;
-                closingFrom = from;
-                closingAt = index;
-                closingIsQuote = index < value.Length && value[index] == quote;
-            }
-            return closingIsQuote ? closingAt : -1;
-        }
+    /// <summary>The first single quote at or after <paramref name="from"/> that a path or file link follows, or -1.</summary>
+    private static int NextSingleQuoteOpener(string value, int from)
+    {
+        for (int index = value.IndexOf('\'', from); index >= 0; index = index + 1 < value.Length ? value.IndexOf('\'', index + 1) : -1)
+            if (StartsAQuotedValue(value, index + 1)) return index;
+        return -1;
+    }
 
-        /// <summary>The first backslash at or after <paramref name="from"/>, or the text's length.</summary>
-        public int NextBackslash(int from)
-        {
-            if (backslashFrom < 0 || from < backslashFrom || from > backslashAt)
-            {
-                int found = value.AsSpan(from).IndexOf('\\');
-                backslashFrom = from;
-                backslashAt = found < 0 ? value.Length : from + found;
-            }
-            return backslashAt;
-        }
+    /// <summary>Whether a drive, network or variable path, or a file link, starts at <paramref name="index"/>.</summary>
+    private static bool StartsAQuotedValue(string value, int index) =>
+        index < value.Length && (StartsAPath(value, index) || StartsAFileLink(value.AsSpan(index)));
 
-        /// <summary>The first start of a path or link at or after <paramref name="from"/>, or the text's length.</summary>
-        public int NextPathOrLinkStart(int from)
+    private static bool StartsAFileLink(ReadOnlySpan<char> rest) =>
+        rest.StartsWith("file:", StringComparison.OrdinalIgnoreCase) && StartsALink(rest);
+
+    /// <summary>
+    /// Whether <paramref name="mark"/> can join two values in a list or command line (a comma, semicolon, bar, plus, quote, bracket
+    /// and the like), so a path or link right after it inside a link's last part is a value of its own. A letter or number, or a
+    /// mark that occurs inside a path or link itself (a slash, backslash, colon, question mark, star, hash or
+    /// percent sign), never does: there it is more likely part of the same damaged link, which its own pattern removes further
+    /// than a path pattern would.
+    /// </summary>
+    private static bool JoinsTwoValues(char mark) => !IsLetterOrNumber(mark) && mark is not ('/' or '\\' or ':' or '?' or '*' or '#' or '%');
+
+    /// <summary>Whether <paramref name="text"/> is only ASCII letters, the head of a scheme glued to a link that follows.</summary>
+    private static bool IsSchemeText(ReadOnlySpan<char> text)
+    {
+        foreach (char character in text)
+            if (!char.IsAsciiLetter(character)) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Whether a path, a file link or a link whose scheme is letters only ("https://") starts at <paramref name="index"/> inside a
+    /// link's last part. A scheme may hold "+", "." and "-", so "x.txt+file://" reads as one; only plain schemes are taken there, so
+    /// the end of a file name is never mistaken for the start of another link.
+    /// </summary>
+    private static bool StartsAJoinedPathOrLink(string value, int index)
+    {
+        if (StartsAPath(value, index) || StartsAFileLink(value.AsSpan(index))) return true;
+        int scheme = index;
+        while (scheme < value.Length && scheme - index < 32 && char.IsAsciiLetter(value[scheme])) scheme++;
+        return scheme > index && value.AsSpan(scheme).StartsWith("://", StringComparison.Ordinal);
+    }
+
+    /// <summary>Appends the quoted placeholder for the quoted value whose opening quote is at <paramref name="opener"/>.</summary>
+    private static void AppendPlaceholder(StringBuilder result, string value, int opener, char quote) =>
+        result.Append(quote).Append(StartsAFileLink(value.AsSpan(opener + 1)) ? LinkPlaceholder : PathPlaceholder).Append(quote);
+
+    /// <summary>Where the line holding <paramref name="index"/> ends: its first line break at or after it, or the text's end.</summary>
+    private static int LineEnd(string value, int index)
+    {
+        int end = value.IndexOfAny(['\r', '\n'], index);
+        return end < 0 ? value.Length : end;
+    }
+
+    /// <summary>The most times one text's double-quoted paths are matched again before the rest of a line is removed with its path.</summary>
+    private const int MaximumQuoteRecoveries = 16;
+
+    /// <summary>The most values cut from one run of joined links before the rest of the run is removed as one link.</summary>
+    private const int MaximumJoinedValues = 16;
+
+    /// <summary>
+    /// Codex review of bf637b5, 71C-03: replaces each file link (or, with <paramref name="pattern"/> set to <see cref="Link"/>, each
+    /// other link) with the link placeholder. A link's last part runs to whitespace, so it could take the head of a second path or
+    /// link joined to it with no space (file:///C:/a.txt,file:///C:/Private Folder/b.txt) and leave that one's later words; the
+    /// match ends where another path or link starts after its last part's start, and that one is matched on its own.
+    /// </summary>
+    private static string ReplaceLinks(string value, Regex pattern)
+    {
+        Match match = pattern.Match(value);
+        if (!match.Success) return value;
+        StringBuilder result = new(value.Length);
+        int position = 0;
+        bool endedAtAnother = false;
+        // Codex review of #151: each value cut from a link is matched again on its own, and that match runs to the end of the
+        // joined run, so a long run of joined links (https://a/x,https://a/x,…) cost the square of its length. After
+        // MaximumJoinedValues cuts in one run, the rest of the run is removed as one link, as it was before the cuts.
+        int joined = 0;
+        int runEnd = 0;
+        while (match.Success)
         {
-            if (startFrom < 0 || from < startFrom || from > startAt)
+            if (match.Index >= runEnd) joined = 0;
+            runEnd = Math.Max(runEnd, match.Index + match.Length);
+            // A link cut short where a scheme glued to it began (…#tagfile:///C:/…) leaves that scheme's letters before the next
+            // match, which starts at "file:"; they belong to the link that follows and go with it.
+            if (endedAtAnother && match.Index > position && IsSchemeText(value.AsSpan(position, match.Index - position))) position = match.Index;
+            endedAtAnother = false;
+            Group last = match.Groups["last"];
+            int end = match.Index + match.Length;
+            // Codex review of bf637b5, 71C-03: a file link right after a double quote runs to the closing quote on its line, so a
+            // last part holding spaces ("file:///C:/Shared/Quarterly Notes.txt") goes whole. (A single-quoted one is taken with
+            // the single-quoted paths.)
+            if (last.Success && match.Index > 0 && value[match.Index - 1] == '"')
             {
-                int index = from;
-                while (index < value.Length && !StartsAPath(value, index)
-                    && !((index == 0 || !char.IsLetterOrDigit(value[index - 1])) && StartsALink(value.AsSpan(index)))
-                    && !value.AsSpan(index).StartsWith("://", StringComparison.Ordinal)) index++;
-                startFrom = from;
-                startAt = index;
+                int closing = value.AsSpan(match.Index, LineEnd(value, match.Index) - match.Index).IndexOf('"');
+                if (closing >= 0)
+                {
+                    end = match.Index + closing;
+                    result.Append(value, position, match.Index - position).Append(LinkPlaceholder);
+                    position = end;
+                    match = end < value.Length ? pattern.Match(value, end) : Match.Empty;
+                    continue;
+                }
             }
-            return startAt;
+            int tail = last.Success ? last.Index : match.Index + match.Value.IndexOf("://", StringComparison.Ordinal) + 3;
+            for (int index = Math.Max(tail, match.Index + 1); joined < MaximumJoinedValues && index < end; index++)
+            {
+                if (JoinsTwoValues(value[index - 1]) && StartsAJoinedPathOrLink(value, index)) { end = index; endedAtAnother = true; joined++; break; }
+            }
+            result.Append(value, position, match.Index - position).Append(LinkPlaceholder);
+            position = end;
+            match = end < value.Length ? pattern.Match(value, end) : Match.Empty;
         }
+        return result.Append(value, position, value.Length - position).ToString();
     }
 
     /// <summary>
@@ -342,40 +400,6 @@ public static class DiagnosticTextSanitizer
         return result.Append(value, position, value.Length - position).ToString();
     }
 
-    /// <summary>
-    /// Whether the quote at <paramref name="index"/> can close a quoted path: it ends the text, or no letter or number follows it
-    /// (as in O'Brien, Mum's or couldn't) or the doubled quote it starts (PowerShell's O''Brien), or another path or link starts
-    /// right after it.
-    /// </summary>
-    private static bool ClosesAQuote(string value, int index)
-    {
-        int after = index + 1 < value.Length && value[index + 1] == value[index] ? index + 2 : index + 1;
-        return after >= value.Length
-            || !IsLetterOrNumber(value[after])
-            || StartsAPath(value, after)
-            || StartsALink(value.AsSpan(after))
-            || value.AsSpan(after).StartsWith("file:", StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
-    /// Whether the quote at <paramref name="index"/> opens a path or link rather than closing what came before: a path or link
-    /// starts right after it (or after the doubled quote it starts), and no letter or number comes right before it (independent
-    /// review of 5526f3d, S1). A quote glued to the end of a word ("….mp3'C:\…") doesn't open: it ends the run-on before it
-    /// and is left to open the path that follows (independent review of 44678e4, T1).
-    /// </summary>
-    private static bool OpensAPathOrLink(string value, int index) =>
-        (index == 0 || !IsLetterOrNumber(value[index - 1])) && PathOrLinkFollows(value, index);
-
-    /// <summary>Whether a path or link starts right after the quote at <paramref name="index"/>, or after the doubled quote it starts.</summary>
-    private static bool PathOrLinkFollows(string value, int index)
-    {
-        int after = index + 1 < value.Length && value[index + 1] == value[index] ? index + 2 : index + 1;
-        return after < value.Length
-            && (StartsAPath(value, after)
-                || StartsALink(value.AsSpan(after))
-                || value.AsSpan(after).StartsWith("file:", StringComparison.OrdinalIgnoreCase));
-    }
-
     /// <summary>Whether <paramref name="rest"/> starts with a link's scheme and "://", or with "file:" and a slash or drive.</summary>
     private static bool StartsALink(ReadOnlySpan<char> rest)
     {
@@ -391,19 +415,16 @@ public static class DiagnosticTextSanitizer
         return false;
     }
 
-    private static bool IsLetterOrNumber(char value) => char.IsLetter(value) || char.IsNumber(value);
+    /// <summary>
+    /// A letter or number, counting either half of a surrogate pair as one (Codex review of bf637b5, 71C-04: a letter outside the
+    /// Basic Multilingual Plane, such as U+10400, is two UTF-16 units), so such text is read as a word and never as a boundary.
+    /// </summary>
+    private static bool IsLetterOrNumber(char value) => char.IsLetter(value) || char.IsNumber(value) || char.IsSurrogate(value);
 
-    /// <summary>Whether the word that starts at <paramref name="start"/> holds a backslash or slash, so it goes on as a path.</summary>
-    private static bool ContinuesAPath(string value, int start)
-    {
-        for (int index = start; index < value.Length && !char.IsWhiteSpace(value[index]); index++)
-        {
-            if (value[index] is '\\' or '/') return true;
-        }
-        return false;
-    }
-
-    /// <summary>The end of a quoted path, moved past the rest of a word when the quoted text's last word is a link that runs on.</summary>
+    /// <summary>
+    /// The end of a quoted path, moved past the rest of a word when the quoted text's last word is a link that runs on, but never
+    /// into another path or link.
+    /// </summary>
     private static int PastLinkTail(string value, int start, int end)
     {
         if (end >= value.Length || char.IsWhiteSpace(value[end])) return end;
@@ -417,18 +438,13 @@ public static class DiagnosticTextSanitizer
         bool holdsLetterOrNumber = false;
         while (wordEnd < value.Length && !char.IsWhiteSpace(value[wordEnd]))
         {
+            // Codex review of bf637b5, 71C-08: the word ends before another path or link joined to it ("…/x",file:///C:/…), which is
+            // left whole for its own pattern.
+            if (!IsLetterOrNumber(value[wordEnd - 1]) && (StartsAPath(value, wordEnd) || StartsALink(value.AsSpan(wordEnd)))) break;
             holdsLetterOrNumber |= char.IsLetter(value[wordEnd]) || char.IsNumber(value[wordEnd]);
             wordEnd++;
         }
         return holdsLetterOrNumber ? wordEnd : end;
-    }
-
-    private static bool HoldsPathOrLinkStart(ReadOnlySpan<char> text)
-    {
-        if (text.IndexOf("://", StringComparison.Ordinal) >= 0) return true;
-        for (int index = 0; index < text.Length; index++)
-            if (StartsAPath(text[index..])) return true;
-        return false;
     }
 
     /// <summary>The most times <see cref="CheckedCut"/> moves a cut back before it keeps nothing.</summary>
@@ -456,8 +472,12 @@ public static class DiagnosticTextSanitizer
         int words = 1;
         for (int attempt = 0; ; attempt++)
         {
-            if (cut == 0 || ShowsOnlyWhatTheWholeShows(cleanPrefix(cut), whole)) return cut;
-            if (attempt == MaximumCutChecks || System.Diagnostics.Stopwatch.GetElapsedTime(started) > MaximumCutCheckTime) return 0;
+            if (cut == 0) return 0;
+            bool shows = ShowsOnlyWhatTheWholeShows(cleanPrefix(cut), whole);
+            // Codex review of bf637b5, 71C-06: the time limit holds for a try that matches too, so nothing is kept past it.
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(started) > MaximumCutCheckTime) return 0;
+            if (shows) return cut;
+            if (attempt == MaximumCutChecks) return 0;
             for (int step = 0; step < words && cut > 0; step++) cut = StartOfLastWord(view, cut);
             cut = SafeCutAtOrBefore(view, cut);
             words *= 2;
@@ -551,51 +571,38 @@ public static class DiagnosticTextSanitizer
     {
         // A quoted path holds no line break. Independent review of 4d2e238, Q1 and Q3: each kind of quote is followed on its own from
         // the start of the line, as cleaning removes double-quoted paths before single-quoted ones, so a double-quoted path inside a
-        // single-quoted command line is still seen; the earliest opener of either kind wins.
+        // single-quoted command line is still seen; the earliest opener of either kind wins. A single quote that opens a path or
+        // file link is removed as RemoveSingleQuotedPaths removes it, read on the whole line past the cut: when that runs past the
+        // cut (the rest of the line goes, or the path is still open there), the cut moves before its opening quote.
         int lineStart = text.AsSpan(0, cut).LastIndexOfAny(['\r', '\n']) + 1;
-        return Math.Min(OpenQuotedPathStart(text, lineStart, cut, '"'), OpenQuotedPathStart(text, lineStart, cut, '\''));
+        int single = cut;
+        for (int opener = NextSingleQuoteOpener(text, lineStart); opener >= 0 && opener < cut;)
+        {
+            int end = SingleQuotedEnd(text, opener);
+            if (end > cut) { single = opener; break; }
+            opener = NextSingleQuoteOpener(text, end);
+        }
+        return Math.Min(OpenDoubleQuotedPathStart(text, lineStart, cut), single);
     }
 
-    private static int OpenQuotedPathStart(string text, int lineStart, int cut, char quote)
+    private static int OpenDoubleQuotedPathStart(string text, int lineStart, int cut)
     {
         int open = -1;
         int last = -1;
         for (int index = lineStart; index < cut; index++)
         {
-            if (text[index] != quote) continue;
-            if (StartsAPath(text, index + 1)) last = index;
+            if (text[index] != '"') continue;
+            bool opener = StartsAQuotedValue(text, index + 1);
+            if (opener) last = index;
             if (open < 0)
             {
-                if (StartsAPath(text, index + 1)) open = index;
+                if (opener) open = index;
                 continue;
-            }
-            if (quote == '\'' && index + 1 < cut)
-            {
-                // An apostrophe followed by a letter or number (O'Brien), or a doubled one (O''Brien), carries the path on, as the
-                // remover reads it (independent review of 4d2e238, Q2 and Q6).
-                char next = text[index + 1];
-                if (char.IsLetter(next) || char.IsNumber(next)) continue;
-                if (next == '\'') { index++; continue; }
-            }
-            if (quote == '\'')
-            {
-                // The text after a closing apostrophe is the rest of the path when it holds a backslash and no start of another
-                // path or link, read up to the next apostrophe that closes a quote (Q6, narrowed after the independent review of
-                // 1e57444, R1 and R2, as RemoveQuotedPaths reads it); with no such apostrophe before the cut, such text keeps the
-                // path open.
-                int closing = index + 1;
-                while (closing < cut && (text[closing] != '\'' || !ClosesAQuote(text, closing))) closing++;
-                ReadOnlySpan<char> rest = text.AsSpan(index + 1, closing - index - 1);
-                if (rest.Contains('\\') && !HoldsPathOrLinkStart(rest) && (closing >= cut || !OpensAPathOrLink(text, closing)))
-                {
-                    index = closing - 1;
-                    continue;
-                }
             }
             open = -1;
         }
         // The fifth build's rule too: the last quote before the cut that is followed by a path start.
-        if (last >= 0 && text.AsSpan(last + 1, cut - last - 1).IndexOf(quote) < 0) open = open < 0 ? last : Math.Min(open, last);
+        if (last >= 0 && text.AsSpan(last + 1, cut - last - 1).IndexOf('"') < 0) open = open < 0 ? last : Math.Min(open, last);
         return open >= 0 ? open : cut;
     }
 

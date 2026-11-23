@@ -1,3 +1,9 @@
+**Advisory AI, the owner's review of the tenth Task 71C retest build failed; fixes (2026-11-23; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-BUD-03`, `FR-DIA-03` ([Task 90 record §22](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `bf637b5`.** One High: a reply refused early for being stored, holding tools or an unknown status lost its usage, so a larger reported charge kept only the reservation with no pause. Three Medium privacy findings (a quoted or joined file link, a single-quoted path with an apostrophe after forward slashes or a rare letter, a quoted command running into a file link) and four Low. Artifact, model, tier, route and arithmetic passed. The report is not in the repository.
+- **Fixed.** Such a reply keeps its usage, and any reported count above the approval pauses paid requests. Too few input tokens for the approved text are not trusted. A single-quoted path takes the rest of its line unless it closes cleanly, which also closes §21's U1 and T2. Quoted and joined file links are removed whole. The cut check holds its time limit.
+- **Next.** A new retest build from `phase/4-beta`, reviewed by both reviewers, then the owner's separate approvals for the key step and the one send.
+
 **Advisory AI, independent review of the tenth Task 71C retest build passed (2026-11-22; docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-DIA-03` ([Task 90 record §21](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `bf637b5`.** PASS: T1 is fixed end to end, and well-formed random text, with and without glued prefixes, shows nothing private, also at every cut. One Low (U1, glued text) is recorded beside T2. The pass approves neither the key step nor the send. The report is not in the repository.
