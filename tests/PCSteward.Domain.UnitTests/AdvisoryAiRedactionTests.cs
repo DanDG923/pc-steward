@@ -872,6 +872,23 @@ public sealed class AdvisoryAiRedactionTests
         Assert.DoesNotContain("file:", clean);
     }
 
+    [TestMethod]
+    [TestCategory("FR-AI-05")]
+    [DataRow("\u201EC:\\a\u201C ")]
+    [DataRow("\u201EC:\\a\u201D ")]
+    [DataRow("\u201CC:\\a\u201D ")]
+    [DataRow("\u201CC:\\a\u201C ")]
+    public void ManyQuotedValuesWithAnAbsentOtherCloseAreCleanedInLinearTime(string value)
+    {
+        // Codex review of #152: each well-formed value searched the whole rest of the line for the close it didn't use, so a long
+        // answer line cost the square of its length. Each close is now looked for once until it is passed.
+        string line = string.Concat(Enumerable.Repeat(value, 32_768));
+        System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+        string clean = AdvisoryAiRedaction.SanitizeAnswer(line, 400_000).Value ?? string.Empty;
+        Assert.IsLessThan(TimeSpan.FromSeconds(10), watch.Elapsed);
+        Assert.DoesNotContain("C:\\", clean);
+    }
+
     private static void AssertCleanedEverywhere(string text, string expected)
     {
         foreach (string? clean in (string?[])[AdvisoryAiRedaction.SanitizeEvidence(text, 2048).Value, AdvisoryAiRedaction.SanitizeAnswer(text, 4000).Value, DiagnosticTextSanitizer.Sanitize(text, 4096).Value])

@@ -316,6 +316,11 @@ public static class DiagnosticTextSanitizer
         private int lineStart = -1;
         private int lineEnd = -1;
         private int[]? bracketMatch;
+        // For each close of a first-close delimiter, where its next occurrence on the line was found from (From) and where it is
+        // (At, or -1 for none to the line's end). Values only move forward, so a found close is reused until it is passed and an
+        // absent one is never searched for again on the line (Codex review of #152: repeated „C:\a“ values each searched the whole
+        // rest of the line for the absent ”).
+        private readonly Dictionary<string, (int From, int At)> nextClose = new(StringComparer.Ordinal);
 
         public bool Next(int from, out DelimitedValue found)
         {
@@ -334,6 +339,7 @@ public static class DiagnosticTextSanitizer
                         lineStart = value.AsSpan(0, index).LastIndexOfAny('\r', '\n') + 1;
                         lineEnd = LineEnd(value, index);
                         bracketMatch = null;
+                        nextClose.Clear();
                     }
                     if (noCloseBefore[kind] > index) break;
                     (int end, int closeLength) = Close(delimiter, index, start);
@@ -377,7 +383,7 @@ public static class DiagnosticTextSanitizer
                     int best = -1, length = 0;
                     foreach (string close in delimiter.Close)
                     {
-                        int at = line.IndexOf(close, StringComparison.Ordinal);
+                        int at = NextClose(close, start);
                         if (at >= 0 && (best < 0 || at < best)) { best = at; length = close.Length; }
                     }
                     // A close right after a slash or backslash is read as part of a path that goes on (|file:///C:/|Users/…), so the
@@ -406,6 +412,16 @@ public static class DiagnosticTextSanitizer
                     return (lineEnd, 0);
                 }
             }
+        }
+
+        /// <summary>The line offset from <paramref name="start"/> of the first <paramref name="close"/> on the current line, or -1.</summary>
+        private int NextClose(string close, int start)
+        {
+            if (nextClose.TryGetValue(close, out (int From, int At) cached) && cached.From <= start && (cached.At < 0 || cached.At >= start))
+                return cached.At < 0 ? -1 : cached.At - start;
+            int at = value.AsSpan(start, lineEnd - start).IndexOf(close, StringComparison.Ordinal);
+            nextClose[close] = (start, at < 0 ? -1 : start + at);
+            return at;
         }
 
         /// <summary>For each opening bracket on the current line, the line offset of the bracket that closes it, or -1.</summary>
