@@ -1,3 +1,8 @@
+**Advisory AI, independent review of the eighteenth Task 71C retest build: early finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §30](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `c80cb60`.** One Medium finding sent early: answer text carrying citations, which only a hosted tool makes, settled and was shown with no pause, so the next request could go out.
+- **Fixed.** Annotations other than null or an empty list refuse the reply and stop paid requests for review. A workflow test shows the next request is refused.
+
 **Advisory AI, reviews of the seventeenth Task 71C retest build: finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §29](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Reviews of `a4db871`.** Both reviews failed it on the same Medium finding: a reply that showed a hosted tool call, a part that isn't text, a tools echo, another model, a stored response or an unsupported status was refused, but only kept the reservation with no pause, so a second paid request could be sent.

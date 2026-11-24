@@ -481,3 +481,20 @@ The fix was checked in the cloud:
 - the workflow test needs SQLite and runs in CI.
 
 The independent reviewer's scratch run of the same rule found that all 68 of its rows pause and that the workflow refuses the second request. Good replies settled, error envelopes, `{}`, no id and an unknown status still only kept the reservation, and the fuzz had no gap. (The unsupported status was added after that run.) Nothing in the cleaner changed. The schema stays at 17.
+
+## 30. Task 71C independent review of the eighteenth retest build at `c80cb60`, early finding, and fixes
+
+The independent review of the eighteenth retest build (commit `c80cb60`; run 45417840745, artifact SHA-256 `1ea33d1f…52b6`) sent an early notice of one Medium paid-bound finding (AI1). Pins, run and tests matched. §29's rule held on every row tried, including all status forms and nine workflow replays, each of which kept the reservation, recorded the untrusted-reply cause and refused the next request. The retest replay settled at 4,192 micro-USD. The report is not in the repository.
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **AI1 (Medium, paid bound; what §29 left of AG1).** A reply in its place whose answer text carried citations in `annotations` (`url_citation`, `file_citation`, `container_file_citation`) settled at its token cost, was shown and saved, and didn't pause, so the next request went out. Only a hosted tool makes a citation, so a citation shows what a tool call item shows. It is weaker than AG1, because a real tool run would also add a call item, which §29 already pauses. §29's own settle test carried a link citation as a row that must settle. | Annotations other than null or an empty list refuse the reply as invalid output text and stop paid requests for review, whatever else refuses the body. Every occurrence counts. This is the rule the independent reviewer tested as a scratch change. | `AnswerTextCarryingACitationStopsPaidRequestsForReview` (seven forms, each alone, behind a repeated root name and with no id); `RepliesMadeOnlyOfReasoningAndAnswerStillSettle` now settles null and missing annotations instead of a link citation; the workflow test gains a row for a link citation, which keeps the whole reservation and refuses the next request |
+
+Not flagged, and recorded as limits: tool traces under names the endpoint doesn't use, and echoes of `tool_choice`, `prompt` or `truncation`.
+
+The fix was checked in the cloud:
+- the domain tests (symbol on and off) and the application tests pass, apart from the four that fail only in the cloud environment;
+- without the fix, the seven new rows fail;
+- the workflow test needs SQLite and runs in CI.
+
+Nothing in the cleaner changed. The schema stays at 17.

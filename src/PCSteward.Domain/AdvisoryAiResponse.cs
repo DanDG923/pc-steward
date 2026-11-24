@@ -405,6 +405,9 @@ public static class AdvisoryAiResponseReader
                                 return Unbound(AdvisoryAiMalformedReason.DuplicateProperty, usage, reliable, above, id);
                             if (part.ValueKind != JsonValueKind.Object || !part.TryGetProperty("type", out JsonElement partType) || partType.ValueKind != JsonValueKind.String)
                                 return Unbound(AdvisoryAiMalformedReason.InvalidOutputText, usage, reliable, above, id);
+                            // Independent review of c80cb60, AI1: a citation is made only by a hosted tool, so text that carries one isn't an
+                            // answer to a request that allowed no tools.
+                            if (HoldsAnnotations(part)) return Unbound(AdvisoryAiMalformedReason.InvalidOutputText, usage, reliable, above, id);
                             if (partType.ValueEquals("output_text") && part.TryGetProperty("text", out JsonElement value) && value.ValueKind == JsonValueKind.String)
                                 text.Append(value.GetString());
                             else if (partType.ValueEquals("refusal")) refused = true;
@@ -529,12 +532,21 @@ public static class AdvisoryAiResponseReader
                         if (type.ValueKind != JsonValueKind.String || !(type.ValueEquals("output_text") || type.ValueEquals("refusal"))) return true;
                     }
                     if (!partTyped) return true;
+                    if (HoldsAnnotations(part)) return true;
                 }
             }
             if (!content) return true;
         }
         return false;
     }
+
+    /// <summary>
+    /// Independent review of c80cb60, AI1: true when a message part carries annotations that aren't an empty list. A link, file or
+    /// container citation is made only by a hosted tool (search, files, code), so it is a trace of tool use even when no tool call
+    /// item and no tools list is reported. Every occurrence counts. null is no annotations.
+    /// </summary>
+    private static bool HoldsAnnotations(JsonElement part) =>
+        Occurrences(part, "annotations").Any(value => value.ValueKind != JsonValueKind.Null && !(value.ValueKind == JsonValueKind.Array && value.GetArrayLength() == 0));
 
     /// <summary>
     /// Independent review of a99b79a, AC1, and of dcef10c, AE1: true when a property named "usage" or "output" with any value but null
