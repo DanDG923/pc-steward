@@ -408,3 +408,20 @@ The independent review of the thirteenth retest build (commit `2cdfcc4`; run 451
 Nothing in the cleaner changed, so the cleaner probes of §24 stand for this build. The fix was checked in the cloud: the domain tests (symbol on and off) and the application tests pass apart from the four that fail only in the cloud environment.
 
 The schema stays at 17.
+
+## 26. Task 71C independent review of the fourteenth retest build at `2de2ec6`, early finding, and fixes
+
+The independent review of the fourteenth retest build (commit `2de2ec6`; run 45375106888, artifact SHA-256 `4ea438fc…3abd`) sent an early notice of one Medium paid-bound finding (AA1), also present on the thirteenth build. All five pins, the run and the artifact matched. The §25 fix held: none of 2,820 written forms of a number avoided the pause. The cleaner's output was identical to the thirteenth build's. The owner's review of this build was held. The report is not in the repository.
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **AA1 (Medium, paid bound). Counts above the approval that kept the reservation with no pause.** §22 to §25 read only `input_tokens`, `output_tokens` and `total_tokens`, and only when written as numbers. So these were missed: (a) `reasoning_tokens` above the output approval as a plain whole number (`"output_tokens":321` with `"reasoning_tokens":2049`), in every body shape; (b) a main count written as a string, array or `true` (`"output_tokens":"2049"`), in every body shape, which is what §25 left of F2 (§14); (c) in wrapped bodies only, where the usage reader doesn't run, a cached count or another count name above the approval (`"cached_tokens":99999`, `"completion_tokens":99999` with no total). | Every count under a `usage` object, at any depth, is now bounded by its place: `input_tokens` and anything under `input_tokens_details` by the input approval, `output_tokens` and anything under `output_tokens_details` by the output approval, and any other name by the approved total. A value where a count belongs that isn't a plain whole number within its bound counts as above. That covers a fraction, a string, `true`, `false` and an array. `null` is no count, as a missing one is. The rule the independent reviewer tested in a scratch change is taken as it was. The first live reply shape still settles at its real cost. | `EveryCountUnderUsageIsBoundedByItsPlaceInEveryBodyShape` (nine forms; normal, two early-refused and three wrapped bodies), `TheFirstLiveReplyShapeStillSettlesWithEveryCountReadByItsPlace`, and `MissingInconsistentOrMalformedUsageIsNeverReliable` (its string row now pauses) |
+
+The ADR-029 rule is unchanged: usage that can't be trusted keeps the whole reservation. What changes is that a count which may be above the approval, or can't be read as a count, now also stops paid requests for review. F2 (§14) is closed for counts: a main usage count that isn't a plain count now pauses (§25, §26).
+
+The fix was checked in the cloud:
+- the domain tests (symbol on and off) and the application tests pass, apart from the four that fail only in the cloud environment;
+- without the fix, the ten new or changed rows fail.
+
+The independent reviewer's scratch run of the same rule found that every AA1 case pauses in all 20 of its shapes. The live shape settled at 4,192 micro-USD, and 600,000 fuzzed bodies settled as before. Nothing in the cleaner changed. The schema stays at 17.
+

@@ -205,8 +205,10 @@ public sealed class AdvisoryAiResponseTests
         Assert.AreEqual(AdvisoryAiAnswerStatus.Completed, response.Status, "the answer can still be shown");
         Assert.IsFalse(response.UsageReliable);
         // Codex review of 2cdfcc4, 71C-01: a count that isn't a plain whole number can't be compared exactly with the approval, so it
-        // also stops paid requests; every other row here is untrusted without a pause.
-        Assert.AreEqual(usage.Contains("900.5", StringComparison.Ordinal), response.UsageAboveApprovedBounds);
+        // also stops paid requests; independent review of 2de2ec6, AA1: so does a count written as a string. Every other row here is
+        // untrusted without a pause.
+        Assert.AreEqual(usage.Contains("900.5", StringComparison.Ordinal) || usage.Contains("\"input_tokens\":\"900\"", StringComparison.Ordinal),
+            response.UsageAboveApprovedBounds);
     }
 
     [TestMethod]
@@ -745,6 +747,69 @@ public sealed class AdvisoryAiResponseTests
             Assert.IsTrue(settlement.NeedsReview, shape);
             Assert.IsTrue(settlement.ReviewCause.HasFlag(AdvisoryAiReviewCause.UntrustedReply), shape);
         }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("\"reasoning_tokens\":0", "\"reasoning_tokens\":2049", DisplayName = "reasoning tokens above the output approval")]
+    [DataRow("\"reasoning_tokens\":0", "\"reasoning_tokens\":99999", DisplayName = "reasoning tokens far above the output approval")]
+    [DataRow("\"cached_tokens\":0", "\"cached_tokens\":12289", DisplayName = "cached tokens above the input approval")]
+    [DataRow("\"output_tokens\":300", "\"output_tokens\":\"2049\"", DisplayName = "output written as a string")]
+    [DataRow("\"output_tokens\":300", "\"output_tokens\":[99999]", DisplayName = "output written as an array")]
+    [DataRow("\"output_tokens\":300", "\"output_tokens\":true", DisplayName = "output written as true")]
+    [DataRow("\"total_tokens\":791", "\"total_tokens\":\"791\"", DisplayName = "total within the approval written as a string")]
+    [DataRow("\"total_tokens\":791", "\"completion_tokens\":99999", DisplayName = "another count name above the total, with no total")]
+    [DataRow("\"cached_tokens\":0", "\"cached_tokens\":99999", DisplayName = "cached tokens far above the input approval")]
+    public void EveryCountUnderUsageIsBoundedByItsPlaceInEveryBodyShape(string from, string to)
+    {
+        // Independent review of 2de2ec6, AA1: only input_tokens, output_tokens and total_tokens written as numbers were read, so
+        // reasoning tokens above the output approval, a count written as a string, or (in a wrapped body, where the usage reader
+        // doesn't run) a cached or other count above the approval kept the reservation with no pause. Every count under a "usage"
+        // object is now bounded by its place: input details by the input approval, output details by the output approval, and any
+        // other name by the total.
+        string usage = "\"usage\":{\"input_tokens\":491,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":300," +
+            "\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":791}";
+        Assert.AreEqual(1, usage.Split(from).Length - 1, from);
+        string normal = Body(usage: usage.Replace(from, to, StringComparison.Ordinal));
+        foreach ((string shape, string body) in new[]
+        {
+            ("normal", normal),
+            ("refused as stored", normal.Replace("\"store\":false", "\"store\":true", StringComparison.Ordinal)),
+            ("refused as another model", normal.Replace(Model, "other-model", StringComparison.Ordinal)),
+            ("wrapped in an array", "[" + normal + "]"),
+            ("wrapped in an event", "{\"type\":\"response.completed\",\"response\":" + normal + "}"),
+            ("wrapped in a list", "{\"object\":\"list\",\"data\":[" + normal + "]}")
+        })
+        {
+            AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+            Assert.IsFalse(response.UsageReliable, shape);
+            Assert.IsTrue(response.UsageAboveApprovedBounds, shape);
+            AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+            Assert.AreEqual(AdvisoryAiRequestState.Uncertain, settlement.State, shape);
+            Assert.AreEqual(45_056, settlement.Committed.Value, shape);
+            Assert.IsTrue(settlement.NeedsReview, shape);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void TheFirstLiveReplyShapeStillSettlesWithEveryCountReadByItsPlace()
+    {
+        // Independent review of 2de2ec6, AA1: the first live reply (491 input, 321 output, zero cached, cache-write and reasoning
+        // details) is within every place's bound, so it still settles at its real cost, and a null detail is no count.
+        string usage = "\"usage\":{\"input_tokens\":491,\"input_tokens_details\":{\"cached_tokens\":0,\"cache_write_tokens\":0," +
+            "\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_30m_tokens\":0}},\"output_tokens\":321," +
+            "\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":812}";
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(Body(usage: usage)), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.IsTrue(response.UsageReliable);
+        Assert.IsFalse(response.UsageAboveApprovedBounds);
+        AdvisoryAiSettlement settled = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+        Assert.AreEqual(AdvisoryAiRequestState.Settled, settled.State);
+        Assert.AreEqual(4_192, settled.Committed.Value);
+        Assert.IsFalse(settled.NeedsReview);
+
+        string withNull = usage.Replace("\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_30m_tokens\":0}", "\"cache_write_tokens_details\":null", StringComparison.Ordinal);
+        Assert.IsFalse(AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(Body(usage: withNull)), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true).UsageAboveApprovedBounds);
     }
 
     [TestMethod]
