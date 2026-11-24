@@ -439,6 +439,10 @@ The independent review of the fifteenth retest build (commit `a99b79a`; run 4538
 
 The ADR-029 rule is unchanged: a reply that can't be read keeps the whole reservation. W2 (§23) is unchanged too: a reply that isn't JSON, or is over the admitted bytes or the parse depth, keeps the reservation with no pause.
 
+Two more lines, recorded from the independent reviewer's look at this change before it merged:
+- The rule also pauses a root object whose `object` field isn't `response` when it holds `usage` or `output`. Before this change, such a body paused only with a departure.
+- AD1 is a listed limit: a reply carried as a string inside JSON, or under names other than `usage` and `output`, isn't read, so it keeps the reservation with no pause.
+
 The fix was checked in the cloud:
 - the domain tests (symbol on and off) and the application tests pass, apart from the four that fail only in the cloud environment;
 - without the fix, the ten new or changed rows fail.
