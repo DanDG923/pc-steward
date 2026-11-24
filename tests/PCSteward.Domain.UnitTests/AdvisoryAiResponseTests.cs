@@ -1016,6 +1016,63 @@ public sealed class AdvisoryAiResponseTests
 
     [TestMethod]
     [TestCategory("FR-BUD-03")]
+    [DataRow("BOM", DisplayName = "a byte order mark before the reply")]
+    [DataRow("SSE", DisplayName = "the reply as an event stream")]
+    [DataRow("DEEP", DisplayName = "the reply with nesting past the depth limit")]
+    [DataRow("COMMA", DisplayName = "the reply with a trailing comma")]
+    [DataRow("CUT", DisplayName = "the reply cut off")]
+    [DataRow("TWICE", DisplayName = "the reply followed by a second object")]
+    [DataRow("LARGE", DisplayName = "the reply over the admitted size")]
+    public void AReplyRefusedBeforeItCanBeReadStopsPaidRequestsForReview(string form)
+    {
+        // Independent review of 62b85a1, AJ1: a reply refused before it was parsed only kept the reservation, with no pause, so the
+        // next paid request went out. A body over the admitted size is more than the approved request could produce, and a body that
+        // isn't strict JSON but names usage or output is a reply nothing could check. Both now stop paid requests for review.
+        string body = Body();
+        long maximumBytes = 1_000_000;
+        body = form switch
+        {
+            "BOM" => "\uFEFF" + body,
+            "SSE" => "event: response.completed\ndata: " + body + "\n\n",
+            "DEEP" => Body(extra: ",\"x\":" + new string('[', 40) + new string(']', 40)),
+            "COMMA" => Body(extra: ","),
+            "CUT" => body[..^10],
+            "TWICE" => body + "{}",
+            _ => body,
+        };
+        if (form == "LARGE") maximumBytes = Encoding.UTF8.GetByteCount(body) - 1;
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, maximumBytes, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.AreEqual(AdvisoryAiAnswerStatus.Malformed, response.Status);
+        Assert.AreEqual(form == "LARGE" ? AdvisoryAiMalformedReason.TooLarge : AdvisoryAiMalformedReason.NotJson, response.MalformedReason);
+        Assert.IsTrue(response.UsageAboveApprovedBounds);
+        Assert.IsNull(response.Text);
+        AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+        Assert.AreEqual(AdvisoryAiRequestState.Uncertain, settlement.State);
+        Assert.AreEqual(45_056, settlement.Committed.Value, "the whole reservation is kept");
+        Assert.IsTrue(settlement.NeedsReview);
+        Assert.AreEqual(AdvisoryAiReviewCause.UntrustedReply, settlement.ReviewCauses);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("", DisplayName = "an empty body")]
+    [DataRow("not json", DisplayName = "plain text")]
+    [DataRow("<html><head><title>502 Bad Gateway</title></head><body><h1>502 Bad Gateway</h1></body></html>", DisplayName = "a gateway's error page")]
+    [DataRow("upstream connect error or disconnect/reset before headers. reset reason: overflow", DisplayName = "a proxy's plain error")]
+    [DataRow("{\"error\":{\"message\":\"x\",\"type\":\"server_error\"},}", DisplayName = "an error envelope with a trailing comma")]
+    public void ABodyThatCanNotBeReadAndNamesNoReplyKeepsTheReservationWithoutAPause(string body)
+    {
+        // Independent review of 62b85a1, AJ1: only a body that names usage or output in quotes pauses; an error page still only keeps.
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.AreEqual(AdvisoryAiMalformedReason.NotJson, response.MalformedReason);
+        Assert.IsFalse(response.UsageAboveApprovedBounds);
+        AdvisoryAiSettlement kept = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+        Assert.IsFalse(kept.NeedsReview);
+        Assert.AreEqual(45_056, kept.Committed.Value);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
     [DataRow("{\"error\":{\"message\":\"The server had an error.\",\"type\":\"server_error\",\"code\":null}}", DisplayName = "an error envelope")]
     [DataRow("{}", DisplayName = "an empty object")]
     [DataRow("[]", DisplayName = "an empty array")]

@@ -1,3 +1,8 @@
+**Advisory AI, independent review of the nineteenth Task 71C retest build: early finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §31](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `62b85a1`.** One Medium finding sent early: a reply refused before it was read (too large, or not strict JSON, such as one with a byte order mark) only kept the reservation with no pause, so the next request could go out.
+- **Fixed.** A reply over the admitted size, and a body that can't be parsed but names usage or output, now stop paid requests for review. A gateway's error page still only keeps the reservation. A workflow test shows the next request is refused.
+
 **Advisory AI, independent review of the eighteenth Task 71C retest build: early finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §30](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `c80cb60`.** One Medium finding sent early: answer text carrying citations, which only a hosted tool makes, settled and was shown with no pause, so the next request could go out.

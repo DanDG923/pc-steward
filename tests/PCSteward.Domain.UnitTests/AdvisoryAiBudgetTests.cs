@@ -278,7 +278,6 @@ public sealed class AdvisoryAiBudgetTests
     [DataRow(AdvisoryAiDispatchOutcome.TimedOut, AdvisoryAiUncertainReason.TimedOut)]
     [DataRow(AdvisoryAiDispatchOutcome.Cancelled, AdvisoryAiUncertainReason.Cancelled)]
     [DataRow(AdvisoryAiDispatchOutcome.Redirected, AdvisoryAiUncertainReason.Redirected)]
-    [DataRow(AdvisoryAiDispatchOutcome.ResponseTooLarge, AdvisoryAiUncertainReason.ResponseTooLarge)]
     [DataRow(AdvisoryAiDispatchOutcome.Failed, AdvisoryAiUncertainReason.TransportFailed)]
     public void WithoutAResponseTheWholeReservationStaysCommitted(AdvisoryAiDispatchOutcome outcome, AdvisoryAiUncertainReason reason)
     {
@@ -286,6 +285,18 @@ public sealed class AdvisoryAiBudgetTests
         Assert.AreEqual(new AdvisoryAiSettlement(AdvisoryAiRequestState.Uncertain, new(24_576), reason, false), uncertain);
         Assert.AreEqual(new AdvisoryAiSettlement(AdvisoryAiRequestState.Uncertain, new(24_576), AdvisoryAiUncertainReason.Interrupted, false),
             AdvisoryAiSettlementRule.Interrupted(new(24_576)));
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void AReplyTooLargeToReceiveKeepsTheReservationAndStopsPaidRequestsForReview()
+    {
+        // Independent review of 62b85a1, AJ1: a reply the transport stopped reading at the admitted size is more than the approved
+        // request could produce, so it keeps the whole reservation and pauses, like a count above its bound.
+        AdvisoryAiSettlement tooLarge = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseTooLarge, null, new(24_576), Tariff);
+        Assert.AreEqual(new AdvisoryAiSettlement(AdvisoryAiRequestState.Uncertain, new(24_576), AdvisoryAiUncertainReason.ResponseTooLarge, true)
+            { ReviewCause = AdvisoryAiReviewCause.UntrustedReply }, tooLarge);
+        Assert.AreEqual(AdvisoryAiReviewCause.UntrustedReply, tooLarge.ReviewCauses);
     }
 
     [TestMethod]
