@@ -260,7 +260,8 @@ public static class AdvisoryAiResponseReader
                 // the body is refused for (<see cref="HoldsAReplyOutOfPlace"/>).
                 HoldsAReplyOutOfPlace(document.RootElement) ||
                 // Independent review of a4db871, AG1: so does a response that shows something the request never allowed and the
-                // reservation never priced (another model, storage, tools, a tool call item), whatever the body is refused for
+                // reservation never priced (another model, storage, tools, an unsupported status, a tool call item), whatever the
+                // body is refused for. The owner's review of a4db871, 71C-01, found the same and added the unsupported status
                 // (<see cref="ShowsWhatTheRequestNeverAllowed"/>).
                 ShowsWhatTheRequestNeverAllowed(document.RootElement, expectedModel);
             // A body that continues other state isn't an answer to this request, so its text is never shown or saved.
@@ -465,7 +466,8 @@ public static class AdvisoryAiResponseReader
 
     /// <summary>
     /// Independent review of a4db871, AG1: true when a response object shows something the approved request never allowed and the
-    /// reservation never priced: a model other than the approved one, a stored response, tools, an output item that is neither
+    /// reservation never priced: a model other than the approved one, a stored response, tools, a status the reader doesn't support
+    /// (owner's review of a4db871, 71C-01), an output item that is neither
     /// reasoning nor a message (a search, file, code, image, computer, remote or function call), or a message part that is neither
     /// output text nor a refusal (audio, an image). The reader refuses each of these, but a refusal alone only keeps the
     /// reservation, and a hosted tool or another model is charged outside it. Read on its own and over every occurrence, like the
@@ -482,6 +484,10 @@ public static class AdvisoryAiResponseReader
             if (property.NameEquals("model") && !(value.ValueKind == JsonValueKind.String && value.ValueEquals(expectedModel))) return true;
             if (property.NameEquals("store") && value.ValueKind != JsonValueKind.False) return true;
             if (property.NameEquals("tools") && !(value.ValueKind == JsonValueKind.Array && value.GetArrayLength() == 0)) return true;
+            // Owner's review of a4db871, 71C-01: a status the reader doesn't support (queued, in progress, anything else) says the
+            // provider may still be working on the request, so it pauses too. A missing status is no status.
+            if (property.NameEquals("status") && value.ValueKind != JsonValueKind.Null && !(value.ValueKind == JsonValueKind.String &&
+                (value.ValueEquals("completed") || value.ValueEquals("incomplete") || value.ValueEquals("failed") || value.ValueEquals("cancelled")))) return true;
             if (property.NameEquals("output") && HoldsMoreThanAnAnswer(value)) return true;
         }
         return false;

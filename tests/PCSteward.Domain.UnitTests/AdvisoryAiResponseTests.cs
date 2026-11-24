@@ -296,8 +296,9 @@ public sealed class AdvisoryAiResponseTests
             AdvisoryAiResponse response = Read(body);
             Assert.AreEqual(AdvisoryAiAnswerStatus.Malformed, response.Status);
             Assert.AreEqual(expected, response.MalformedReason);
-            // Independent review of a4db871, AG1: another model, a stored response or tools pause on their own, with or without a write.
-            bool pauses = review || change is "model" or "store" or "tools";
+            // Independent review of a4db871, AG1, and the owner's review, 71C-01: another model, a stored response, tools or an
+            // unsupported status pause on their own, with or without a write.
+            bool pauses = review || change is "model" or "store" or "tools" or "status";
             Assert.AreEqual(pauses, response.UsageAboveApprovedBounds, written);
             AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), tariff);
             Assert.AreEqual(AdvisoryAiRequestState.Uncertain, settlement.State);
@@ -687,10 +688,10 @@ public sealed class AdvisoryAiResponseTests
         Assert.AreEqual(committed, settlement.Committed.Value);
         Assert.IsTrue(settlement.NeedsReview);
 
-        // Within the bounds, a body refused for no id or an unknown status still only keeps the reservation, without a pause.
-        // Independent review of a4db871, AG1: one that shows another model, storage or tools pauses, since those are charged outside
-        // the reservation.
-        bool neverAllowed = change is "model" or "store" or "tools";
+        // Within the bounds, a body refused for no id still only keeps the reservation, without a pause. Independent review of
+        // a4db871, AG1, and the owner's review, 71C-01: one that shows another model, storage, tools or an unsupported status pauses,
+        // since those are charged outside the reservation or say the provider may still be working.
+        bool neverAllowed = change is "model" or "store" or "tools" or "status";
         string within = body.Replace("6000", "300", StringComparison.Ordinal).Replace("6491", "791", StringComparison.Ordinal);
         AdvisoryAiResponse refused = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(within), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
         Assert.AreEqual(neverAllowed, refused.UsageAboveApprovedBounds);
@@ -1153,16 +1154,39 @@ public sealed class AdvisoryAiResponseTests
 
     [TestMethod]
     [TestCategory("FR-BUD-03")]
+    [DataRow("\"queued\"", true, DisplayName = "queued")]
+    [DataRow("\"in_progress\"", true, DisplayName = "in progress")]
+    [DataRow("\"paused\"", true, DisplayName = "an unknown word")]
+    [DataRow("5", true, DisplayName = "a number")]
+    [DataRow("\"completed\"", false, DisplayName = "completed")]
+    [DataRow("\"incomplete\"", false, DisplayName = "incomplete")]
+    [DataRow("\"failed\"", false, DisplayName = "failed")]
+    [DataRow("\"cancelled\"", false, DisplayName = "cancelled")]
+    public void AnUnsupportedStatusStopsPaidRequestsForReview(string status, bool pauses)
+    {
+        // Owner's review of a4db871, 71C-01: a status the reader doesn't support was refused but only kept the reservation, so a
+        // reply saying the provider was still working on the request could be followed by another paid request. It now pauses.
+        string body = Body().Replace("\"status\":\"completed\"", "\"status\":" + status, StringComparison.Ordinal);
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.AreEqual(pauses, response.UsageAboveApprovedBounds);
+        AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+        Assert.AreEqual(pauses, settlement.NeedsReview);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
     public void BodiesThatShowNothingTheRequestNeverAllowedStillOnlyKeepTheReservation()
     {
-        // Independent review of a4db871, AG1: the new check reads only a response object's model, store, tools and output, so an error
-        // envelope (even one naming a model and tools), no id, an unknown status, no model and a failed response still only keep the
-        // reservation, without a pause. A message with no content now pauses: a recorded cost of the check.
+        // Independent review of a4db871, AG1: the new check reads only a response object's model, store, tools, status and output, so
+        // an error envelope (even one naming a model and tools), no id, no status, no model and a failed response still only keep the
+        // reservation, without a pause. A message with no content now pauses: a recorded cost of the check. The owner's review,
+        // 71C-01: so does an unsupported status.
         foreach ((string what, string body, bool pauses) in new[]
         {
             ("an error envelope naming a model and tools", "{\"error\":{\"message\":\"x\",\"type\":\"invalid_request_error\",\"model\":\"other\",\"tools\":[{}]}}", false),
             ("a response with no id", Body().Replace("\"resp_abc123\"", "\"\"", StringComparison.Ordinal), false),
-            ("a response with an unknown status", Body().Replace("\"status\":\"completed\",\"model\"", "\"status\":\"paused\",\"model\"", StringComparison.Ordinal), false),
+            ("a response with an unknown status", Body().Replace("\"status\":\"completed\",\"model\"", "\"status\":\"paused\",\"model\"", StringComparison.Ordinal), true),
+            ("a response with no status", Body().Replace("\"status\":\"completed\",", "", StringComparison.Ordinal), false),
             ("a response with no model named", Body().Replace("\"model\":\"" + Model + "\",", "", StringComparison.Ordinal), false),
             ("a failed response with no output field", "{\"id\":\"resp_abc123\",\"object\":\"response\",\"created_at\":1763000000,\"status\":\"failed\",\"model\":\"" + Model + "\",\"store\":false,\"tools\":[],\"error\":{\"code\":\"server_error\",\"message\":\"x\"}}", false),
             ("a message with no content", Body(output: "[{\"type\":\"message\",\"role\":\"assistant\"}]"), true)
