@@ -515,3 +515,23 @@ The fix was checked in the cloud:
 - the workflow test needs SQLite and runs in CI.
 
 Nothing in the cleaner changed. The schema stays at 17.
+
+## 32. Task 71C independent review of the twentieth retest build at `68b4742`, early finding, and fixes
+
+The independent review of the twentieth retest build (commit `68b4742`; run 45455433136, artifact SHA-256 `5e354b9c…df07`) sent an early notice of one Medium paid-bound finding (AK1). Pins matched. The repository tests passed with the symbol on and off, and §31's own rows held. The final report confirmed AK1 as its only finding. The report is not in the repository.
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **AK1 (Medium, paid bound; on every build; the reviewer's miss in §31's string search).** §31 searched strings only when the root was not a response object. So a body that merely said `"object":"response"` was never searched, and a reply sent as a string inside it kept the reservation with no pause. That covered a bare wrapper with the reply in a `data` string, an outer response with an id, status and model, a good reply without usage whose real reply sat in a metadata string, and a failed response with the reply in its error message. The same was true of a body that isn't JSON whose names were written with JSON escapes, behind a byte order mark, after a trailing comma or in an event stream. In a workflow replay the next paid request was sent. It is AE1's pattern again: one more shape of reply out of place. | Stop chasing shapes. A body received under a status that isn't an HTTP error (so a success status, or no status at all) that doesn't settle is a reply PC Steward can't price, whatever its shape. It keeps the whole reservation and stops paid requests for review (`AdvisoryAiSettlementRule.AfterStatus`, applied in the request workflow after the body rules). Under an HTTP error status (400 to 599), the body rules decide alone, as before. This is the rule the independent reviewer tested as a scratch change, and it is the plainer end §31 declined, without its cost to gateway error pages. | `AReplyThatArrivesAsASuccessButDoesNotSettleStopsPaidRequestsForReview` (2xx, 3xx and no status pause; 400, 429, 500, 502 and 599 don't); `TheSuccessStatusRuleLeavesSettledRepliesOtherOutcomesAndExistingPausesAsTheyAre`; the workflow test `AReplyThatArrivesAsASuccessButDoesNotSettlePausesSoTheNextRequestIsRefused` (the reply as a string in a response wrapper, in a metadata string, with escaped names behind a byte order mark, an empty body, `{}` and an error envelope at 200, and the wrapper with no status) keeps the whole reservation and refuses the next request; `AnErrorStatusWithAnOrdinaryErrorBodyKeepsTheReservationWithoutAPause` (a 502 page, a 429 error, an empty 503) |
+
+Owner decision, 2026-11-24 19:47 UTC: take the success-status rule in build 21 rather than accept AK1 for the retest. This changes the T70-07 rule (Task 69 item 6) for one kind of outcome. An uncertain outcome still keeps the whole reservation without a pause after a timeout, a lost connection, a redirect, or an HTTP error status with an ordinary error body. But a body received as a success that doesn't settle now pauses. The cost: at a success status, an empty body, `{}`, an error envelope, an HTML page, or a reply with no usage or no status now pauses paid requests until the owner reviews. The retest's one send settled in every replay (4,192 micro-USD), so it is unchanged.
+
+Recorded as a limit: the same reply shapes under an HTTP error status still only keep the reservation, as the body rules decide there.
+
+The line the independent review holds to after this rule: a reply keeps the reservation with no pause only when (a) nothing arrived in full, or (b) it came under an HTTP error status and the body rules find no trace of a reply. The review rates the gaps left under an error status Low and would not fail a build for them.
+
+The fix was checked in the cloud:
+- the domain tests (symbol on and off) and the application tests pass, apart from the four that fail only in the cloud environment;
+- the workflow tests need SQLite and run in CI.
+
+Nothing in the cleaner changed. The schema stays at 17.

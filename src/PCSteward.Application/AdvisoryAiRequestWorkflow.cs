@@ -227,7 +227,7 @@ public sealed class AdvisoryAiRequestWorkflow
     {
         AdvisoryAiDispatchOutcome outcome = Map(sent.Outcome);
         AdvisoryAiResponse? response = outcome == AdvisoryAiDispatchOutcome.ResponseReceived ? ReadReply(approval, sent) : null;
-        AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(outcome, response, request.Reservation, tariff);
+        AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.AfterStatus(AdvisoryAiSettlementRule.Decide(outcome, response, request.Reservation, tariff), outcome, sent.HttpStatus);
         AdvisoryAiLedgerWrite written = await ledger.SettleAsync(request.RequestId, settlement, response?.Usage, response?.ResponseId, utcNow(), CancellationToken.None)
             .ConfigureAwait(false);
 

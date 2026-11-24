@@ -309,6 +309,82 @@ public sealed class AdvisoryAiExplainTests
 
     [TestMethod]
     [TestCategory("FR-BUD-03")]
+    [DataRow("STRING IN A WRAPPER", 200, DisplayName = "the reply as a string inside an object that says it is a response")]
+    [DataRow("STRING IN METADATA", 200, DisplayName = "a reply without usage, with the real reply in a metadata string")]
+    [DataRow("ESCAPED NAMES", 200, DisplayName = "a byte order mark before a reply whose names are escaped")]
+    [DataRow("EMPTY", 200, DisplayName = "an empty body")]
+    [DataRow("EMPTY OBJECT", 200, DisplayName = "an empty object")]
+    [DataRow("ERROR", 200, DisplayName = "an error envelope")]
+    [DataRow("STRING IN A WRAPPER", 0, DisplayName = "the reply as a string inside a response, with no status")]
+    public async Task AReplyThatArrivesAsASuccessButDoesNotSettlePausesSoTheNextRequestIsRefused(string form, int status)
+    {
+        // Independent review of 68b474214b, AK1: a reply sent as a string inside an object that only says it is a response, or names
+        // written with escapes behind a byte order mark, kept only the reservation, with no pause. A body that wasn't an HTTP error and
+        // didn't settle now keeps the whole reservation and pauses, whatever its shape, and the next request is refused.
+        await using Fixture fixture = await Fixture.CreateAsync(connected: true, prices: true);
+        string reply = Body("Synthetic explanation.");
+        string body = form switch
+        {
+            "STRING IN A WRAPPER" => "{\"object\":\"response\",\"data\":" + System.Text.Json.JsonSerializer.Serialize(reply) + "}",
+            "STRING IN METADATA" => reply.Replace("," + UsageJson, ",\"metadata\":{\"note\":" + System.Text.Json.JsonSerializer.Serialize(reply) + "}", StringComparison.Ordinal),
+            "ESCAPED NAMES" => "\uFEFF" + reply.Replace("\"usage\"", "\"\\u0075sage\"", StringComparison.Ordinal).Replace("\"output\"", "\"\\u006futput\"", StringComparison.Ordinal),
+            "EMPTY" => "",
+            "EMPTY OBJECT" => "{}",
+            _ => "{\"error\":{\"message\":\"The server had an error.\",\"type\":\"server_error\",\"code\":null}}",
+        };
+        fixture.Transport.Next = new(AdvisoryAiTransportOutcome.ResponseReceived, status == 0 ? null : status, [.. Encoding.UTF8.GetBytes(body)]);
+        AdvisoryAiExplainService service = fixture.Service();
+        AdvisoryAiEvidenceDraft draft = (await service.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Draft!;
+        AdvisoryAiReview review = await service.ReviewAsync(draft, CancellationToken.None);
+        AdvisoryAiSendOutcome outcome = await service.SendAsync(review, CancellationToken.None);
+
+        Assert.IsTrue(outcome.Dispatched);
+        Assert.AreEqual(AdvisoryAiRequestState.Uncertain, outcome.Settlement!.State);
+        Assert.AreEqual(review.Reservation, outcome.Settlement.Committed, "the whole reservation is kept");
+        Assert.IsTrue(outcome.Settlement.NeedsReview);
+        Assert.AreEqual(AdvisoryAiLedgerWrite.Done, outcome.SettlementWrite);
+        AdvisoryAiAccountingState state = await fixture.Store.GetAccountingStateAsync(CancellationToken.None);
+        Assert.IsTrue(state.ReviewBlock);
+        Assert.AreEqual(AdvisoryAiReviewCause.UntrustedReply, state.ReviewCauses);
+
+        fixture.Transport.Next = new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes(Body("Synthetic explanation."))]);
+        AdvisoryAiEvidenceDraft next = (await service.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Draft!;
+        AdvisoryAiSendOutcome refused = await service.SendAsync(await service.ReviewAsync(next, CancellationToken.None), CancellationToken.None);
+        Assert.IsFalse(refused.Dispatched, "the next request is refused while paid requests are paused");
+        Assert.AreEqual(1, fixture.Transport.Calls, "nothing more is sent");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("PAGE", 502, DisplayName = "a gateway's error page")]
+    [DataRow("ERROR", 429, DisplayName = "a rate-limit error envelope")]
+    [DataRow("EMPTY", 503, DisplayName = "an empty body under a server error")]
+    public async Task AnErrorStatusWithAnOrdinaryErrorBodyKeepsTheReservationWithoutAPause(string form, int status)
+    {
+        // Independent review of 68b474214b, AK1: under an HTTP error status the body rules decide alone, so an ordinary error keeps the
+        // whole reservation without pausing, and the owner's procedure stops the retest.
+        await using Fixture fixture = await Fixture.CreateAsync(connected: true, prices: true);
+        string body = form switch
+        {
+            "PAGE" => "<html><head><title>502 Bad Gateway</title></head><body><h1>502 Bad Gateway</h1></body></html>",
+            "ERROR" => "{\"error\":{\"message\":\"Rate limit reached.\",\"type\":\"requests\",\"code\":\"rate_limit_exceeded\"}}",
+            _ => "",
+        };
+        fixture.Transport.Next = new(AdvisoryAiTransportOutcome.ResponseReceived, status, [.. Encoding.UTF8.GetBytes(body)]);
+        AdvisoryAiExplainService service = fixture.Service();
+        AdvisoryAiEvidenceDraft draft = (await service.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Draft!;
+        AdvisoryAiReview review = await service.ReviewAsync(draft, CancellationToken.None);
+        AdvisoryAiSendOutcome outcome = await service.SendAsync(review, CancellationToken.None);
+
+        Assert.IsTrue(outcome.Dispatched);
+        Assert.AreEqual(AdvisoryAiRequestState.Uncertain, outcome.Settlement!.State);
+        Assert.AreEqual(review.Reservation, outcome.Settlement.Committed, "the whole reservation is kept");
+        Assert.IsFalse(outcome.Settlement.NeedsReview);
+        Assert.IsFalse((await fixture.Store.GetAccountingStateAsync(CancellationToken.None)).ReviewBlock);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
     [DataRow("{\"cached_tokens\":0}", "{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_\\uD800\":0}}", DisplayName = "a name the reader reads")]
     [DataRow("\"store\":false,", "\"store\":false,\"metadata\":{\"note\":\"\\uDC00\"},", DisplayName = "a value in metadata nothing reads")]
     [DataRow("\"output\":[", "\"output\":[{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"\\uD800\"}]},", DisplayName = "text in a skipped reasoning item")]

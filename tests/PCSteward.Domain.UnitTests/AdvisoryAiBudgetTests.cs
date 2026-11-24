@@ -289,6 +289,44 @@ public sealed class AdvisoryAiBudgetTests
 
     [TestMethod]
     [TestCategory("FR-BUD-03")]
+    [DataRow(200, true, DisplayName = "a success status")]
+    [DataRow(204, true, DisplayName = "another success status")]
+    [DataRow(302, true, DisplayName = "a status that isn't an error")]
+    [DataRow(-1, true, DisplayName = "no status")]
+    [DataRow(400, false, DisplayName = "a client error")]
+    [DataRow(429, false, DisplayName = "a rate limit")]
+    [DataRow(500, false, DisplayName = "a server error")]
+    [DataRow(502, false, DisplayName = "a gateway error")]
+    [DataRow(599, false, DisplayName = "the last error status")]
+    public void AReplyThatArrivesAsASuccessButDoesNotSettleStopsPaidRequestsForReview(int status, bool pauses)
+    {
+        // Independent review of 68b474214b, AK1: whatever its shape, a body that wasn't an HTTP error and didn't settle can't be priced,
+        // so it keeps the whole reservation and pauses. Under an error status the body rules decide alone, as before.
+        int? httpStatus = status < 0 ? null : status;
+        AdvisoryAiSettlement kept = new(AdvisoryAiRequestState.Uncertain, new(24_576), AdvisoryAiUncertainReason.MalformedResponse, false);
+        AdvisoryAiSettlement after = AdvisoryAiSettlementRule.AfterStatus(kept, AdvisoryAiDispatchOutcome.ResponseReceived, httpStatus);
+        Assert.AreEqual(pauses, after.NeedsReview);
+        Assert.AreEqual(24_576, after.Committed.Value, "the whole reservation is kept");
+        Assert.AreEqual(AdvisoryAiUncertainReason.MalformedResponse, after.Reason);
+        Assert.AreEqual(pauses ? AdvisoryAiReviewCause.UntrustedReply : AdvisoryAiReviewCause.None, after.ReviewCauses);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void TheSuccessStatusRuleLeavesSettledRepliesOtherOutcomesAndExistingPausesAsTheyAre()
+    {
+        // Independent review of 68b474214b, AK1: only an unsettled body received under a status that isn't an error changes.
+        AdvisoryAiSettlement settled = new(AdvisoryAiRequestState.Settled, new(6_000), AdvisoryAiUncertainReason.None, false);
+        Assert.AreEqual(settled, AdvisoryAiSettlementRule.AfterStatus(settled, AdvisoryAiDispatchOutcome.ResponseReceived, 200));
+        AdvisoryAiSettlement timedOut = new(AdvisoryAiRequestState.Uncertain, new(24_576), AdvisoryAiUncertainReason.TimedOut, false);
+        Assert.AreEqual(timedOut, AdvisoryAiSettlementRule.AfterStatus(timedOut, AdvisoryAiDispatchOutcome.TimedOut, null));
+        AdvisoryAiSettlement above = new(AdvisoryAiRequestState.Uncertain, new(30_000), AdvisoryAiUncertainReason.UsageMissingOrUnreliable, true)
+            { ReviewCause = AdvisoryAiReviewCause.ChargeAboveReservation };
+        Assert.AreEqual(above, AdvisoryAiSettlementRule.AfterStatus(above, AdvisoryAiDispatchOutcome.ResponseReceived, 200), "an existing pause keeps its cause");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
     public void AReplyTooLargeToReceiveKeepsTheReservationAndStopsPaidRequestsForReview()
     {
         // Independent review of 62b85a1, AJ1: a reply the transport stopped reading at the admitted size is more than the approved

@@ -1,3 +1,8 @@
+**Advisory AI, independent review of the twentieth Task 71C retest build: early finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §32](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `68b4742`.** One Medium finding sent early: a reply sent as a string inside an object that only says it is a response, or with its names escaped behind a byte order mark, kept only the reservation with no pause, so the next request could go out.
+- **Fixed by a plainer rule.** Any body received under a status that isn't an HTTP error that doesn't settle now keeps the whole reservation and stops paid requests for review, whatever its shape. An error status with an ordinary error body still only keeps the reservation. A workflow test shows the next request is refused.
+
 **Advisory AI, independent review of the nineteenth Task 71C retest build: early finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §31](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `62b85a1`.** One Medium finding sent early: a reply refused before it was read (too large, not strict JSON such as one with a byte order mark, or sent as a string) only kept the reservation with no pause, so the next request could go out.
