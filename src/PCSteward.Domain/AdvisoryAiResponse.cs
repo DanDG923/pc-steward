@@ -258,7 +258,11 @@ public static class AdvisoryAiResponseReader
                 // couldn't be read in its place, so its tier, cache write, state and output length were never checked. It pauses.
                 // Independent review of dcef10c, AE1: so does usage or output anywhere but directly on a response object, whatever
                 // the body is refused for (<see cref="HoldsAReplyOutOfPlace"/>).
-                HoldsAReplyOutOfPlace(document.RootElement);
+                HoldsAReplyOutOfPlace(document.RootElement) ||
+                // Independent review of a4db871, AG1: so does a response that shows something the request never allowed and the
+                // reservation never priced (another model, storage, tools, a tool call item), whatever the body is refused for
+                // (<see cref="ShowsWhatTheRequestNeverAllowed"/>).
+                ShowsWhatTheRequestNeverAllowed(document.RootElement, expectedModel);
             // A body that continues other state isn't an answer to this request, so its text is never shown or saved.
             if (departures.HasFlag(AdvisoryAiResponseDeparture.ConversationState) && response.Status != AdvisoryAiAnswerStatus.Malformed)
                 response = response with { Status = AdvisoryAiAnswerStatus.Malformed, IncompleteReason = AdvisoryAiIncompleteReason.None,
@@ -456,6 +460,73 @@ public static class AdvisoryAiResponseReader
         if (root.ValueKind != JsonValueKind.Object || !IsString(root, "object", "response")) return CarriesAReply(root);
         foreach (JsonProperty property in root.EnumerateObject())
             if (CarriesAReply(property.Value)) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Independent review of a4db871, AG1: true when a response object shows something the approved request never allowed and the
+    /// reservation never priced: a model other than the approved one, a stored response, tools, an output item that is neither
+    /// reasoning nor a message (a search, file, code, image, computer, remote or function call), or a message part that is neither
+    /// output text nor a refusal (audio, an image). The reader refuses each of these, but a refusal alone only keeps the
+    /// reservation, and a hosted tool or another model is charged outside it. Read on its own and over every occurrence, like the
+    /// departures, so a body refused earlier for another reason (a repeated name, no id, an unknown status) can't hide one. A body
+    /// that isn't a response object (an error envelope, <c>{}</c>) shows nothing here.
+    /// </summary>
+    private static bool ShowsWhatTheRequestNeverAllowed(JsonElement root, string expectedModel)
+    {
+        if (root.ValueKind != JsonValueKind.Object ||
+            !Occurrences(root, "object").Any(value => value.ValueKind == JsonValueKind.String && value.ValueEquals("response"))) return false;
+        foreach (JsonProperty property in root.EnumerateObject())
+        {
+            JsonElement value = property.Value;
+            if (property.NameEquals("model") && !(value.ValueKind == JsonValueKind.String && value.ValueEquals(expectedModel))) return true;
+            if (property.NameEquals("store") && value.ValueKind != JsonValueKind.False) return true;
+            if (property.NameEquals("tools") && !(value.ValueKind == JsonValueKind.Array && value.GetArrayLength() == 0)) return true;
+            if (property.NameEquals("output") && HoldsMoreThanAnAnswer(value)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// True when <paramref name="output"/> holds anything but reasoning items and messages made of output text and refusals. Every
+    /// occurrence of an item's or a part's "type" counts, so a second type can't hide a tool call. null is no output.
+    /// </summary>
+    private static bool HoldsMoreThanAnAnswer(JsonElement output)
+    {
+        if (output.ValueKind == JsonValueKind.Null) return false;
+        if (output.ValueKind != JsonValueKind.Array) return true;
+        foreach (JsonElement item in output.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object) return true;
+            bool typed = false, message = false;
+            foreach (JsonElement type in Occurrences(item, "type"))
+            {
+                typed = true;
+                if (type.ValueKind != JsonValueKind.String) return true;
+                if (type.ValueEquals("message")) message = true;
+                else if (!type.ValueEquals("reasoning")) return true;
+            }
+            if (!typed) return true;
+            if (!message) continue;
+            bool content = false;
+            foreach (JsonElement parts in Occurrences(item, "content"))
+            {
+                content = true;
+                if (parts.ValueKind != JsonValueKind.Array) return true;
+                foreach (JsonElement part in parts.EnumerateArray())
+                {
+                    if (part.ValueKind != JsonValueKind.Object) return true;
+                    bool partTyped = false;
+                    foreach (JsonElement type in Occurrences(part, "type"))
+                    {
+                        partTyped = true;
+                        if (type.ValueKind != JsonValueKind.String || !(type.ValueEquals("output_text") || type.ValueEquals("refusal"))) return true;
+                    }
+                    if (!partTyped) return true;
+                }
+            }
+            if (!content) return true;
+        }
         return false;
     }
 
