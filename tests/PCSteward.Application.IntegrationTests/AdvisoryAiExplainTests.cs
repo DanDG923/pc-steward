@@ -265,6 +265,50 @@ public sealed class AdvisoryAiExplainTests
 
     [TestMethod]
     [TestCategory("FR-BUD-03")]
+    [DataRow("TOO LARGE", DisplayName = "a reply the transport stopped reading at the admitted size")]
+    [DataRow("BOM", DisplayName = "a byte order mark before the reply")]
+    [DataRow("SSE", DisplayName = "the reply as an event stream")]
+    [DataRow("COMMA", DisplayName = "the reply with a trailing comma")]
+    [DataRow("STRING", DisplayName = "the reply sent as a JSON string")]
+    public async Task AReplyRefusedBeforeItCanBeReadPausesSoTheNextRequestIsRefused(string form)
+    {
+        // Independent review of 62b85a1, AJ1: a reply refused before it was parsed (too large, not strict JSON, or sent as a string) kept only the
+        // reservation, with no pause, so the next paid request went out. Now the whole reservation is kept, paid requests pause, and
+        // the next request is refused before anything is sent.
+        await using Fixture fixture = await Fixture.CreateAsync(connected: true, prices: true);
+        string body = Body("Synthetic explanation.");
+        fixture.Transport.Next = form switch
+        {
+            "TOO LARGE" => AdvisoryAiTransportResult.Of(AdvisoryAiTransportOutcome.ResponseTooLarge),
+            "BOM" => new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes("\uFEFF" + body)]),
+            "SSE" => new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes("event: response.completed\ndata: " + body + "\n\n")]),
+            "STRING" => new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(body))]),
+            _ => new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes(body[..^1] + ",}")]),
+        };
+        AdvisoryAiExplainService service = fixture.Service();
+        AdvisoryAiEvidenceDraft draft = (await service.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Draft!;
+        AdvisoryAiReview review = await service.ReviewAsync(draft, CancellationToken.None);
+        AdvisoryAiSendOutcome outcome = await service.SendAsync(review, CancellationToken.None);
+
+        Assert.IsTrue(outcome.Dispatched);
+        Assert.AreEqual(AdvisoryAiRequestState.Uncertain, outcome.Settlement!.State);
+        Assert.AreEqual(review.Reservation, outcome.Settlement.Committed, "the whole reservation is kept");
+        Assert.IsTrue(outcome.Settlement.NeedsReview);
+        Assert.AreEqual(AdvisoryAiLedgerWrite.Done, outcome.SettlementWrite);
+        Assert.IsNull(outcome.AnswerText);
+        AdvisoryAiAccountingState state = await fixture.Store.GetAccountingStateAsync(CancellationToken.None);
+        Assert.IsTrue(state.ReviewBlock);
+        Assert.AreEqual(AdvisoryAiReviewCause.UntrustedReply, state.ReviewCauses);
+
+        fixture.Transport.Next = new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes(Body("Synthetic explanation."))]);
+        AdvisoryAiEvidenceDraft next = (await service.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Draft!;
+        AdvisoryAiSendOutcome refused = await service.SendAsync(await service.ReviewAsync(next, CancellationToken.None), CancellationToken.None);
+        Assert.IsFalse(refused.Dispatched, "the next request is refused while paid requests are paused");
+        Assert.AreEqual(1, fixture.Transport.Calls, "nothing more is sent");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
     [DataRow("{\"cached_tokens\":0}", "{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_\\uD800\":0}}", DisplayName = "a name the reader reads")]
     [DataRow("\"store\":false,", "\"store\":false,\"metadata\":{\"note\":\"\\uDC00\"},", DisplayName = "a value in metadata nothing reads")]
     [DataRow("\"output\":[", "\"output\":[{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"\\uD800\"}]},", DisplayName = "text in a skipped reasoning item")]

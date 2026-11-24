@@ -437,6 +437,10 @@ public static class AdvisoryAiSettlementRule
     {
         ArgumentNullException.ThrowIfNull(tariff);
         ArgumentOutOfRangeException.ThrowIfNegative(reservation.Value);
+        // Independent review of 62b85a1, AJ1: a reply over the admitted bytes is more than the approved request could produce, so
+        // it keeps the whole reservation and stops paid requests for review, like a count above its bound.
+        if (outcome == AdvisoryAiDispatchOutcome.ResponseTooLarge)
+            return new(AdvisoryAiRequestState.Uncertain, reservation, AdvisoryAiUncertainReason.ResponseTooLarge, true) { ReviewCause = AdvisoryAiReviewCause.UntrustedReply };
         if (outcome != AdvisoryAiDispatchOutcome.ResponseReceived) return Uncertain(reservation, ReasonFor(outcome));
         if (response is null) return Uncertain(reservation, AdvisoryAiUncertainReason.MalformedResponse);
 

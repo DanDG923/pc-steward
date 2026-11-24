@@ -231,7 +231,9 @@ public static class AdvisoryAiResponseReader
         string? expectedServiceTier = null, bool noPromptCache = false, int maximumTokenUtf8Bytes = 0, long minimumInputTokens = 1)
     {
         ArgumentNullException.ThrowIfNull(expectedModel);
-        if (body.Length > maximumBytes) return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.TooLarge);
+        // Independent review of 62b85a1, AJ1: the admitted size is every approved output token at its longest, so a larger reply is
+        // more than the approved request could produce (an image, a tool result, far more text). It pauses, like a count above its bound.
+        if (body.Length > maximumBytes) return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.TooLarge) with { UsageAboveApprovedBounds = true };
         try
         {
             // Task 71C review 71C-R1: decode every name and string first, including the ones the reader below never visits.
@@ -282,7 +284,10 @@ public static class AdvisoryAiResponseReader
         }
         catch (JsonException)
         {
-            return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.NotJson);
+            // Independent review of 62b85a1, AJ1: a body that can't be parsed (a byte order mark, an event stream, nesting past the
+            // depth limit, a trailing comma) but names usage or output is a reply nothing here could check, so it pauses, as a
+            // reply out of place does. A page that names neither (a gateway's error page) still only keeps the reservation.
+            return AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.NotJson) with { UsageAboveApprovedBounds = NamesAReply(body) };
         }
         catch (InvalidOperationException)
         {
@@ -331,6 +336,12 @@ public static class AdvisoryAiResponseReader
     /// </summary>
     public static AdvisoryAiResponse Undecodable { get; } =
         AdvisoryAiResponse.Malformed(AdvisoryAiMalformedReason.UndecodableText) with { UsageAboveApprovedBounds = true };
+
+    /// <summary>
+    /// Independent review of 62b85a1, AJ1: true when the raw bytes of a body that couldn't be parsed hold the quoted name "usage" or
+    /// "output". It is the rule of <see cref="HoldsAReplyOutOfPlace"/> for a body with no structure to walk.
+    /// </summary>
+    private static bool NamesAReply(ReadOnlySpan<byte> body) => body.IndexOf("\"usage\""u8) >= 0 || body.IndexOf("\"output\""u8) >= 0;
 
     private static AdvisoryAiResponse Read(JsonElement root, string expectedModel, long approvedInputTokens, long approvedOutputTokens, long minimumInputTokens)
     {
@@ -461,7 +472,7 @@ public static class AdvisoryAiResponseReader
     /// </summary>
     private static bool HoldsAReplyOutOfPlace(JsonElement root)
     {
-        if (root.ValueKind != JsonValueKind.Object || !IsString(root, "object", "response")) return CarriesAReply(root);
+        if (root.ValueKind != JsonValueKind.Object || !IsString(root, "object", "response")) return CarriesAReply(root) || HoldsAReplyInAString(root);
         foreach (JsonProperty property in root.EnumerateObject())
             if (CarriesAReply(property.Value)) return true;
         return false;
@@ -547,6 +558,31 @@ public static class AdvisoryAiResponseReader
     /// </summary>
     private static bool HoldsAnnotations(JsonElement part) =>
         Occurrences(part, "annotations").Any(value => value.ValueKind != JsonValueKind.Null && !(value.ValueKind == JsonValueKind.Array && value.GetArrayLength() == 0));
+
+    /// <summary>
+    /// Independent review of 62b85a1, AJ1: true when a string anywhere in <paramref name="element"/> names "usage" or "output" in
+    /// quotes. It is asked only of a body that isn't a response object, where such a string is a reply sent as text (a body encoded
+    /// twice, an event's data) that nothing here could check. A response in its place is never searched, so answer text that quotes
+    /// those names still settles.
+    /// </summary>
+    private static bool HoldsAReplyInAString(JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.String:
+                return NamesAReply(Encoding.UTF8.GetBytes(element.GetString() ?? string.Empty));
+            case JsonValueKind.Array:
+                foreach (JsonElement child in element.EnumerateArray())
+                    if (HoldsAReplyInAString(child)) return true;
+                return false;
+            case JsonValueKind.Object:
+                foreach (JsonProperty property in element.EnumerateObject())
+                    if (HoldsAReplyInAString(property.Value)) return true;
+                return false;
+            default:
+                return false;
+        }
+    }
 
     /// <summary>
     /// Independent review of a99b79a, AC1, and of dcef10c, AE1: true when a property named "usage" or "output" with any value but null
