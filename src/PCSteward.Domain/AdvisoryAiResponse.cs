@@ -472,7 +472,7 @@ public static class AdvisoryAiResponseReader
     /// </summary>
     private static bool HoldsAReplyOutOfPlace(JsonElement root)
     {
-        if (root.ValueKind != JsonValueKind.Object || !IsString(root, "object", "response")) return CarriesAReply(root);
+        if (root.ValueKind != JsonValueKind.Object || !IsString(root, "object", "response")) return CarriesAReply(root) || HoldsAReplyInAString(root);
         foreach (JsonProperty property in root.EnumerateObject())
             if (CarriesAReply(property.Value)) return true;
         return false;
@@ -558,6 +558,31 @@ public static class AdvisoryAiResponseReader
     /// </summary>
     private static bool HoldsAnnotations(JsonElement part) =>
         Occurrences(part, "annotations").Any(value => value.ValueKind != JsonValueKind.Null && !(value.ValueKind == JsonValueKind.Array && value.GetArrayLength() == 0));
+
+    /// <summary>
+    /// Independent review of 62b85a1, AJ1: true when a string anywhere in <paramref name="element"/> names "usage" or "output" in
+    /// quotes. It is asked only of a body that isn't a response object, where such a string is a reply sent as text (a body encoded
+    /// twice, an event's data) that nothing here could check. A response in its place is never searched, so answer text that quotes
+    /// those names still settles.
+    /// </summary>
+    private static bool HoldsAReplyInAString(JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.String:
+                return NamesAReply(Encoding.UTF8.GetBytes(element.GetString() ?? string.Empty));
+            case JsonValueKind.Array:
+                foreach (JsonElement child in element.EnumerateArray())
+                    if (HoldsAReplyInAString(child)) return true;
+                return false;
+            case JsonValueKind.Object:
+                foreach (JsonProperty property in element.EnumerateObject())
+                    if (HoldsAReplyInAString(property.Value)) return true;
+                return false;
+            default:
+                return false;
+        }
+    }
 
     /// <summary>
     /// Independent review of a99b79a, AC1, and of dcef10c, AE1: true when a property named "usage" or "output" with any value but null

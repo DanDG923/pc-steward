@@ -1055,6 +1055,63 @@ public sealed class AdvisoryAiResponseTests
 
     [TestMethod]
     [TestCategory("FR-BUD-03")]
+    [DataRow("STRING", DisplayName = "the whole body a string holding the reply")]
+    [DataRow("DATA", DisplayName = "an object whose data is a string holding the reply")]
+    [DataRow("EVENT", DisplayName = "an event whose data is a string holding the reply")]
+    [DataRow("LIST", DisplayName = "a list of strings, one holding the reply")]
+    [DataRow("STREAM", DisplayName = "a string holding the reply as an event stream")]
+    public void AReplySentAsTextInABodyThatIsNotAResponseStopsPaidRequestsForReview(string form)
+    {
+        // Independent review of 62b85a1, AJ1: a reply sent as a JSON string, in a body that isn't a response object, kept only the
+        // reservation with no pause, though it is as much a reply nothing could check as one behind a byte order mark.
+        string reply = System.Text.Json.JsonSerializer.Serialize(Body(usage: "\"usage\":{\"input_tokens\":900,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":90000,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":90900}"));
+        string body = form switch
+        {
+            "STRING" => reply,
+            "DATA" => "{\"data\":" + reply + "}",
+            "EVENT" => "{\"type\":\"response.completed\",\"data\":" + reply + "}",
+            "LIST" => "[\"x\"," + reply + "]",
+            _ => System.Text.Json.JsonSerializer.Serialize("event: response.completed\ndata: " + Body() + "\n\n"),
+        };
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.AreEqual(AdvisoryAiMalformedReason.NotAResponseObject, response.MalformedReason);
+        Assert.IsTrue(response.UsageAboveApprovedBounds);
+        AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+        Assert.IsTrue(settlement.NeedsReview);
+        Assert.AreEqual(45_056, settlement.Committed.Value, "the whole reservation is kept");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("{\"error\":{\"message\":\"max_output_tokens is too large.\",\"type\":\"invalid_request_error\",\"param\":\"max_output_tokens\"}}", DisplayName = "an error naming max_output_tokens")]
+    [DataRow("{\"error\":{\"message\":\"Unknown parameter 'output' or 'usage'.\",\"type\":\"invalid_request_error\"}}", DisplayName = "an error naming the names in single quotes")]
+    [DataRow("{\"error\":{\"message\":\"Invalid value.\",\"type\":\"invalid_request_error\",\"param\":\"output\"}}", DisplayName = "an error whose param is output")]
+    [DataRow("\"usage and output\"", DisplayName = "a string that says usage and output")]
+    public void AnErrorThatMentionsTheNamesWithoutQuotingThemKeepsTheReservationWithoutAPause(string body)
+    {
+        // Independent review of 62b85a1, AJ1: only a string naming "usage" or "output" in double quotes counts as a reply sent as text.
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.IsFalse(response.UsageAboveApprovedBounds);
+        AdvisoryAiSettlement kept = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+        Assert.IsFalse(kept.NeedsReview);
+        Assert.AreEqual(45_056, kept.Committed.Value);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void AnswerTextQuotingTheNamesInAResponseInItsPlaceStillSettles()
+    {
+        // Independent review of 62b85a1, AJ1: strings in a response in its place are not searched for the names.
+        string text = System.Text.Json.JsonSerializer.Serialize("Run winget with --output json; its \"usage\" and \"output\" fields list the result.");
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(Body(output: "[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":" + text + ",\"annotations\":[]}]}]")),
+            Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.AreEqual(AdvisoryAiAnswerStatus.Completed, response.Status);
+        Assert.IsFalse(response.UsageAboveApprovedBounds);
+        Assert.IsFalse(AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff).NeedsReview);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
     [DataRow("", DisplayName = "an empty body")]
     [DataRow("not json", DisplayName = "plain text")]
     [DataRow("<html><head><title>502 Bad Gateway</title></head><body><h1>502 Bad Gateway</h1></body></html>", DisplayName = "a gateway's error page")]

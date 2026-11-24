@@ -269,9 +269,10 @@ public sealed class AdvisoryAiExplainTests
     [DataRow("BOM", DisplayName = "a byte order mark before the reply")]
     [DataRow("SSE", DisplayName = "the reply as an event stream")]
     [DataRow("COMMA", DisplayName = "the reply with a trailing comma")]
+    [DataRow("STRING", DisplayName = "the reply sent as a JSON string")]
     public async Task AReplyRefusedBeforeItCanBeReadPausesSoTheNextRequestIsRefused(string form)
     {
-        // Independent review of 62b85a1, AJ1: a reply refused before it was parsed (too large, or not strict JSON) kept only the
+        // Independent review of 62b85a1, AJ1: a reply refused before it was parsed (too large, not strict JSON, or sent as a string) kept only the
         // reservation, with no pause, so the next paid request went out. Now the whole reservation is kept, paid requests pause, and
         // the next request is refused before anything is sent.
         await using Fixture fixture = await Fixture.CreateAsync(connected: true, prices: true);
@@ -281,6 +282,7 @@ public sealed class AdvisoryAiExplainTests
             "TOO LARGE" => AdvisoryAiTransportResult.Of(AdvisoryAiTransportOutcome.ResponseTooLarge),
             "BOM" => new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes("\uFEFF" + body)]),
             "SSE" => new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes("event: response.completed\ndata: " + body + "\n\n")]),
+            "STRING" => new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(body))]),
             _ => new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes(body[..^1] + ",}")]),
         };
         AdvisoryAiExplainService service = fixture.Service();
