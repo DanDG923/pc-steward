@@ -1,3 +1,8 @@
+**Advisory AI, Task 71C retest request: settled with no pause (2026-11-24; docs only).** Requirements: `FR-AI-05`, `FR-BUD-03` ([Task 90 record §34](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **One request from build 21 (`a1dd1b3`)** settled at $0.003436 with no pause, and the answer was shown formatted. The first-test spending record now shows $0.043536 of $1.00. Paid requests were turned off again straight after ($0 per request).
+- **Two small notes for ordinary use:** token counts are shown only once, and the answer can quote an internal evidence label.
+
 **Advisory AI, both reviews of the twenty-first Task 71C retest build: PASS (2026-11-24; docs only; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §33](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Reviews of `a1dd1b3`.** The independent review and the owner's review both passed. The build is cleared for the owner's separate key-step and send decisions. One new Low note (AL1): if writing the settlement fails, a pause the reply earned is lost at the next send's recovery. Recorded as a limit for the retest; options are for after it.

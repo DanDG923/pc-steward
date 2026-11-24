@@ -549,3 +549,23 @@ The owner's own review of the same build (Codex, Sol 6.0) also **passed** on 202
 | **Task 69 item 5 (record only).** "Other surprises keep the reservation without an automatic pause" now holds only under an HTTP error status. | Reworded in Task 69 §10 item 5. |
 
 No code changed. The schema stays at 17.
+
+## 34. Task 71C retest request: result
+
+With both reviews of the twenty-first retest build passed (§33), the owner approved the key step and then, separately, the one send. On 2026-11-24 the owner cleared the old pause with "I've reviewed this". The Spending figures stayed at $0.00 spent, $0.0401 reserved and not settled yet, and $0.0401 of $1.00 for the first live test. The owner confirmed today's prices at 21:43 UTC: $2.00 input, $0.10 cached input and $10.00 output per million tokens, the same as before. The owner then sent one request from build 21 (`a1dd1b3`) to `gpt-6.1-sol` at the default tier, with only the synthetic Contoso text as evidence (Task 69 §10 item 3).
+
+| What the retest had to show | Result |
+|---|---|
+| The reply's usage is read with no unknown field, so the reservation settles to the real cost with no pause (L1, §11). | **Shown.** The request settled at **$0.003436** (3,436 micro-USD). No notice or pause appeared. |
+| If a pause still happens, the notice says why (migration 17). | Not reached: nothing paused. |
+| The answer is formatted, with code kept exactly as written (L3, §11). | **Shown for formatting.** Headings, bold text and bullet items were drawn as formatted text. The answer held no code, so code kept literally wasn't seen live; the tests cover it. |
+| The spending record and the monthly total agree with the provider's usage page. | **Spending record shown:** spent $0.003436, reserved and not settled yet $0.0401, first live test $0.043536 of $1.00 ($0.0401 + $0.003436). **Provider check:** the test project's usage page showed two responses in total, the first test's and this one, so the request was sent once and nothing else used the key. The charge is too small for the page to show in dollars, so it can't be compared to the cent. |
+
+Straight after the send the owner set the limit per request to $0, which turns paid requests off. The Limits card says so. No other request was sent.
+
+Two small notes for ordinary use, neither a fault in the retest:
+- **P1. The token counts and the reply-details line are shown only once,** on the answer window straight after the send. Once it is closed, an earlier answer shows without them. The ledger keeps the charge, so the record above uses that.
+- **P2. The answer quoted an internal evidence label,** "OtherNearbyRecord", which PC Steward put in the request. It is not data from the PC, but a plain-words label would read better.
+
+Still open, each a separate owner decision: the AL1 options (§33), the ordinary-use measurements (§2), and whether and when ordinary use is offered. First-live-test mode stays as it is (Task 69 §10 item 7).
+
