@@ -443,7 +443,7 @@ public static class AdvisoryAiResponseReader
     /// than the approved request allows, whether or not the usage as a whole can be trusted and whatever else refuses the body.
     /// Independent review of be08c02, W1: a "usage" object at any depth counts, so a response wrapped in an array, an event or a list
     /// (refused as not a response object) can't hide a charge above the reservation. The parse bounds the depth, and each element is
-    /// visited once.
+    /// visited once. Codex review of 2cdfcc4, 71C-01: a count that isn't a plain whole number counts as above the bounds.
     /// </summary>
     private static bool CountsAboveApprovedBounds(JsonElement element, long approvedInputTokens, long approvedOutputTokens)
     {
@@ -466,8 +466,10 @@ public static class AdvisoryAiResponseReader
                     : count.NameEquals("total_tokens") ? approvedInputTokens + approvedOutputTokens
                     : -1;
                 if (bound < 0) continue;
-                // A count too large for a long or a double, or one with a fraction above the bound, is above it too.
-                if (count.Value.TryGetInt64(out long whole) ? whole > bound : !count.Value.TryGetDouble(out double approximate) || approximate > bound) return true;
+                // Codex review of 2cdfcc4, 71C-01: only a count written as a plain whole number that fits a long is compared. Any other
+                // number (a fraction, an exponent, or one too large for a long) can't be compared exactly: read as a double,
+                // 2048.0000000000000000000001 became exactly 2,048 and passed a 2,048 bound. So it is above the bound, whatever its size.
+                if (!count.Value.TryGetInt64(out long whole) || whole > bound) return true;
             }
         }
         return false;
