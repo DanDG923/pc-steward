@@ -1,3 +1,8 @@
+**Advisory AI, independent review of the fourteenth Task 71C retest build: early finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §26](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `2de2ec6`.** One Medium finding sent early: reasoning tokens above the output approval, a usage count written as text, or (in a wrapped reply) a cached or other count above the approval kept the reservation with no pause. The owner's review of this build was held.
+- **Fixed.** Every count under a usage object is bounded by its place (input details by the input approval, output details by the output approval, any other name by the total). A value that isn't a plain whole number within its bound stops paid requests for review.
+
 **Advisory AI, reviews of the thirteenth Task 71C retest build: paid-bound finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03`, `FR-AI-02`, `FR-AI-05`, `FR-DIA-03` ([Task 90 record §25](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Reviews of `2cdfcc4`.** The independent review passed with four Low notes. The owner's Codex review failed on one Medium finding: a usage count just above the approval, written with a fraction, read as exactly the approval and avoided the pause.

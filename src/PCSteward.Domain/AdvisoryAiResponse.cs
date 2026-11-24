@@ -443,7 +443,9 @@ public static class AdvisoryAiResponseReader
     /// than the approved request allows, whether or not the usage as a whole can be trusted and whatever else refuses the body.
     /// Independent review of be08c02, W1: a "usage" object at any depth counts, so a response wrapped in an array, an event or a list
     /// (refused as not a response object) can't hide a charge above the reservation. The parse bounds the depth, and each element is
-    /// visited once. Codex review of 2cdfcc4, 71C-01: a count that isn't a plain whole number counts as above the bounds.
+    /// visited once, and once more for each "usage" object above it (at most 16). Codex review of 2cdfcc4, 71C-01: a count that isn't a
+    /// plain whole number counts as above the bounds. Independent review of 2de2ec6, AA1: every count under a "usage" object is read,
+    /// not only the three totals (<see cref="UsageAbove"/>).
     /// </summary>
     private static bool CountsAboveApprovedBounds(JsonElement element, long approvedInputTokens, long approvedOutputTokens)
     {
@@ -457,22 +459,50 @@ public static class AdvisoryAiResponseReader
         foreach (JsonProperty property in element.EnumerateObject())
         {
             if (CountsAboveApprovedBounds(property.Value, approvedInputTokens, approvedOutputTokens)) return true;
-            if (!property.NameEquals("usage") || property.Value.ValueKind != JsonValueKind.Object) continue;
-            foreach (JsonProperty count in property.Value.EnumerateObject())
-            {
-                if (count.Value.ValueKind != JsonValueKind.Number) continue;
-                long bound = count.NameEquals("input_tokens") ? approvedInputTokens
-                    : count.NameEquals("output_tokens") ? approvedOutputTokens
-                    : count.NameEquals("total_tokens") ? approvedInputTokens + approvedOutputTokens
-                    : -1;
-                if (bound < 0) continue;
-                // Codex review of 2cdfcc4, 71C-01: only a count written as a plain whole number that fits a long is compared. Any other
-                // number (a fraction, an exponent, or one too large for a long) can't be compared exactly: read as a double,
-                // 2048.0000000000000000000001 became exactly 2,048 and passed a 2,048 bound. So it is above the bound, whatever its size.
-                if (!count.Value.TryGetInt64(out long whole) || whole > bound) return true;
-            }
+            if (property.NameEquals("usage") && UsageAbove(property.Value, approvedInputTokens, approvedOutputTokens)) return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Independent review of 2de2ec6, AA1: under a "usage" object every count is bounded by its place: the input bound for input_tokens
+    /// and anything under input_tokens_details, the output bound for output_tokens and anything under output_tokens_details, and the
+    /// total for every other name. So reasoning tokens above the output approval, a count written as a string, and a cached or other
+    /// count in a wrapped body all stop paid requests. A value where a count belongs that isn't a plain whole number within its bound
+    /// (a fraction, a string, true, false, an array) counts as above. null is no count, as a missing one is.
+    /// </summary>
+    private static bool UsageAbove(JsonElement usage, long approvedInputTokens, long approvedOutputTokens)
+    {
+        if (usage.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement child in usage.EnumerateArray())
+                if (UsageAbove(child, approvedInputTokens, approvedOutputTokens)) return true;
+            return false;
+        }
+        if (usage.ValueKind != JsonValueKind.Object) return false;
+        foreach (JsonProperty count in usage.EnumerateObject())
+        {
+            long bound = count.NameEquals("input_tokens") || count.NameEquals("input_tokens_details") ? approvedInputTokens
+                : count.NameEquals("output_tokens") || count.NameEquals("output_tokens_details") ? approvedOutputTokens
+                : approvedInputTokens + approvedOutputTokens;
+            if (AnyCountAbove(count.Value, bound)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>True when <paramref name="value"/>, or any count inside it, isn't a plain whole number within <paramref name="bound"/>.</summary>
+    private static bool AnyCountAbove(JsonElement value, long bound)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Null: return false;
+            case JsonValueKind.Number: return !value.TryGetInt64(out long whole) || whole > bound;
+            case JsonValueKind.Object:
+                foreach (JsonProperty inner in value.EnumerateObject())
+                    if (AnyCountAbove(inner.Value, bound)) return true;
+                return false;
+            default: return true;
+        }
     }
 
     /// <summary>
