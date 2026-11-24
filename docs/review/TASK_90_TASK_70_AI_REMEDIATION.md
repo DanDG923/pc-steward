@@ -528,10 +528,24 @@ Owner decision, 2026-11-24 19:47 UTC: take the success-status rule in build 21 r
 
 Recorded as a limit: the same reply shapes under an HTTP error status still only keep the reservation, as the body rules decide there.
 
-The line the independent review holds to after this rule: a reply keeps the reservation with no pause only when (a) nothing arrived in full, or (b) it came under an HTTP error status and the body rules find no trace of a reply. The review rates the gaps left under an error status Low and would not fail a build for them.
+The line the independent review holds to after this rule (as corrected in §33): a reply keeps the reservation with no pause only when (a) no reply body was read, (b) it came under an HTTP error status and the body rules find nothing to pause on, or (c) the result could not be written to the spending record. The review rates the gaps left under an error status Low and would not fail a build for them.
 
 The fix was checked in the cloud:
 - the domain tests (symbol on and off) and the application tests pass, apart from the four that fail only in the cloud environment;
 - the workflow tests need SQLite and run in CI.
 
 Nothing in the cleaner changed. The schema stays at 17.
+
+## 33. Task 71C independent review of the twenty-first retest build at `a1dd1b3`
+
+The independent review of the twenty-first retest build (commit `a1dd1b3`; run 45475606641, artifact SHA-256 `295c9a4f…f346`) **passed** on 2026-11-24. All five pins matched in the prompt, the key-step guide and the paste. The repository tests passed with the symbol on and off. In workflow replays over a SQLite ledger, under any status outside 400 to 599 (none, 0, 1xx to 3xx, 600 and above) a body that doesn't settle paused and the next request was refused. Under 400 to 599 the body rules decided alone. The retest's live reply settled at 4,192 micro-USD under every status. Outputs from older probes differed only on the rows §32 intends to change. The review approves neither the key step nor the send. The report is not in the repository.
+
+The owner's own review of the same build (Codex, Sol 6.0) also **passed** on 2026-11-24, with no new finding. It too approves neither the key step nor the send, and its report stays on the owner's PC. With both reviews passed, the build is cleared for the owner's separate key-step and send decisions.
+
+| Note | Decision |
+|---|---|
+| **AL1 (Low, on every build, not blocking).** If writing the settlement fails (the ledger's settle step returns a storage failure or throws), the request workflow carries on. The next send's recovery then marks the claimed row Interrupted with no pause, so a pause the reply earned is lost. The review showed it with a real 40-second SQLite write lock (a 7-second lock is waited out). The provider can't cause it. | Recorded as a limit for the retest. The review names two untested options for after the retest. One changes ADR-029's crash row, so it is the owner's call then. |
+| **Line correction (record only).** §32's closing line said "nothing arrived in full" and "no trace of a reply", and missed a failed write. | Corrected in §32: (a) no reply body was read (a redirect's body is never read), (b) the body rules find nothing to pause on (this also covers a reply in its place with no usable usage, id or status), and (c) the result could not be written to the spending record (AL1). |
+| **Task 69 item 5 (record only).** "Other surprises keep the reservation without an automatic pause" now holds only under an HTTP error status. | Reworded in Task 69 §10 item 5. |
+
+No code changed. The schema stays at 17.
