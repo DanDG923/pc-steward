@@ -226,11 +226,13 @@ public sealed class AdvisoryAiExplainTests
     [DataRow("\"status\":\"completed\"", "\"status\":\"queued\"", DisplayName = "an unsupported status")]
     [DataRow("\"output\":[", "\"output\":[{\"type\":\"web_search_call\",\"id\":\"ws_1\",\"status\":\"completed\"},", DisplayName = "a web search call beside the answer")]
     [DataRow("MODEL", "-2026-11-14", DisplayName = "the model with a date suffix")]
+    [DataRow("\"annotations\":[]", "\"annotations\":[{\"type\":\"url_citation\",\"url\":\"https://example.com/\",\"start_index\":0,\"end_index\":2}]", DisplayName = "answer text with a link citation")]
     public async Task AReplyShowingWhatTheRequestNeverAllowedPausesSoTheNextRequestIsRefused(string find, string replace)
     {
         // Independent review of a4db871, AG1, and the owner's review, 71C-01: a reply within the approved counts that says it was
         // stored, used tools, is still being worked on, or came from another model was refused but kept only the reservation, with no
-        // pause, so the next paid request went out. Now the whole reservation is kept, paid requests pause, and the next request is
+        // pause, so the next paid request went out. Independent review of c80cb60, AI1: a citation in the answer settled and was
+        // shown, and the next request went out too. Now the whole reservation is kept, paid requests pause, and the next request is
         // refused before anything is sent.
         await using Fixture fixture = await Fixture.CreateAsync(connected: true, prices: true);
         string body = Body("Synthetic explanation.");

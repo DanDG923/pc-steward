@@ -1202,16 +1202,47 @@ public sealed class AdvisoryAiResponseTests
 
     [TestMethod]
     [TestCategory("FR-BUD-03")]
+    [DataRow("[{\"type\":\"url_citation\",\"url\":\"https://example.com/\",\"title\":\"x\",\"start_index\":0,\"end_index\":2}]", DisplayName = "a link citation")]
+    [DataRow("[{\"type\":\"file_citation\",\"file_id\":\"file_1\",\"filename\":\"x\",\"index\":0}]", DisplayName = "a file citation")]
+    [DataRow("[{\"type\":\"container_file_citation\",\"container_id\":\"c_1\",\"file_id\":\"file_1\",\"start_index\":0,\"end_index\":2}]", DisplayName = "a container file citation")]
+    [DataRow("[{}]", DisplayName = "an empty annotation")]
+    [DataRow("{}", DisplayName = "annotations as an object")]
+    [DataRow("\"x\"", DisplayName = "annotations as a string")]
+    [DataRow("[],\"annotations\":[{\"type\":\"url_citation\",\"url\":\"https://example.com/\"}]", DisplayName = "annotations twice, a citation last")]
+    public void AnswerTextCarryingACitationStopsPaidRequestsForReview(string annotations)
+    {
+        // Independent review of c80cb60, AI1: answer text with citations settled at its token cost and was shown, with no pause, but
+        // only a hosted tool (search, files, code) makes a citation, so it is a trace of tool use the request never allowed. Now any
+        // annotations but null or an empty list refuse the reply and pause paid requests, alone or behind an early refusal.
+        string reply = Body(output: "[" + AnswerItem.Replace("\"annotations\":[]", "\"annotations\":" + annotations, StringComparison.Ordinal) + "]");
+        foreach ((string refusal, string body) in new[]
+        {
+            ("alone", reply),
+            ("a root name twice", reply.Replace("\"created_at\":1763000000", "\"created_at\":1763000000,\"created_at\":1763000001", StringComparison.Ordinal)),
+            ("no id", reply.Replace("\"resp_abc123\"", "\"\"", StringComparison.Ordinal))
+        })
+        {
+            AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+            Assert.AreEqual(AdvisoryAiAnswerStatus.Malformed, response.Status, refusal);
+            Assert.IsNull(response.Text, refusal);
+            AssertPausedWithWholeReservation(response, refusal);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
     public void RepliesMadeOnlyOfReasoningAndAnswerStillSettle()
     {
-        // Independent review of a4db871, AG1: a reasoning summary, a refusal, a link citation, two messages, empty output and echoed
-        // tool settings with no tools are all within what the request allowed, so they still settle at the reported usage.
+        // Independent review of a4db871, AG1: a reasoning summary, a refusal, two messages, empty output and echoed tool settings with
+        // no tools are all within what the request allowed, so they still settle at the reported usage. Independent review of
+        // c80cb60, AI1: so do empty, null or missing annotations; a citation now pauses.
         foreach ((string what, string body) in new[]
         {
             ("the plain reply", Body()),
             ("a reasoning summary, then the answer", Body(output: "[{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Why.\"}]}," + AnswerItem + "]")),
             ("a refusal", Body(output: "[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"refusal\",\"refusal\":\"No.\"}]}]")),
-            ("a link citation", Body(output: "[" + AnswerItem.Replace("\"annotations\":[]", "\"annotations\":[{\"type\":\"url_citation\",\"url\":\"https://example.com/\",\"start_index\":0,\"end_index\":2}]", StringComparison.Ordinal) + "]")),
+            ("null annotations", Body(output: "[" + AnswerItem.Replace("\"annotations\":[]", "\"annotations\":null", StringComparison.Ordinal) + "]")),
+            ("no annotations", Body(output: "[" + AnswerItem.Replace(",\"annotations\":[]", "", StringComparison.Ordinal) + "]")),
             ("two messages", Body(output: "[" + AnswerItem + "," + AnswerItem + "]")),
             ("empty output", Body(output: "[]")),
             ("tool settings echoed with no tools", Body(extra: ",\"tool_choice\":\"auto\",\"parallel_tool_calls\":true"))
