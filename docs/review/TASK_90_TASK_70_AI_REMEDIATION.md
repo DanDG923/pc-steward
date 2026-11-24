@@ -518,7 +518,7 @@ Nothing in the cleaner changed. The schema stays at 17.
 
 ## 32. Task 71C independent review of the twentieth retest build at `68b4742`, early finding, and fixes
 
-The independent review of the twentieth retest build (commit `68b4742`; run 45455433136, artifact SHA-256 `5e354b9c…df07`) sent an early notice of one Medium paid-bound finding (AK1). Pins matched. The repository tests passed with the symbol on and off, and §31's own rows held. The report is not in the repository.
+The independent review of the twentieth retest build (commit `68b4742`; run 45455433136, artifact SHA-256 `5e354b9c…df07`) sent an early notice of one Medium paid-bound finding (AK1). Pins matched. The repository tests passed with the symbol on and off, and §31's own rows held. The final report confirmed AK1 as its only finding. The report is not in the repository.
 
 | Finding | Fix | Evidence |
 |---|---|---|
@@ -527,6 +527,8 @@ The independent review of the twentieth retest build (commit `68b4742`; run 4545
 This changes the T70-07 rule (Task 69 item 6) for one kind of outcome. An uncertain outcome still keeps the whole reservation without a pause after a timeout, a lost connection, a redirect, or an HTTP error status with an ordinary error body. But a body received as a success that doesn't settle now pauses. The cost: at a success status, an empty body, `{}`, an error envelope, an HTML page, or a reply with no usage or no status now pauses paid requests until the owner reviews. The retest's one send settled in every replay (4,192 micro-USD), so it is unchanged.
 
 Recorded as a limit: the same reply shapes under an HTTP error status still only keep the reservation, as the body rules decide there.
+
+The line the independent review holds to after this rule: a reply keeps the reservation with no pause only when (a) nothing arrived in full, or (b) it came under an HTTP error status and the body rules find no trace of a reply. The review rates the gaps left under an error status Low and would not fail a build for them.
 
 The fix was checked in the cloud:
 - the domain tests (symbol on and off) and the application tests pass, apart from the four that fail only in the cloud environment;
