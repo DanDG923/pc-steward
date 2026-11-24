@@ -419,6 +419,10 @@ The independent review of the fourteenth retest build (commit `2de2ec6`; run 453
 
 The ADR-029 rule is unchanged: usage that can't be trusted keeps the whole reservation. What changes is that a count which may be above the approval, or can't be read as a count, now also stops paid requests for review. F2 (§14) is closed for counts: a main usage count that isn't a plain count now pauses (§25, §26).
 
+Two boundaries, recorded from the independent reviewer's look at this change before it merged:
+- A `usage` value that is neither an object nor an array (`"usage":99999`, `"usage":"…"`, or a bare number directly inside a usage array) is read as no usage, and a negative count is not above the approval. Anything stricter would pause on any unrelated field that happens to be named `usage`.
+- The rule applies to a `usage` object at any depth, so a string, `true` or an array under any such object now pauses. Today's reply shape has one usage object, so this costs nothing now. A later provider field named `usage` that holds text would pause every reply; that fails closed, as the first live test did.
+
 The fix was checked in the cloud:
 - the domain tests (symbol on and off) and the application tests pass, apart from the four that fail only in the cloud environment;
 - without the fix, the ten new or changed rows fail.
