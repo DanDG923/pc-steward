@@ -256,7 +256,9 @@ public static class AdvisoryAiResponseReader
                 CountsAboveApprovedBounds(document.RootElement, approvedInputTokens, approvedOutputTokens) ||
                 // Independent review of a99b79a, AC1: a body that isn't a response object but carries usage or output is a reply that
                 // couldn't be read in its place, so its tier, cache write, state and output length were never checked. It pauses.
-                response.MalformedReason == AdvisoryAiMalformedReason.NotAResponseObject && CarriesAReply(document.RootElement);
+                // Independent review of dcef10c, AE1: so does usage or output anywhere but directly on a response object, whatever
+                // the body is refused for (<see cref="HoldsAReplyOutOfPlace"/>).
+                HoldsAReplyOutOfPlace(document.RootElement);
             // A body that continues other state isn't an answer to this request, so its text is never shown or saved.
             if (departures.HasFlag(AdvisoryAiResponseDeparture.ConversationState) && response.Status != AdvisoryAiAnswerStatus.Malformed)
                 response = response with { Status = AdvisoryAiAnswerStatus.Malformed, IncompleteReason = AdvisoryAiIncompleteReason.None,
@@ -442,9 +444,24 @@ public static class AdvisoryAiResponseReader
     }
 
     /// <summary>
-    /// Independent review of a99b79a, AC1: true when a property named "usage" or "output" holding an object or an array sits anywhere
-    /// in the body, so a response wrapped in an array, an event or a list counts as a reply. An error envelope, <c>{}</c> and <c>[]</c>
-    /// don't.
+    /// Independent review of dcef10c, AE1: true when a non-null "usage" or "output" sits anywhere in the body except directly on a root
+    /// object whose "object" is "response". The reader only checks the tier, cache write, state and output length of a reply in that
+    /// place, so a reply anywhere else (a wrapper that repeats a name, a response whose own reply sits one level down, a wrapped list
+    /// whose "object" is "response") pauses, whatever the body is refused for. An error envelope, <c>{}</c>, <c>[]</c> and a bare value
+    /// don't. A response that is read in its place but also holds usage or output deeper down pauses too, which costs a review of a
+    /// body the service shouldn't send.
+    /// </summary>
+    private static bool HoldsAReplyOutOfPlace(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object || !IsString(root, "object", "response")) return CarriesAReply(root);
+        foreach (JsonProperty property in root.EnumerateObject())
+            if (CarriesAReply(property.Value)) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Independent review of a99b79a, AC1, and of dcef10c, AE1: true when a property named "usage" or "output" with any value but null
+    /// sits anywhere in <paramref name="element"/>, so a response wrapped in an array, an event or a list counts as a reply.
     /// </summary>
     private static bool CarriesAReply(JsonElement element)
     {
@@ -457,8 +474,7 @@ public static class AdvisoryAiResponseReader
         if (element.ValueKind != JsonValueKind.Object) return false;
         foreach (JsonProperty property in element.EnumerateObject())
         {
-            bool holder = property.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array;
-            if (holder && (property.NameEquals("usage") || property.NameEquals("output"))) return true;
+            if (property.Value.ValueKind != JsonValueKind.Null && (property.NameEquals("usage") || property.NameEquals("output"))) return true;
             if (CarriesAReply(property.Value)) return true;
         }
         return false;
@@ -495,37 +511,37 @@ public static class AdvisoryAiResponseReader
     /// and anything under input_tokens_details, the output bound for output_tokens and anything under output_tokens_details, and the
     /// total for every other name. So reasoning tokens above the output approval, a count written as a string, and a cached or other
     /// count in a wrapped body all stop paid requests. A value where a count belongs that isn't a plain whole number within its bound
-    /// (a fraction, a string, true, false, an array) counts as above. null is no count, as a missing one is.
+    /// (a fraction, a string, true, false, an array) counts as above. null is no count, as a missing one is. Independent review of
+    /// dcef10c, AE1: a "usage" array counts as above, and only a name ending in "_details" may hold an object, so a cache write or an
+    /// unknown counter can't hide inside an array or under input_tokens.
     /// </summary>
     private static bool UsageAbove(JsonElement usage, long approvedInputTokens, long approvedOutputTokens)
     {
-        if (usage.ValueKind == JsonValueKind.Array)
-        {
-            foreach (JsonElement child in usage.EnumerateArray())
-                if (UsageAbove(child, approvedInputTokens, approvedOutputTokens)) return true;
-            return false;
-        }
+        if (usage.ValueKind == JsonValueKind.Array) return true;
         if (usage.ValueKind != JsonValueKind.Object) return false;
         foreach (JsonProperty count in usage.EnumerateObject())
         {
             long bound = count.NameEquals("input_tokens") || count.NameEquals("input_tokens_details") ? approvedInputTokens
                 : count.NameEquals("output_tokens") || count.NameEquals("output_tokens_details") ? approvedOutputTokens
                 : approvedInputTokens + approvedOutputTokens;
-            if (AnyCountAbove(count.Value, bound)) return true;
+            if (AnyCountAbove(count, bound)) return true;
         }
         return false;
     }
 
-    /// <summary>True when <paramref name="value"/>, or any count inside it, isn't a plain whole number within <paramref name="bound"/>.</summary>
-    private static bool AnyCountAbove(JsonElement value, long bound)
+    /// <summary>
+    /// True when the value of <paramref name="count"/> isn't a plain whole number within <paramref name="bound"/>. Only a name ending
+    /// in "_details" may hold an object, and every value inside it is held to the same rule. null is no count.
+    /// </summary>
+    private static bool AnyCountAbove(JsonProperty count, long bound)
     {
-        switch (value.ValueKind)
+        switch (count.Value.ValueKind)
         {
             case JsonValueKind.Null: return false;
-            case JsonValueKind.Number: return !value.TryGetInt64(out long whole) || whole > bound;
-            case JsonValueKind.Object:
-                foreach (JsonProperty inner in value.EnumerateObject())
-                    if (AnyCountAbove(inner.Value, bound)) return true;
+            case JsonValueKind.Number: return !count.Value.TryGetInt64(out long whole) || whole > bound;
+            case JsonValueKind.Object when count.Name.EndsWith("_details", StringComparison.Ordinal):
+                foreach (JsonProperty inner in count.Value.EnumerateObject())
+                    if (AnyCountAbove(inner, bound)) return true;
                 return false;
             default: return true;
         }

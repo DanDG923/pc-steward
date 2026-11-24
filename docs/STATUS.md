@@ -1,3 +1,8 @@
+**Advisory AI, independent review of the sixteenth Task 71C retest build: finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §28](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `dcef10c`.** FAIL on one Medium finding, sent early: a reply out of place still kept the reservation with no pause when its wrapper repeated a name, called itself a response, or held usage as an array. The owner's review of this build was held.
+- **Fixed.** Usage or output anywhere but directly on a response stops paid requests for review, whatever the body is refused for. A usage array, or an object under a count name, counts as above the approval. An error envelope, an empty body or a bare value doesn't pause.
+
 **Advisory AI, independent review of the fifteenth Task 71C retest build: early finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §27](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `a99b79a`.** One Medium finding sent early: a reply wrapped in another shape was checked only for its token counts, so long text, another service tier, a cache write or conversation state kept the reservation with no pause. The fourteenth build's review failed on §26's finding only. The owner's review of this build was held.

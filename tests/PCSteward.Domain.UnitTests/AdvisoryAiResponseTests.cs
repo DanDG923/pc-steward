@@ -913,12 +913,110 @@ public sealed class AdvisoryAiResponseTests
 
     [TestMethod]
     [TestCategory("FR-BUD-03")]
+    [DataRow("{\"type\":\"response.completed\",\"type\":\"response.completed\",\"response\":@@}", DisplayName = "an event wrapper with its type twice")]
+    [DataRow("{\"type\":\"response.completed\",\"response\":@@,\"response\":@@}", DisplayName = "an event wrapper with its response twice")]
+    [DataRow("{\"type\":\"response.completed\",\"sequence_number\":1,\"sequence_number\":2,\"response\":@@}", DisplayName = "an event wrapper with a sequence number twice")]
+    [DataRow("{\"object\":\"list\",\"object\":\"list\",\"data\":[@@]}", DisplayName = "a list with its object twice")]
+    [DataRow("{\"object\":\"list\",\"object\":\"response\",\"data\":[@@]}", DisplayName = "a list whose object is list, then response")]
+    [DataRow("{\"object\":\"response\",\"object\":\"list\",\"data\":[@@]}", DisplayName = "a list whose object is response, then list")]
+    [DataRow("{\"object\":\"list\",\"data\":[],\"data\":[@@]}", DisplayName = "a list with its data twice")]
+    [DataRow("[{\"type\":\"response.completed\",\"type\":\"x\",\"response\":@@}]", DisplayName = "an array of a wrapper with a name twice")]
+    [DataRow("{\"object\":\"response\",\"response\":@@}", DisplayName = "a wrapper whose object is response, the reply under response")]
+    [DataRow("{\"id\":\"resp_outer\",\"object\":\"response\",\"model\":\"MODEL\",\"response\":@@}", DisplayName = "a wrapper with an id and model, the reply under response")]
+    [DataRow("{\"id\":\"resp_outer\",\"object\":\"response\",\"model\":\"other-model\",\"response\":@@}", DisplayName = "a response with another model, the reply under response")]
+    [DataRow("{\"object\":\"response\",\"data\":[@@]}", DisplayName = "a response with no id, the reply under data")]
+    [DataRow("{\"id\":\"resp_outer\",\"object\":\"response\",\"status\":\"queued\",\"model\":\"MODEL\",\"response\":@@}", DisplayName = "a queued response, the reply under response")]
+    [DataRow("{\"id\":\"resp_outer\",\"object\":\"response\",\"status\":\"failed\",\"model\":\"MODEL\",\"output\":[],\"response\":@@}", DisplayName = "a failed response with no output, the reply under response")]
+    [DataRow("GOOD,\"metadata\":{\"r\":@@}}", DisplayName = "a good reply that also holds this reply in metadata")]
+    [DataRow("GOOD,\"response\":@@}", DisplayName = "a good reply that also holds this reply under response")]
+    public void AReplyOutOfItsPlaceStopsPaidRequestsWhateverSitsAroundIt(string wrapper)
+    {
+        // Independent review of dcef10c, AE1: #156 only paused a reply out of place when the body was refused as not a response
+        // object, so a wrapper that repeated a name (refused for another reason) or a wrapper that called itself a response let a
+        // reply through unread: its cache write, tier or state kept the reservation with no pause. Now any usage or output anywhere
+        // but directly on a root response object pauses, whatever the body is refused for, and so does a good reply that also holds
+        // one deeper down.
+        string good = Body();
+        string goodOpen = good.Substring(0, good.Length - 1);
+        string cacheWrite = Body(usage: Usage.Replace("{\"cached_tokens\":0}", "{\"cached_tokens\":0,\"cache_write_tokens\":5}", StringComparison.Ordinal));
+        foreach ((string reply, string what) in new[] { (good, "a calm reply"), (cacheWrite, "a reply with a cache write"), (Body(extra: ",\"service_tier\":\"priority\""), "a priority reply") })
+        {
+            string body = wrapper.Replace("GOOD", goodOpen, StringComparison.Ordinal).Replace("MODEL", Model, StringComparison.Ordinal).Replace("@@", reply, StringComparison.Ordinal);
+            AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+            Assert.IsTrue(response.UsageAboveApprovedBounds, what);
+            Assert.IsFalse(response.UsageReliable, what);
+            AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+            Assert.IsTrue(settlement.NeedsReview, what);
+            Assert.AreEqual(45_056, settlement.Committed.Value, what);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("[USAGE]", DisplayName = "usage is an array of the good usage")]
+    [DataRow("[CACHEWRITE]", DisplayName = "usage is an array holding a cache write")]
+    [DataRow("[UNKNOWN]", DisplayName = "usage is an array holding an unknown counter")]
+    [DataRow("[CACHED]", DisplayName = "usage is an array holding cached input")]
+    [DataRow("[]", DisplayName = "usage is an empty array")]
+    [DataRow("{\"input_tokens\":{\"cache_write_tokens\":5},\"output_tokens\":300,\"total_tokens\":1200}", DisplayName = "input_tokens is an object holding a cache write")]
+    [DataRow("{\"input_tokens\":900,\"input_tokens_details\":{\"cached_tokens\":{\"cache_write_tokens\":5}},\"output_tokens\":300,\"total_tokens\":1200}", DisplayName = "cached_tokens is an object holding a cache write")]
+    [DataRow("{\"input_tokens\":900,\"input_tokens_details\":[{\"cached_tokens\":0,\"cache_write_tokens\":5}],\"output_tokens\":300,\"total_tokens\":1200}", DisplayName = "input details is an array holding a cache write")]
+    [DataRow("{\"input_tokens\":900,\"output_tokens\":{\"a\":300},\"total_tokens\":1200}", DisplayName = "output_tokens is an object of counts within the approval")]
+    [DataRow("{\"input_tokens\":900,\"output_tokens\":300,\"total_tokens\":{\"a\":1200}}", DisplayName = "total_tokens is an object of counts within the approval")]
+    [DataRow("{\"input_tokens\":900,\"output_tokens\":300,\"output_tokens_details\":{\"reasoning_tokens\":{\"a\":1}},\"total_tokens\":1200}", DisplayName = "reasoning_tokens is an object of counts within the approval")]
+    public void UsageInAnOddContainerStopsPaidRequestsEvenWithCountsWithinTheApproval(string usage)
+    {
+        // Independent review of dcef10c, AE1: an unwrapped usage array was read only for counts above the approval, so a cache
+        // write, an unknown counter or cached input inside it (and a cache write under input_tokens or cached_tokens) was never seen.
+        // A usage array now counts as above, and only a name ending in "_details" may hold an object.
+        string inner = Usage.Substring("\"usage\":".Length);
+        string value = usage.Replace("USAGE", inner, StringComparison.Ordinal)
+            .Replace("CACHEWRITE", inner.Replace("{\"cached_tokens\":0}", "{\"cached_tokens\":0,\"cache_write_tokens\":5}", StringComparison.Ordinal), StringComparison.Ordinal)
+            .Replace("UNKNOWN", inner.Replace("{\"reasoning_tokens\":", "{\"other_tokens\":0,\"reasoning_tokens\":", StringComparison.Ordinal), StringComparison.Ordinal)
+            .Replace("CACHED", inner.Replace("{\"cached_tokens\":0}", "{\"cached_tokens\":5}", StringComparison.Ordinal), StringComparison.Ordinal);
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(Body(usage: "\"usage\":" + value)), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.IsFalse(response.UsageReliable);
+        Assert.IsTrue(response.UsageAboveApprovedBounds);
+        AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+        Assert.IsTrue(settlement.NeedsReview);
+        Assert.AreEqual(45_056, settlement.Committed.Value);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("{\"type\":\"response.completed\",\"response\":{\"output\":\"LONG\",\"usage\":null}}", true, DisplayName = "an event wrapper whose output is a long string and usage null")]
+    [DataRow("{\"type\":\"response.completed\",\"response\":{\"output\":\"OK\"}}", true, DisplayName = "an event wrapper whose output is a short string, with no usage")]
+    [DataRow("{\"type\":\"response.completed\",\"response\":{\"usage\":5}}", true, DisplayName = "an event wrapper whose usage is the number 5")]
+    [DataRow("{\"output\":null,\"usage\":null}", false, DisplayName = "an object with only output null and usage null")]
+    [DataRow("{\"error\":{\"message\":\"Rate limit reached.\",\"type\":\"requests\",\"code\":\"rate_limit_exceeded\"},\"usage\":null}", false, DisplayName = "an error envelope with usage null beside it")]
+    public void APlainValueWhereAReplyBelongsOutOfPlacePausesButNullDoesNot(string body, bool pauses)
+    {
+        // Independent review of dcef10c, AE1: output or usage written as a plain value out of place is still a reply that couldn't be
+        // read in its place, so it pauses. null is nothing, as a missing name is.
+        body = body.Replace("LONG", new string('x', 1_000_000), StringComparison.Ordinal);
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 2_000_000, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.AreEqual(pauses, response.UsageAboveApprovedBounds);
+        AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+        Assert.AreEqual(pauses, settlement.NeedsReview);
+        Assert.AreEqual(45_056, settlement.Committed.Value);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
     [DataRow("{\"error\":{\"message\":\"The server had an error.\",\"type\":\"server_error\",\"code\":null}}", DisplayName = "an error envelope")]
     [DataRow("{}", DisplayName = "an empty object")]
     [DataRow("[]", DisplayName = "an empty array")]
+    [DataRow("\"a string\"", DisplayName = "a JSON string")]
+    [DataRow("5", DisplayName = "a JSON number")]
+    [DataRow("null", DisplayName = "null")]
+    [DataRow("true", DisplayName = "true")]
+    [DataRow("{\"object\":\"list\",\"data\":[]}", DisplayName = "an empty list")]
+    [DataRow("{\"id\":\"resp_abc123\",\"object\":\"response\",\"status\":\"failed\",\"model\":\"MODEL\",\"output\":[],\"error\":{\"code\":\"server_error\",\"message\":\"x\"}}", DisplayName = "a failed response with an error and empty output, in place")]
     public void ABodyThatCarriesNoReplyKeepsTheReservationWithoutAPause(string body)
     {
         // Independent review of a99b79a, AC1: only a body carrying usage or output counts as a wrapped reply; others are kept as before.
+        // Independent review of dcef10c, AE1: so is a bare value, an empty list and a failed response read in its place.
+        body = body.Replace("MODEL", Model, StringComparison.Ordinal);
         AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
         Assert.IsFalse(response.UsageAboveApprovedBounds);
         AdvisoryAiSettlement kept = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
