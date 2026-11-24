@@ -846,10 +846,84 @@ public sealed class AdvisoryAiResponseTests
         Assert.IsTrue(kept.NeedsReview);
         Assert.AreEqual(40_100, kept.Committed.Value);
 
+        // Independent review of a99b79a, AC1: a wrapped reply within the bounds now pauses too, since its tier, cache write, state and
+        // output length can't be checked in its place.
         string within = above.Replace("99999", "300", StringComparison.Ordinal).Replace("100490", "791", StringComparison.Ordinal);
         string calm = string.Format(System.Globalization.CultureInfo.InvariantCulture, wrapper, Body(usage: within));
-        Assert.IsFalse(AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(calm), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true).UsageAboveApprovedBounds,
-            "a wrapped reply within the bounds keeps the reservation without a pause, as before");
+        AdvisoryAiResponse wrapped = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(calm), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.IsTrue(wrapped.UsageAboveApprovedBounds, "a wrapped reply within the bounds stops paid requests for review");
+        AdvisoryAiSettlement held = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, wrapped, new(40_100), ReviewTariff);
+        Assert.IsTrue(held.NeedsReview);
+        Assert.AreEqual(40_100, held.Committed.Value);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("long", DisplayName = "answer text far longer than the approved output")]
+    [DataRow("priority", DisplayName = "the priority service tier")]
+    [DataRow("flex", DisplayName = "the flex service tier")]
+    [DataRow("cachewrite", DisplayName = "a cache write")]
+    [DataRow("unknown", DisplayName = "an unknown usage counter")]
+    [DataRow("background", DisplayName = "background state")]
+    [DataRow("conversation", DisplayName = "conversation state")]
+    public void AWrappedReplyStopsPaidRequestsWhateverItHolds(string change)
+    {
+        // Independent review of a99b79a, AC1: in a wrapped body only token counts were read, so a reply the normal path pauses on
+        // (long text, another tier, a cache write, an unknown counter, background or conversation state) kept the reservation with no
+        // pause when wrapped. A body that isn't a response object but carries usage or output now pauses, whatever it holds.
+        string usage = Usage;
+        string output = "[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\",\"annotations\":[]}]}]";
+        string extra = "";
+        switch (change)
+        {
+            case "long":
+                output = output.Replace("\"OK\"", "\"" + new string('x', 1_000_000) + "\"", StringComparison.Ordinal);
+                break;
+            case "priority":
+            case "flex":
+                extra = ",\"service_tier\":\"" + change + "\"";
+                break;
+            case "cachewrite":
+                usage = usage.Replace("{\"cached_tokens\":0}", "{\"cached_tokens\":0,\"cache_write_tokens\":5}", StringComparison.Ordinal);
+                break;
+            case "unknown":
+                usage = usage.Replace("{\"reasoning_tokens\":", "{\"other_tokens\":0,\"reasoning_tokens\":", StringComparison.Ordinal);
+                break;
+            case "background":
+                extra = ",\"background\":true";
+                break;
+            default:
+                extra = ",\"previous_response_id\":\"resp_before\"";
+                break;
+        }
+        string body = Body(output: output, usage: usage, extra: extra);
+        Assert.IsTrue(AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 2_000_000, 900, 300, "default", noPromptCache: true, maximumTokenUtf8Bytes: 4).UsageAboveApprovedBounds,
+            "the same reply unwrapped already pauses");
+        foreach (string wrapper in new[] { "[{0}]", "{{\"type\":\"response.completed\",\"response\":{0}}}", "{{\"object\":\"list\",\"data\":[{0}]}}", "{{\"a\":{{\"b\":[{0}]}}}}" })
+        {
+            string wrapped = string.Format(System.Globalization.CultureInfo.InvariantCulture, wrapper, body);
+            AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(wrapped), Model, 2_000_000, 900, 300, "default", noPromptCache: true, maximumTokenUtf8Bytes: 4);
+            Assert.AreEqual(AdvisoryAiMalformedReason.NotAResponseObject, response.MalformedReason, wrapper);
+            Assert.IsTrue(response.UsageAboveApprovedBounds, wrapper);
+            AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+            Assert.IsTrue(settlement.NeedsReview, wrapper);
+            Assert.AreEqual(45_056, settlement.Committed.Value, wrapper);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("{\"error\":{\"message\":\"The server had an error.\",\"type\":\"server_error\",\"code\":null}}", DisplayName = "an error envelope")]
+    [DataRow("{}", DisplayName = "an empty object")]
+    [DataRow("[]", DisplayName = "an empty array")]
+    public void ABodyThatCarriesNoReplyKeepsTheReservationWithoutAPause(string body)
+    {
+        // Independent review of a99b79a, AC1: only a body carrying usage or output counts as a wrapped reply; others are kept as before.
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.IsFalse(response.UsageAboveApprovedBounds);
+        AdvisoryAiSettlement kept = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+        Assert.IsFalse(kept.NeedsReview);
+        Assert.AreEqual(45_056, kept.Committed.Value);
     }
 
     [TestMethod]

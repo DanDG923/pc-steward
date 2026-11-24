@@ -1,3 +1,8 @@
+**Advisory AI, independent review of the fifteenth Task 71C retest build: early finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §27](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `a99b79a`.** One Medium finding sent early: a reply wrapped in another shape was checked only for its token counts, so long text, another service tier, a cache write or conversation state kept the reservation with no pause. The fourteenth build's review failed on §26's finding only. The owner's review of this build was held.
+- **Fixed.** A body that isn't a response object but holds a usage or output value is a reply that couldn't be read in its place, so it stops paid requests for review. An error envelope or an empty body doesn't.
+
 **Advisory AI, independent review of the fourteenth Task 71C retest build: early finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §26](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `2de2ec6`.** One Medium finding sent early: reasoning tokens above the output approval, a usage count written as text, or (in a wrapped reply) a cached or other count above the approval kept the reservation with no pause. The owner's review of this build was held.
