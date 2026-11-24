@@ -429,3 +429,23 @@ The fix was checked in the cloud:
 
 The independent reviewer's scratch run of the same rule found that every AA1 case pauses in all 20 of its shapes. The live shape settled at 4,192 micro-USD, and 600,000 fuzzed bodies settled as before. Nothing in the cleaner changed. The schema stays at 17.
 
+## 27. Task 71C independent review of the fifteenth retest build at `a99b79a`, early finding, and fixes
+
+The independent review of the fifteenth retest build (commit `a99b79a`; run 45381441425, artifact SHA-256 `c708fead…d529`) sent an early notice of one Medium paid-bound finding (AC1), also present on the fourteenth build. The fourteenth build's review returned FAIL on AA1 only (§26). All five pins, the run and the artifact matched. §26's rule held: of 280,560 generated usage trees in 20 body shapes that must pause, none was missed. The cleaner's output was identical to the fourteenth build's. The owner's review of this build was held. The report is not in the repository.
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **AC1 (Medium, paid bound; what §23 and §26 left of W1).** In a wrapped reply (an array root, an event wrapper, a data list, or nested deeper), only the token counts were read. With counts within the approval, a reply the normal path pauses on kept the reservation with no pause when wrapped: answer text far longer than the approved output could decode to, another service tier (`priority`, `flex`), a cache write, an unknown usage counter, cached input, or background or conversation state. A body refused early (stored, another model, tools, unknown status, no id) already paused on each of these. | A body refused as not a response object that holds, at any depth, a property named `usage` or `output` with an object or array value is a reply that couldn't be read in its place, so it stops paid requests for review, whatever it holds. An error envelope, `{}` and `[]` hold no reply and keep the reservation without a pause, as before. This is the rule the independent reviewer tested as a scratch change. Its cost is that every wrapped reply now pauses, including one within the approval. | `AWrappedReplyStopsPaidRequestsWhateverItHolds` (seven changes, four wrappers), `ABodyThatCarriesNoReplyKeepsTheReservationWithoutAPause`, and `AResponseWrappedInAnotherShapeStillStopsPaidRequestsWhenItsUsageIsAboveTheBounds` (its within-bounds rows now pause) |
+
+The ADR-029 rule is unchanged: a reply that can't be read keeps the whole reservation. W2 (§23) is unchanged too: a reply that isn't JSON, or is over the admitted bytes or the parse depth, keeps the reservation with no pause.
+
+Two more lines, recorded from the independent reviewer's look at this change before it merged:
+- The rule also pauses a root object whose `object` field isn't `response` when it holds `usage` or `output`. Before this change, such a body paused only with a departure.
+- AD1 is a listed limit: a reply carried as a string inside JSON, or under names other than `usage` and `output`, isn't read, so it keeps the reservation with no pause.
+
+The fix was checked in the cloud:
+- the domain tests (symbol on and off) and the application tests pass, apart from the four that fail only in the cloud environment;
+- without the fix, the ten new or changed rows fail.
+
+The independent reviewer's scratch run of the same rule found that every wrapped row pauses. The good body settled at 4,192 micro-USD, and 600,000 fuzzed bodies and the workflow replay were unchanged. Nothing in the cleaner changed. The schema stays at 17.
+

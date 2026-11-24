@@ -253,7 +253,10 @@ public static class AdvisoryAiResponseReader
             // early (stored, another model, no id) can't hide a charge above the reservation.
             bool unexpected = unreadable || written > 0 || departures != AdvisoryAiResponseDeparture.None ||
                 OutputContradictsUsage(document.RootElement, approvedOutputTokens, maximumTokenUtf8Bytes) ||
-                CountsAboveApprovedBounds(document.RootElement, approvedInputTokens, approvedOutputTokens);
+                CountsAboveApprovedBounds(document.RootElement, approvedInputTokens, approvedOutputTokens) ||
+                // Independent review of a99b79a, AC1: a body that isn't a response object but carries usage or output is a reply that
+                // couldn't be read in its place, so its tier, cache write, state and output length were never checked. It pauses.
+                response.MalformedReason == AdvisoryAiMalformedReason.NotAResponseObject && CarriesAReply(document.RootElement);
             // A body that continues other state isn't an answer to this request, so its text is never shown or saved.
             if (departures.HasFlag(AdvisoryAiResponseDeparture.ConversationState) && response.Status != AdvisoryAiAnswerStatus.Malformed)
                 response = response with { Status = AdvisoryAiAnswerStatus.Malformed, IncompleteReason = AdvisoryAiIncompleteReason.None,
@@ -436,6 +439,29 @@ public static class AdvisoryAiResponseReader
                         tokens = Math.Min(tokens, reported);
         }
         return bytes > tokens * maximumTokenUtf8Bytes;
+    }
+
+    /// <summary>
+    /// Independent review of a99b79a, AC1: true when a property named "usage" or "output" holding an object or an array sits anywhere
+    /// in the body, so a response wrapped in an array, an event or a list counts as a reply. An error envelope, <c>{}</c> and <c>[]</c>
+    /// don't.
+    /// </summary>
+    private static bool CarriesAReply(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement child in element.EnumerateArray())
+                if (CarriesAReply(child)) return true;
+            return false;
+        }
+        if (element.ValueKind != JsonValueKind.Object) return false;
+        foreach (JsonProperty property in element.EnumerateObject())
+        {
+            bool holder = property.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array;
+            if (holder && (property.NameEquals("usage") || property.NameEquals("output"))) return true;
+            if (CarriesAReply(property.Value)) return true;
+        }
+        return false;
     }
 
     /// <summary>
