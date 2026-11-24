@@ -463,6 +463,22 @@ public static class AdvisoryAiSettlementRule
         return new(AdvisoryAiRequestState.Uncertain, reservation, reason, response.UsageAboveApprovedBounds) { ReviewCause = Untrusted(response) };
     }
 
+    /// <summary>
+    /// Independent review of 68b474214b, AK1 (Task 90 §32): a body that arrived under anything but an HTTP error status (so 2xx, or no
+    /// status at all) and did not settle is a reply PC Steward can't price, whatever its shape: the whole reservation stays kept and paid
+    /// requests stop for review. Under an error status the body rules above decide alone, so a gateway's error page or an error envelope
+    /// still only keeps the reservation.
+    /// </summary>
+    public static AdvisoryAiSettlement AfterStatus(AdvisoryAiSettlement settlement, AdvisoryAiDispatchOutcome outcome, int? httpStatus)
+    {
+        ArgumentNullException.ThrowIfNull(settlement);
+        // Fail closed: only a plain HTTP error status (400 to 599) leaves the decision to the body rules alone.
+        bool errorStatus = httpStatus is >= 400 and <= 599;
+        return outcome == AdvisoryAiDispatchOutcome.ResponseReceived && !errorStatus && settlement.State == AdvisoryAiRequestState.Uncertain && !settlement.AboveReservation
+            ? settlement with { AboveReservation = true, ReviewCause = settlement.ReviewCause | AdvisoryAiReviewCause.UntrustedReply }
+            : settlement;
+    }
+
     /// <summary>A reply that departed from the approved request, or reported usage above its approved bounds, is an untrusted reply.</summary>
     private static AdvisoryAiReviewCause Untrusted(AdvisoryAiResponse response) =>
         response.UsageAboveApprovedBounds ? AdvisoryAiReviewCause.UntrustedReply : AdvisoryAiReviewCause.None;
