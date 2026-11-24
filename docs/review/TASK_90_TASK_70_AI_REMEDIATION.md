@@ -354,9 +354,10 @@ The independent review of the eleventh retest build (commit `be08c02`; run 45176
   - An unquoted path or link with a space in its last part keeps the words after the space. So does one later inside a quoted sentence (`"see https://…/My Folder/a b.txt"`), which is read as unquoted.
   - Delimiters not listed above (`*`, `**`, `_`, CJK brackets, `&ldquo;`, `&#x22;`, `&lt;`, `&QUOT;`, two spaces after an opener) are read as ordinary text.
   - A value whose close is on a later line of an answer (71C-05), and T3 (§21).
-  - Unknown path forms (V3) pass whole.
+  - Unknown path forms (V3) pass whole. This includes the old drive form in a file link, `file:///C|/…` (a bar for the colon), which is read as a web link and keeps the words after its first space, and `file:C|/…`, which passes whole (Z4, §25).
   - A name that holds its delimiter's own closing mark (`(C:\…\Photos 1) Violet\…)`, `“…\17” Screen\…”`) ends the removal at that mark, and the rest is read as unquoted text. The independent reviewer's pre-merge look at this change tried two ways to run on past it; both showed more on well-formed lines.
-  - A quote glued to the end of a word (`-url"https://…"`) is read as a close, not an opener, so a web link after it is read as unquoted.
+  - A quote glued to the end of a word (`-url"https://…"`) is read as a close, not an opener, so a web link after it is read as unquoted. A symbol outside the Basic Multilingual Plane before a quote (an emoji such as `🔗"https://…"`, or `𝐀`) counts as a letter here, so it glues the quote in the same way (Z1, §25). So does the `n` of an escaped line break in JSON text (`\n\"https://…\"`) (Z2, §25).
+  - A link that doesn't start right after its opener (`ms-word:ofe|u|https://…` in a backtick, single or typographic quotes, guillemets, brackets or a Markdown link target) is read as unquoted; only a straight double quote takes such a word whole (Z3, §25).
   - In quality: a single-quoted web link followed on its line by a slash or an apostrophe takes the rest of the line, as a single-quoted path does (`{'url': 'https://…', 'error': 'timeout'}` keeps only `{'url': '[link]'`) (N2). An escaped closing quote loses its backslash (`{\"url\":\"[link]"}`).
   - Broken or glued text (a stray quote inside a value, a close glued to the next value, a close inside a path that goes on past it, as in `|file:///C:/|Users/…`) may keep part of a name. Against the eleventh build, on seven seeds of 20,000 mixed lines, this change newly shows a word in 0 or 1 line a seed and newly hides one in about 55 to 90.
 
@@ -392,3 +393,18 @@ The fixes were checked in the cloud:
 
 The schema stays at 17.
 
+## 25. Task 71C reviews of the thirteenth retest build at `2cdfcc4`, and fixes
+
+The independent review of the thirteenth retest build (commit `2cdfcc4`; run 45198782457, artifact SHA-256 `cbe0b3ac…2cb4`) returned PASS with four Low notes (Z1 to Z4), each inside a limit §23 lists. The owner's Codex review of the same build returned FAIL on one Medium paid-bound finding (71C-01). Provenance, the compiled model and tier, the route, the key target, the ledger arithmetic and the cleaner comparison passed in both. Neither report is in the repository.
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **71C-01 (Medium, paid bound). A count just above the approval, written with a fraction, avoided the pause.** A body refused early (`store:true`) reporting `output_tokens: 2048.0000000000000000000001` and `total_tokens: 2539.0000000000000000000001` on a 2,048-token approval kept the reservation as uncertain with no pause: the count isn't a whole number, so §22's check read it as a double, which rounds it to exactly 2,048, and the strict bound check let it pass. | Only a count written as a plain whole number that fits a long is compared with the approval. Any other number under `input_tokens`, `output_tokens` or `total_tokens` (a fraction, an exponent, a count too large for a long or too small for a double) can't be compared exactly, so it counts as above the bound, whatever its size, wherever the `usage` object sits. Such a count was never trusted for settlement; now it also stops paid requests for review. Whole counts at the approval are unchanged. | `ACountThatIsNotAPlainWholeNumberStopsPaidRequestsInEveryBodyShape` (input, output and total; normal, refused and wrapped bodies), `PlainWholeCountsAtTheApprovalStillKeepTheReservationWithoutAPause`, and `MissingInconsistentOrMalformedUsageIsNeverReliable` (its fraction row now pauses) |
+| **Z1 (Low, privacy).** A symbol outside the Basic Multilingual Plane before a double quote counts as a letter, so `🔗"https://…/My Violet Folder/…"` keeps the words after the first space. | Not changed: added by name to the "quote glued to a word" limit in §23. | Recorded |
+| **Z2 (Low, privacy).** In JSON text, the `n` of `\n` before an escaped quote glues it, so a web link after `\n\"` keeps the words after its first space (with a space or colon there it is removed whole, and a path or file link is removed whole either way). | Not changed: added as an example to the same limit. | Recorded |
+| **Z3 (Low, privacy).** An Office link (`ms-word:ofe\|u\|https://…`) inside a delimiter other than a straight double quote keeps the words after its first space, because the web link doesn't start right after the opener. | Not changed: added to §23's limits. | Recorded |
+| **Z4 (Low, privacy).** The old drive form in a file link, `file:///C|/…`, isn't read as a drive: it is read as a web link and keeps the words after its first space; `file:C|/…` passes whole. | Not changed: named under the unknown path forms (V3). | Recorded |
+
+Nothing in the cleaner changed, so the cleaner probes of §24 stand for this build. The fix was checked in the cloud: the domain tests (symbol on and off) and the application tests pass apart from the four that fail only in the cloud environment.
+
+The schema stays at 17.

@@ -204,7 +204,9 @@ public sealed class AdvisoryAiResponseTests
         AdvisoryAiResponse response = Read(Body(usage: "\"x\":1" + usage));
         Assert.AreEqual(AdvisoryAiAnswerStatus.Completed, response.Status, "the answer can still be shown");
         Assert.IsFalse(response.UsageReliable);
-        Assert.IsFalse(response.UsageAboveApprovedBounds);
+        // Codex review of 2cdfcc4, 71C-01: a count that isn't a plain whole number can't be compared exactly with the approval, so it
+        // also stops paid requests; every other row here is untrusted without a pause.
+        Assert.AreEqual(usage.Contains("900.5", StringComparison.Ordinal), response.UsageAboveApprovedBounds);
     }
 
     [TestMethod]
@@ -698,6 +700,67 @@ public sealed class AdvisoryAiResponseTests
         Assert.IsFalse(response.UsageReliable);
         Assert.IsTrue(response.UsageAboveApprovedBounds);
         Assert.IsTrue(AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff).NeedsReview);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("input_tokens", "12288.0000000000000000000001", DisplayName = "input a whisker above the approval")]
+    [DataRow("output_tokens", "2048.0000000000000000000001", DisplayName = "output a whisker above the approval")]
+    [DataRow("total_tokens", "14336.0000000000000000000001", DisplayName = "total a whisker above the approval")]
+    [DataRow("output_tokens", "2048.0", DisplayName = "output at the approval written with a fraction")]
+    [DataRow("output_tokens", "2.048e3", DisplayName = "output at the approval written with an exponent")]
+    [DataRow("input_tokens", "491.5", DisplayName = "input below the approval with a fraction")]
+    [DataRow("output_tokens", "1E-400", DisplayName = "output too small for a double")]
+    [DataRow("total_tokens", "99999999999999999999", DisplayName = "total too large for a long")]
+    public void ACountThatIsNotAPlainWholeNumberStopsPaidRequestsInEveryBodyShape(string name, string written)
+    {
+        // Codex review of 2cdfcc4, 71C-01: read as a double, 2048.0000000000000000000001 became exactly 2,048, so a count above the
+        // approval passed the strict bound check and a refused body kept only the reservation with no pause. A count that isn't a
+        // plain whole number can't be compared exactly, so it now stops paid requests whatever its size, in a normal body, one refused
+        // early and one wrapped in another shape.
+        string usage = ("\"usage\":{\"input_tokens\":491,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":300," +
+            "\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":791}").Replace("\"" + name + "\":" + (name switch
+            {
+                "input_tokens" => "491",
+                "output_tokens" => "300",
+                _ => "791"
+            }), "\"" + name + "\":" + written, StringComparison.Ordinal);
+        StringAssert.Contains(usage, written);
+        string normal = Body(usage: usage);
+        foreach ((string shape, string body) in new[]
+        {
+            ("normal", normal),
+            ("refused as stored", normal.Replace("\"store\":false", "\"store\":true", StringComparison.Ordinal)),
+            ("refused as another model", normal.Replace(Model, "other-model", StringComparison.Ordinal)),
+            ("wrapped in an array", "[" + normal + "]"),
+            ("wrapped in an event", "{\"type\":\"response.completed\",\"response\":" + normal + "}")
+        })
+        {
+            AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+            Assert.IsFalse(response.UsageReliable, shape);
+            Assert.IsTrue(response.UsageAboveApprovedBounds, shape);
+            AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+            Assert.AreEqual(AdvisoryAiRequestState.Uncertain, settlement.State, shape);
+            Assert.AreEqual(45_056, settlement.Committed.Value, shape);
+            Assert.IsTrue(settlement.NeedsReview, shape);
+            Assert.IsTrue(settlement.ReviewCause.HasFlag(AdvisoryAiReviewCause.UntrustedReply), shape);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void PlainWholeCountsAtTheApprovalStillKeepTheReservationWithoutAPause()
+    {
+        // Codex review of 2cdfcc4, 71C-01: the stricter rule only reaches counts that aren't plain whole numbers; whole counts exactly
+        // at the approval in a body refused early keep the reservation without a pause, as before.
+        string usage = "\"usage\":{\"input_tokens\":12288,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":2048," +
+            "\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":14336}";
+        string body = Body(usage: usage).Replace("\"store\":false", "\"store\":true", StringComparison.Ordinal);
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.IsFalse(response.UsageAboveApprovedBounds);
+        AdvisoryAiSettlement kept = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+        Assert.AreEqual(45_056, kept.Committed.Value);
+        Assert.IsFalse(kept.NeedsReview);
     }
 
     [TestMethod]

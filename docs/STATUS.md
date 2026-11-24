@@ -1,3 +1,8 @@
+**Advisory AI, reviews of the thirteenth Task 71C retest build: paid-bound finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03`, `FR-AI-02`, `FR-AI-05`, `FR-DIA-03` ([Task 90 record §25](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Reviews of `2cdfcc4`.** The independent review passed with four Low notes. The owner's Codex review failed on one Medium finding: a usage count just above the approval, written with a fraction, read as exactly the approval and avoided the pause.
+- **Fixed.** A usage count that isn't a plain whole number now counts as above the approval and stops paid requests for review. The four Low notes are named in §23's limits.
+
 **Advisory AI, independent review of the twelfth Task 71C retest build: early finding fixed (2026-11-23; code, tests and docs; no paid call, no key used).** Requirements: `FR-AI-02`, `FR-AI-05`, `FR-DIA-03` ([Task 90 record §24](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `d16ab4c`.** One Medium finding sent early: a web link to a folder (ending in a slash) inside quotes, guillemets or similar kept the words after its first space. The owner's review of this build was held.
