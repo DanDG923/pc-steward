@@ -1,3 +1,8 @@
+**Advisory AI, independent review of the twenty-first Task 71C retest build: PASS (2026-11-24; docs only; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §33](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Review of `a1dd1b3`.** Passed. One new Low note (AL1): if writing the settlement fails, a pause the reply earned is lost at the next send's recovery. Recorded as a limit for the retest; options are for after it.
+- **Record fixes.** §32's closing line and Task 69 item 5 are corrected to match the status rule.
+
 **Advisory AI, independent review of the twentieth Task 71C retest build: early finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §32](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `68b4742`.** One Medium finding sent early: a reply sent as a string inside an object that only says it is a response, or with its names escaped behind a byte order mark, kept only the reservation with no pause, so the next request could go out.
