@@ -540,6 +540,8 @@ Nothing in the cleaner changed. The schema stays at 17.
 
 The independent review of the twenty-first retest build (commit `a1dd1b3`; run 45475606641, artifact SHA-256 `295c9a4f…f346`) **passed** on 2026-11-24. All five pins matched in the prompt, the key-step guide and the paste. The repository tests passed with the symbol on and off. In workflow replays over a SQLite ledger, under any status outside 400 to 599 (none, 0, 1xx to 3xx, 600 and above) a body that doesn't settle paused and the next request was refused. Under 400 to 599 the body rules decided alone. The retest's live reply settled at 4,192 micro-USD under every status. Outputs from older probes differed only on the rows §32 intends to change. The review approves neither the key step nor the send. The report is not in the repository.
 
+The owner's own review of the same build (Codex, Sol 6.0) also **passed** on 2026-11-24, with no new finding. It too approves neither the key step nor the send, and its report stays on the owner's PC. With both reviews passed, the build is cleared for the owner's separate key-step and send decisions.
+
 | Note | Decision |
 |---|---|
 | **AL1 (Low, on every build, not blocking).** If writing the settlement fails (the ledger's settle step returns a storage failure or throws), the request workflow carries on. The next send's recovery then marks the claimed row Interrupted with no pause, so a pause the reply earned is lost. The review showed it with a real 40-second SQLite write lock (a 7-second lock is waited out). The provider can't cause it. | Recorded as a limit for the retest. The review names two untested options for after the retest. One changes ADR-029's crash row, so it is the owner's call then. |

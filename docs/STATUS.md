@@ -1,6 +1,6 @@
-**Advisory AI, independent review of the twenty-first Task 71C retest build: PASS (2026-11-24; docs only; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §33](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+**Advisory AI, both reviews of the twenty-first Task 71C retest build: PASS (2026-11-24; docs only; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §33](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
-- **Review of `a1dd1b3`.** Passed. One new Low note (AL1): if writing the settlement fails, a pause the reply earned is lost at the next send's recovery. Recorded as a limit for the retest; options are for after it.
+- **Reviews of `a1dd1b3`.** The independent review and the owner's review both passed. The build is cleared for the owner's separate key-step and send decisions. One new Low note (AL1): if writing the settlement fails, a pause the reply earned is lost at the next send's recovery. Recorded as a limit for the retest; options are for after it.
 - **Record fixes.** §32's closing line and Task 69 item 5 are corrected to match the status rule.
 
 **Advisory AI, independent review of the twentieth Task 71C retest build: early finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §32](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
