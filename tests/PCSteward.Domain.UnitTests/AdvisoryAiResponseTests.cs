@@ -54,18 +54,23 @@ public sealed class AdvisoryAiResponseTests
     [TestCategory("FR-BUD-02")]
     [DataRow("[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"refusal\",\"refusal\":\"TEXT\"}]}]", DisplayName = "a refusal")]
     [DataRow("[{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"TEXT\"}]},{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"Short.\"}]}]", DisplayName = "a reasoning summary")]
-    [DataRow("[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"TEXT\"}]},{\"type\":\"function_call\",\"name\":\"x\"}]", DisplayName = "an answer in a body refused for another reason")]
+    [DataRow("NOID[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"TEXT\"}]}]", DisplayName = "an answer in a body refused for another reason")]
     public void AnyOutputTextLongerThanTheReportedOutputCouldDecodeToIsNotTrusted(string output)
     {
+        // Independent review of a4db871, AG1: the body refused for another reason has no id, since a function call item, the reason
+        // it was refused before, now pauses on its own.
+        bool noId = output.StartsWith("NOID", StringComparison.Ordinal);
+        output = noId ? output.Substring(4) : output;
+        string Shaped(string o) => noId ? Body(output: o).Replace("\"resp_abc123\"", "\"\"", StringComparison.Ordinal) : Body(output: o);
         // Independent review of 4056e3f, G2: the C1 check counted answer text only, so a huge refusal or reasoning summary, or an
         // answer in a body that was refused before the check, settled at the reported usage with nothing stopped for review.
         string large = output.Replace("TEXT", new string('x', (300 * 4) + 1), StringComparison.Ordinal);
-        AdvisoryAiResponse over = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(Body(output: large)), Model, 1_000_000, 8192, 1024, maximumTokenUtf8Bytes: 4);
+        AdvisoryAiResponse over = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(Shaped(large)), Model, 1_000_000, 8192, 1024, maximumTokenUtf8Bytes: 4);
         Assert.IsFalse(over.UsageReliable);
         Assert.IsTrue(over.UsageAboveApprovedBounds);
         // The same reply with text the reported tokens can decode to is trusted, so the check charges only the text, not the fixed names.
         string small = output.Replace("TEXT", "Short reason.", StringComparison.Ordinal);
-        AdvisoryAiResponse within = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(Body(output: small)), Model, 1_000_000, 8192, 1024, maximumTokenUtf8Bytes: 4);
+        AdvisoryAiResponse within = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(Shaped(small)), Model, 1_000_000, 8192, 1024, maximumTokenUtf8Bytes: 4);
         Assert.AreEqual(over.Status, within.Status);
         Assert.AreEqual(within.MalformedReason == AdvisoryAiMalformedReason.None, within.UsageReliable);
         Assert.IsFalse(within.UsageAboveApprovedBounds);
@@ -88,12 +93,13 @@ public sealed class AdvisoryAiResponseTests
 
     [TestMethod]
     [TestCategory("FR-BUD-02")]
-    [DataRow(",\"store\":true", "\"output_tokens\":1,", "901", DisplayName = "a body refused before the output is read")]
+    [DataRow(",\"store\":false,\"id\":\"resp_again\"", "\"output_tokens\":1,", "901", DisplayName = "a body refused before the output is read")]
     [DataRow("", "\"output_tokens\":1,", "5", DisplayName = "a total that doesn't add up, with a plain output count")]
     public void OutputTextThatContradictsAPlainOutputCountAlwaysPauses(string extra, string outputCount, string total)
     {
         // Codex review of cd04620, 71C-03: a body refused early (here for echoing store) returned before the check, and an inconsistent
         // total made the check use the whole approved output instead of the reported count. Both kept the reservation with no pause.
+        // Independent review of a4db871, AG1: the early refusal is now a repeated id, since an echoed store pauses on its own.
         string usage = "\"usage\":{\"input_tokens\":900,\"input_tokens_details\":{\"cached_tokens\":0}," + outputCount + "\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":" + total + "}";
         string output = "[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"" + new string('x', 193) + "\"}]}]";
         string body = Body(output: output, usage: usage).Replace(",\"store\":false", extra, StringComparison.Ordinal);
@@ -290,11 +296,14 @@ public sealed class AdvisoryAiResponseTests
             AdvisoryAiResponse response = Read(body);
             Assert.AreEqual(AdvisoryAiAnswerStatus.Malformed, response.Status);
             Assert.AreEqual(expected, response.MalformedReason);
-            Assert.AreEqual(review, response.UsageAboveApprovedBounds, written);
+            // Independent review of a4db871, AG1, and the owner's review, 71C-01: another model, a stored response, tools or an
+            // unsupported status pause on their own, with or without a write.
+            bool pauses = review || change is "model" or "store" or "tools" or "status";
+            Assert.AreEqual(pauses, response.UsageAboveApprovedBounds, written);
             AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), tariff);
             Assert.AreEqual(AdvisoryAiRequestState.Uncertain, settlement.State);
             Assert.AreEqual(45_056, settlement.Committed.Value, "the whole reservation is kept");
-            Assert.AreEqual(review, settlement.NeedsReview, written);
+            Assert.AreEqual(pauses, settlement.NeedsReview, written);
         }
     }
     [TestMethod]
@@ -679,13 +688,16 @@ public sealed class AdvisoryAiResponseTests
         Assert.AreEqual(committed, settlement.Committed.Value);
         Assert.IsTrue(settlement.NeedsReview);
 
-        // Within the bounds, a refused body still only keeps the reservation, without a pause.
+        // Within the bounds, a body refused for no id still only keeps the reservation, without a pause. Independent review of
+        // a4db871, AG1, and the owner's review, 71C-01: one that shows another model, storage, tools or an unsupported status pauses,
+        // since those are charged outside the reservation or say the provider may still be working.
+        bool neverAllowed = change is "model" or "store" or "tools" or "status";
         string within = body.Replace("6000", "300", StringComparison.Ordinal).Replace("6491", "791", StringComparison.Ordinal);
         AdvisoryAiResponse refused = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(within), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
-        Assert.IsFalse(refused.UsageAboveApprovedBounds);
+        Assert.AreEqual(neverAllowed, refused.UsageAboveApprovedBounds);
         AdvisoryAiSettlement kept = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, refused, new(45_056), ReviewTariff);
         Assert.AreEqual(45_056, kept.Committed.Value);
-        Assert.IsFalse(kept.NeedsReview);
+        Assert.AreEqual(neverAllowed, kept.NeedsReview);
     }
 
     [TestMethod]
@@ -820,7 +832,8 @@ public sealed class AdvisoryAiResponseTests
         // at the approval in a body refused early keep the reservation without a pause, as before.
         string usage = "\"usage\":{\"input_tokens\":12288,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":2048," +
             "\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":14336}";
-        string body = Body(usage: usage).Replace("\"store\":false", "\"store\":true", StringComparison.Ordinal);
+        // Independent review of a4db871, AG1: the early refusal is no id, since an echoed store now pauses on its own.
+        string body = Body(usage: usage).Replace("\"resp_abc123\"", "\"\"", StringComparison.Ordinal);
         AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
         Assert.IsFalse(response.UsageAboveApprovedBounds);
         AdvisoryAiSettlement kept = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
@@ -1061,13 +1074,162 @@ public sealed class AdvisoryAiResponseTests
         Assert.IsTrue(failed.UsageReliable, "a provider failure can honestly have used nothing");
     }
 
+    private const string AnswerItem = "{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\",\"annotations\":[]}]}";
+
     [TestMethod]
     [TestCategory("FR-BUD-03")]
-    public void AModelNameWithASuffixKeepsTheReservationWithoutAnAutomaticPause()
+    [DataRow("websearch", DisplayName = "one web search call beside the answer")]
+    [DataRow("sixsearches", DisplayName = "six web search calls beside the answer")]
+    [DataRow("image", DisplayName = "an image generation call")]
+    [DataRow("code", DisplayName = "a code interpreter call")]
+    [DataRow("filesearch", DisplayName = "a file search call")]
+    [DataRow("computer", DisplayName = "a computer call")]
+    [DataRow("mcp", DisplayName = "a remote tool call")]
+    [DataRow("function", DisplayName = "a function call")]
+    [DataRow("twotypes", DisplayName = "an item with two types, message then a search call")]
+    [DataRow("searchpart", DisplayName = "a search call inside the message parts")]
+    [DataRow("audio", DisplayName = "an audio part in the message")]
+    [DataRow("toolsecho", DisplayName = "a tools echo naming web search")]
+    [DataRow("toolsimage", DisplayName = "a tools echo naming image generation, with the call item")]
+    [DataRow("model", DisplayName = "another model")]
+    [DataRow("suffix", DisplayName = "the model with a date suffix")]
+    [DataRow("store", DisplayName = "store true")]
+    [DataRow("modeltwice", DisplayName = "model twice, the approved one last")]
+    [DataRow("storetwice", DisplayName = "store twice, false last")]
+    [DataRow("toolstwice", DisplayName = "tools twice, empty last")]
+    [DataRow("outputtwice", DisplayName = "output twice, a search call first and the answer last")]
+    public void AReplyShowingWhatTheRequestNeverAllowedStopsPaidRequestsWhateverElseRefusesIt(string change)
     {
-        // Task 70F T70F-01: a model mismatch alone is uncertain (whole reservation kept, nothing shown) but isn't a departure from the
-        // priced request, so it doesn't pause paid requests by itself; the Task 71 packet's manual stop covers it. A departure in the
-        // same body still pauses.
+        // Independent review of a4db871, AG1: a reply in its place with counts within the approval that showed a hosted tool call, a
+        // part that isn't text, a tools echo, another model or storage was refused, but a refusal only kept the reservation, with no
+        // pause, so a second paid request was sent. Hosted tools are charged per call and another model has another price list, both
+        // outside the reservation. Each now pauses, alone or behind a repeated root name, no id or an unknown status.
+        string output = "[" + AnswerItem + "]";
+        string extra = "";
+        Func<string, string> edit = body => body;
+        switch (change)
+        {
+            case "websearch": output = "[{\"type\":\"web_search_call\",\"id\":\"ws_1\",\"status\":\"completed\",\"action\":{\"type\":\"search\",\"query\":\"x\"}}," + AnswerItem + "]"; break;
+            case "sixsearches": output = "[" + string.Concat(Enumerable.Repeat("{\"type\":\"web_search_call\",\"id\":\"ws_1\",\"status\":\"completed\"},", 6)) + AnswerItem + "]"; break;
+            case "image": output = "[{\"type\":\"image_generation_call\",\"id\":\"ig_1\",\"status\":\"completed\",\"result\":\"aGk=\"}," + AnswerItem + "]"; break;
+            case "code": output = "[{\"type\":\"code_interpreter_call\",\"id\":\"ci_1\",\"status\":\"completed\",\"code\":\"x\"}," + AnswerItem + "]"; break;
+            case "filesearch": output = "[{\"type\":\"file_search_call\",\"id\":\"fs_1\",\"status\":\"completed\",\"queries\":[\"x\"]}," + AnswerItem + "]"; break;
+            case "computer": output = "[{\"type\":\"computer_call\",\"id\":\"cc_1\",\"status\":\"completed\"}," + AnswerItem + "]"; break;
+            case "mcp": output = "[{\"type\":\"mcp_call\",\"id\":\"mc_1\",\"name\":\"x\"}," + AnswerItem + "]"; break;
+            case "function": output = "[{\"type\":\"function_call\",\"id\":\"fc_1\",\"name\":\"x\",\"arguments\":\"{}\"}," + AnswerItem + "]"; break;
+            case "twotypes": output = "[" + AnswerItem.Replace("{\"type\":\"message\",", "{\"type\":\"message\",\"type\":\"web_search_call\",", StringComparison.Ordinal) + "]"; break;
+            case "searchpart": output = "[" + AnswerItem.Replace("\"annotations\":[]}", "\"annotations\":[]},{\"type\":\"web_search_call\",\"id\":\"ws_1\"}", StringComparison.Ordinal) + "]"; break;
+            case "audio": output = "[" + AnswerItem.Replace("\"annotations\":[]}", "\"annotations\":[]},{\"type\":\"output_audio\",\"data\":\"aGk=\"}", StringComparison.Ordinal) + "]"; break;
+            case "toolsecho": edit = body => body.Replace("\"tools\":[]", "\"tools\":[{\"type\":\"web_search\"}]", StringComparison.Ordinal); break;
+            case "toolsimage":
+                output = "[{\"type\":\"image_generation_call\",\"id\":\"ig_1\",\"status\":\"completed\",\"result\":\"aGk=\"}," + AnswerItem + "]";
+                edit = body => body.Replace("\"tools\":[]", "\"tools\":[{\"type\":\"image_generation\"}]", StringComparison.Ordinal);
+                break;
+            case "model": edit = body => body.Replace(Model, "other-model", StringComparison.Ordinal); break;
+            case "suffix": edit = body => body.Replace(Model, Model + "-2026-11-14", StringComparison.Ordinal); break;
+            case "store": edit = body => body.Replace("\"store\":false", "\"store\":true", StringComparison.Ordinal); break;
+            case "modeltwice": edit = body => body.Replace("\"model\":\"" + Model + "\"", "\"model\":\"other-model\",\"model\":\"" + Model + "\"", StringComparison.Ordinal); break;
+            case "storetwice": edit = body => body.Replace("\"store\":false", "\"store\":true,\"store\":false", StringComparison.Ordinal); break;
+            case "toolstwice": edit = body => body.Replace("\"tools\":[]", "\"tools\":[{\"type\":\"web_search\"}],\"tools\":[]", StringComparison.Ordinal); break;
+            default:
+                edit = body => body.Replace("\"output\":", "\"output\":[{\"type\":\"web_search_call\",\"id\":\"ws_1\"}],\"output\":", StringComparison.Ordinal);
+                break;
+        }
+        string reply = edit(Body(output: output, extra: extra));
+        foreach ((string refusal, string body) in new[]
+        {
+            ("alone", reply),
+            ("a root name twice", reply.Replace("\"created_at\":1763000000", "\"created_at\":1763000000,\"created_at\":1763000001", StringComparison.Ordinal)),
+            ("no id", reply.Replace("\"resp_abc123\"", "\"\"", StringComparison.Ordinal)),
+            ("an unknown status", reply.Replace("\"status\":\"completed\",\"model\"", "\"status\":\"paused\",\"model\"", StringComparison.Ordinal))
+        })
+        {
+            Assert.AreNotEqual(reply == body, refusal != "alone", refusal);
+            AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+            Assert.AreEqual(AdvisoryAiAnswerStatus.Malformed, response.Status, refusal);
+            Assert.IsNull(response.Text, refusal);
+            AssertPausedWithWholeReservation(response, refusal);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    [DataRow("\"queued\"", true, DisplayName = "queued")]
+    [DataRow("\"in_progress\"", true, DisplayName = "in progress")]
+    [DataRow("\"paused\"", true, DisplayName = "an unknown word")]
+    [DataRow("5", true, DisplayName = "a number")]
+    [DataRow("\"completed\"", false, DisplayName = "completed")]
+    [DataRow("\"incomplete\"", false, DisplayName = "incomplete")]
+    [DataRow("\"failed\"", false, DisplayName = "failed")]
+    [DataRow("\"cancelled\"", false, DisplayName = "cancelled")]
+    public void AnUnsupportedStatusStopsPaidRequestsForReview(string status, bool pauses)
+    {
+        // Owner's review of a4db871, 71C-01: a status the reader doesn't support was refused but only kept the reservation, so a
+        // reply saying the provider was still working on the request could be followed by another paid request. It now pauses.
+        string body = Body().Replace("\"status\":\"completed\"", "\"status\":" + status, StringComparison.Ordinal);
+        AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+        Assert.AreEqual(pauses, response.UsageAboveApprovedBounds);
+        AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+        Assert.AreEqual(pauses, settlement.NeedsReview);
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void BodiesThatShowNothingTheRequestNeverAllowedStillOnlyKeepTheReservation()
+    {
+        // Independent review of a4db871, AG1: the new check reads only a response object's model, store, tools, status and output, so
+        // an error envelope (even one naming a model and tools), no id, no status, no model and a failed response still only keep the
+        // reservation, without a pause. A message with no content now pauses: a recorded cost of the check. The owner's review,
+        // 71C-01: so does an unsupported status.
+        foreach ((string what, string body, bool pauses) in new[]
+        {
+            ("an error envelope naming a model and tools", "{\"error\":{\"message\":\"x\",\"type\":\"invalid_request_error\",\"model\":\"other\",\"tools\":[{}]}}", false),
+            ("a response with no id", Body().Replace("\"resp_abc123\"", "\"\"", StringComparison.Ordinal), false),
+            ("a response with an unknown status", Body().Replace("\"status\":\"completed\",\"model\"", "\"status\":\"paused\",\"model\"", StringComparison.Ordinal), true),
+            ("a response with no status", Body().Replace("\"status\":\"completed\",", "", StringComparison.Ordinal), false),
+            ("a response with no model named", Body().Replace("\"model\":\"" + Model + "\",", "", StringComparison.Ordinal), false),
+            ("a failed response with no output field", "{\"id\":\"resp_abc123\",\"object\":\"response\",\"created_at\":1763000000,\"status\":\"failed\",\"model\":\"" + Model + "\",\"store\":false,\"tools\":[],\"error\":{\"code\":\"server_error\",\"message\":\"x\"}}", false),
+            ("a message with no content", Body(output: "[{\"type\":\"message\",\"role\":\"assistant\"}]"), true)
+        })
+        {
+            AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+            Assert.AreEqual(pauses, response.UsageAboveApprovedBounds, what);
+            AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
+            Assert.AreEqual(pauses, settlement.NeedsReview, what);
+            Assert.AreEqual(45_056, settlement.Committed.Value, what);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void RepliesMadeOnlyOfReasoningAndAnswerStillSettle()
+    {
+        // Independent review of a4db871, AG1: a reasoning summary, a refusal, a link citation, two messages, empty output and echoed
+        // tool settings with no tools are all within what the request allowed, so they still settle at the reported usage.
+        foreach ((string what, string body) in new[]
+        {
+            ("the plain reply", Body()),
+            ("a reasoning summary, then the answer", Body(output: "[{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Why.\"}]}," + AnswerItem + "]")),
+            ("a refusal", Body(output: "[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"refusal\",\"refusal\":\"No.\"}]}]")),
+            ("a link citation", Body(output: "[" + AnswerItem.Replace("\"annotations\":[]", "\"annotations\":[{\"type\":\"url_citation\",\"url\":\"https://example.com/\",\"start_index\":0,\"end_index\":2}]", StringComparison.Ordinal) + "]")),
+            ("two messages", Body(output: "[" + AnswerItem + "," + AnswerItem + "]")),
+            ("empty output", Body(output: "[]")),
+            ("tool settings echoed with no tools", Body(extra: ",\"tool_choice\":\"auto\",\"parallel_tool_calls\":true"))
+        })
+        {
+            AdvisoryAiResponse response = AdvisoryAiResponseReader.Read(Encoding.UTF8.GetBytes(body), Model, 1_000_000, 12_288, 2_048, "default", noPromptCache: true);
+            Assert.IsFalse(response.UsageAboveApprovedBounds, what);
+            Assert.IsTrue(response.UsageReliable, what);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
+    public void AModelNameWithASuffixKeepsTheReservationAndStopsPaidRequestsForReview()
+    {
+        // Task 70F T70F-01: a model mismatch alone is uncertain (whole reservation kept, nothing shown). It used not to pause paid
+        // requests by itself. Independent review of a4db871, AG1: another model has another price list, charged outside the
+        // reservation, so any model name but the approved one now pauses too, a date suffix included. A departure still pauses.
         string suffixed = Body().Replace(Model, Model + "-2026-11-14", StringComparison.Ordinal);
         AdvisoryAiResponse response = ReadAsRequested(suffixed);
         Assert.AreEqual(AdvisoryAiMalformedReason.ModelMismatch, response.MalformedReason);
@@ -1076,7 +1238,7 @@ public sealed class AdvisoryAiResponseTests
         AdvisoryAiSettlement settlement = AdvisoryAiSettlementRule.Decide(AdvisoryAiDispatchOutcome.ResponseReceived, response, new(45_056), ReviewTariff);
         Assert.AreEqual(AdvisoryAiRequestState.Uncertain, settlement.State);
         Assert.AreEqual(45_056, settlement.Committed.Value);
-        Assert.IsFalse(settlement.NeedsReview);
+        Assert.IsTrue(settlement.NeedsReview);
 
         AdvisoryAiResponse withDeparture = ReadAsRequested(suffixed.Replace("\"store\":false", "\"store\":false,\"background\":null", StringComparison.Ordinal));
         AssertPausedWithWholeReservation(withDeparture, "background null beside the mismatch");

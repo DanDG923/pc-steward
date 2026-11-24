@@ -221,6 +221,48 @@ public sealed class AdvisoryAiExplainTests
 
     [TestMethod]
     [TestCategory("FR-BUD-03")]
+    [DataRow("\"store\":false", "\"store\":true", DisplayName = "a stored response")]
+    [DataRow("\"tools\":[]", "\"tools\":[{\"type\":\"web_search\"}]", DisplayName = "a tools echo")]
+    [DataRow("\"status\":\"completed\"", "\"status\":\"queued\"", DisplayName = "an unsupported status")]
+    [DataRow("\"output\":[", "\"output\":[{\"type\":\"web_search_call\",\"id\":\"ws_1\",\"status\":\"completed\"},", DisplayName = "a web search call beside the answer")]
+    [DataRow("MODEL", "-2026-11-14", DisplayName = "the model with a date suffix")]
+    public async Task AReplyShowingWhatTheRequestNeverAllowedPausesSoTheNextRequestIsRefused(string find, string replace)
+    {
+        // Independent review of a4db871, AG1, and the owner's review, 71C-01: a reply within the approved counts that says it was
+        // stored, used tools, is still being worked on, or came from another model was refused but kept only the reservation, with no
+        // pause, so the next paid request went out. Now the whole reservation is kept, paid requests pause, and the next request is
+        // refused before anything is sent.
+        await using Fixture fixture = await Fixture.CreateAsync(connected: true, prices: true);
+        string body = Body("Synthetic explanation.");
+        string modelValue = "\"model\":\"" + Model.ModelId + "\"";
+        (find, replace) = find == "MODEL" ? (modelValue, modelValue[..^1] + replace + "\"") : (find, replace);
+        Assert.AreEqual(1, body.Split(find).Length - 1, find);
+        body = body.Replace(find, replace, StringComparison.Ordinal);
+        fixture.Transport.Next = new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes(body)]);
+        AdvisoryAiExplainService service = fixture.Service();
+        AdvisoryAiEvidenceDraft draft = (await service.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Draft!;
+        AdvisoryAiReview review = await service.ReviewAsync(draft, CancellationToken.None);
+        AdvisoryAiSendOutcome outcome = await service.SendAsync(review, CancellationToken.None);
+
+        Assert.IsTrue(outcome.Dispatched);
+        Assert.AreEqual(AdvisoryAiRequestState.Uncertain, outcome.Settlement!.State);
+        Assert.AreEqual(review.Reservation, outcome.Settlement.Committed, "the whole reservation is kept");
+        Assert.IsTrue(outcome.Settlement.NeedsReview);
+        Assert.AreEqual(AdvisoryAiLedgerWrite.Done, outcome.SettlementWrite);
+        Assert.IsNull(outcome.AnswerText);
+        AdvisoryAiAccountingState state = await fixture.Store.GetAccountingStateAsync(CancellationToken.None);
+        Assert.IsTrue(state.ReviewBlock);
+        Assert.AreEqual(AdvisoryAiReviewCause.UntrustedReply, state.ReviewCauses);
+
+        fixture.Transport.Next = new(AdvisoryAiTransportOutcome.ResponseReceived, 200, [.. Encoding.UTF8.GetBytes(Body("Synthetic explanation."))]);
+        AdvisoryAiEvidenceDraft next = (await service.DraftForFailedUpdateAsync(Guid.NewGuid(), Facts, CancellationToken.None)).Draft!;
+        AdvisoryAiSendOutcome refused = await service.SendAsync(await service.ReviewAsync(next, CancellationToken.None), CancellationToken.None);
+        Assert.IsFalse(refused.Dispatched, "the next request is refused while paid requests are paused");
+        Assert.AreEqual(1, fixture.Transport.Calls, "nothing more is sent");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-BUD-03")]
     [DataRow("{\"cached_tokens\":0}", "{\"cached_tokens\":0,\"cache_write_tokens\":0,\"cache_write_tokens_details\":{\"ttl_12h_tokens\":0,\"ttl_\\uD800\":0}}", DisplayName = "a name the reader reads")]
     [DataRow("\"store\":false,", "\"store\":false,\"metadata\":{\"note\":\"\\uDC00\"},", DisplayName = "a value in metadata nothing reads")]
     [DataRow("\"output\":[", "\"output\":[{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"\\uD800\"}]},", DisplayName = "text in a skipped reasoning item")]

@@ -1,3 +1,8 @@
+**Advisory AI, reviews of the seventeenth Task 71C retest build: finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §29](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
+
+- **Reviews of `a4db871`.** Both reviews failed it on the same Medium finding: a reply that showed a hosted tool call, a part that isn't text, a tools echo, another model, a stored response or an unsupported status was refused, but only kept the reservation with no pause, so a second paid request could be sent.
+- **Fixed.** A response that shows anything the request never allowed stops paid requests for review, whatever else the body is refused for. A model name with a date suffix now pauses too, which reverses T70F-01. A workflow test shows the next request is refused. A reply with no id, or an error envelope, still only keeps the reservation.
+
 **Advisory AI, independent review of the sixteenth Task 71C retest build: finding fixed (2026-11-24; code, tests and docs; no paid call, no key used).** Requirements: `FR-BUD-03` ([Task 90 record §28](review/TASK_90_TASK_70_AI_REMEDIATION.md)).
 
 - **Review of `dcef10c`.** FAIL on one Medium finding, sent early: a reply out of place still kept the reservation with no pause when its wrapper repeated a name, called itself a response, or held usage as an array. The owner's review of this build was held.
