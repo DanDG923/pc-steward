@@ -61,6 +61,8 @@ public static class AppDetailSummaryPresenter
     public const string OnThisPcTitle = "On this PC";
     public const string NotKnown = "Not known";
     public const string CantUpdateYetGlyph = "";
+    /// <summary>The headline for an update offered only through the Chocolatey reviewed update.</summary>
+    public const string ReviewChocolateyHeadline = "Review the Chocolatey update";
 
     /// <summary>Said under a ready update that is installed for everyone on the PC, where Windows asks before it starts.</summary>
     public const string AdministratorNote = "Windows will ask for administrator permission when this update starts.";
@@ -147,6 +149,13 @@ public static class AppDetailSummaryPresenter
                 string found = detail.ReviewCandidates.Count == 1 ? "one possible match" : $"{detail.ReviewCandidates.Count.ToString(CultureInfo.CurrentCulture)} possible matches";
                 sentence = $"PC Steward found {found} for this app{(updates.AsksToChoose ? ", and a newer version is on offer" : string.Empty)}. Use one only if you recognise it as this app.";
                 action = AppDetailAction.ChooseMatch; actionLabel = UseMatchLabel;
+                more = MoreFrom(updates);
+                break;
+            case { IsOnOffer: true } when updates.CantUpdateReason == CantUpdateReasons.ReviewChocolateyUpdate:
+                // The Chocolatey reviewed update card below is the way to update it; nothing else here would help.
+                CantUpdateYet();
+                headline = ReviewChocolateyHeadline;
+                sentence = $"Version {updates.NewVersion} is on offer from Chocolatey. Open the Chocolatey review below: PC Steward checks the package again first, and nothing runs until you approve it.";
                 more = MoreFrom(updates);
                 break;
             case { IsOnOffer: true }:
