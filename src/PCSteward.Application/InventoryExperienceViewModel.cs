@@ -38,7 +38,16 @@ public sealed class InventoryExperienceViewModel
     /// </summary>
     public bool ShowSystemComponents { get; private set; }
     /// <summary>The rows Installed apps lists and counts: every saved row, less system components unless they are shown.</summary>
-    public IReadOnlyList<InventoryRow> ListedRows => ShowSystemComponents ? allRows : allRows.Where(row => !InstalledAppsFilters.IsSystemComponent(row)).ToArray();
+    public IReadOnlyList<InventoryRow> ListedRows => allRows
+        .Where(row => !sameAppWinGetRecords.Contains(row.StableProductKey))
+        .Where(row => ShowSystemComponents || !InstalledAppsFilters.IsSystemComponent(row))
+        .ToArray();
+    /// <summary>
+    /// Owner's PC, 2026-11-25 (MEGAsync on 0.1.20; owner's choice): WinGet's own installed record of an app that another row already
+    /// carries is not listed on Installed apps, where it showed as a second "Scope unknown, Not checked yet" row. These are the WinGet-only
+    /// rows the latest update assessment left out as the same app as another row. Saved data never changes.
+    /// </summary>
+    private readonly HashSet<string> sameAppWinGetRecords = new(StringComparer.Ordinal);
     /// <summary>How many saved rows are system components.</summary>
     public int SystemComponentCount => allRows.Count(InstalledAppsFilters.IsSystemComponent);
     /// <summary>
@@ -137,6 +146,10 @@ public sealed class InventoryExperienceViewModel
         SavedFilter = Enum.IsDefined(filter) ? filter : InstalledAppsFilter.All; ApplyFilters();
     }
 
+    // A row known only from WinGet's own installed list: every installation it has came from that list.
+    private static bool IsWinGetOnlyRecord(InventoryRow row) =>
+        row.Instances.Count > 0 && row.Instances.All(instance => string.Equals(instance.Provider, "winget", StringComparison.OrdinalIgnoreCase));
+
     /// <summary>Shows or hides system components on Installed apps. Saved data never changes.</summary>
     public void SetShowSystemComponents(bool show) { ShowSystemComponents = show; ApplyFilters(); }
 
@@ -155,7 +168,7 @@ public sealed class InventoryExperienceViewModel
 
     public void ReportProgress(ScanProgress progress) { IsScanning = true; ScanPhase = progress.Provider is null ? progress.Phase : $"{progress.Phase}: {progress.Provider}"; Elapsed = progress.Elapsed; ScanStep = progress.Step; ScanSteps = progress.Steps; }
     public void CompleteScan(ScanResult result, DateTimeOffset completedAt) { IsScanning = false; ScanStep = 0; ScanSteps = 0; Elapsed = result.Timings.Values.Aggregate(TimeSpan.Zero, (total, duration) => total + duration); LastScanWarnings = result.Warnings; ScanPhase = result.Cancelled ? "Scan cancelled" : result.Succeeded ? "Scan complete" : "Scan did not complete"; if (result.Succeeded) LastScanAt = completedAt; }
-    public void ClearScanData() { allRows.Clear(); VisibleRows = []; LastScanAt = null; Elapsed = TimeSpan.Zero; ScanPhase = ReadyToScan; }
+    public void ClearScanData() { allRows.Clear(); sameAppWinGetRecords.Clear(); VisibleRows = []; LastScanAt = null; Elapsed = TimeSpan.Zero; ScanPhase = ReadyToScan; }
     public void BeginUpdateCheck() { IsCheckingUpdates = true; UpdateFreshnessLabel = "Looking for updates. Nothing is installed."; }
     public void CompleteUpdateCheck() => IsCheckingUpdates = false;
     public void LoadUpdateIntelligence(UpdateIntelligenceSummary summary)
@@ -166,6 +179,8 @@ public sealed class InventoryExperienceViewModel
         // "Installed", so a status from an earlier assessment can't keep it on the Updates page.
         for (int index = 0; index < allRows.Count; index++)
             allRows[index] = allRows[index] with { Status = items.TryGetValue(allRows[index].StableProductKey, out UpdateIntelligenceItem? item) ? item.Status.ToString() : "Installed" };
+        sameAppWinGetRecords.Clear();
+        sameAppWinGetRecords.UnionWith(allRows.Where(row => IsWinGetOnlyRecord(row) && !items.ContainsKey(row.StableProductKey)).Select(row => row.StableProductKey));
         Dictionary<string, SourceSnapshot> sources = summary.Sources.ToDictionary(snapshot => snapshot.SourceId, StringComparer.OrdinalIgnoreCase);
         SourceFreshnessLabels = summary.Sources.OrderBy(snapshot => snapshot.SourceId, StringComparer.Ordinal).Select(snapshot => DescribeSource(snapshot, null)).ToArray();
         UpdateFreshnessLabel = SourceFreshnessLabels.Count == 0 ? "Update checks are off." : string.Join(" ", SourceFreshnessLabels);

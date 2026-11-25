@@ -66,6 +66,13 @@ public sealed class UiReviewAppDetailsPresentationTests
         Assert.AreEqual(AppDetailAction.None, blocked.Action, "checking again can't tell PC Steward how an app was installed");
         Assert.AreEqual(StatusTone.Neutral, blocked.Tone, "nothing here needs the owner, so it isn't amber");
 
+        AppDetailSummary chocolatey = Build(Row("ripgrep", "ReviewRequired", "15.2.0", scope: "Machine", publisher: "Unknown"),
+            new UpdateDetail("key", "15.2.0", "16.0.0", "chocolatey-community", "ripgrep", "High", "Fixture.", "chocolatey-community: live result from today.", "Neutral", null,
+                "Fixture.", ["MissingChannelEvidence"], [], []));
+        Assert.AreEqual(AppDetailSummaryPresenter.ReviewChocolateyHeadline, chocolatey.Headline);
+        Assert.AreEqual("Version 16.0.0 is on offer from Chocolatey. Open the Chocolatey review below: PC Steward checks the package again first, and nothing runs until you approve it.", chocolatey.Sentence);
+        Assert.AreEqual(AppDetailAction.None, chocolatey.Action, "the Chocolatey review card is the action");
+
         AppDetailSummary stale = Build(Row("Notepad++", "ReviewRequired", "8.6"), Detail("8.6", "8.7", "Notepad++.Notepad++", needsFreshCheck: true));
         Assert.AreEqual(AppDetailAction.CheckAgain, stale.Action);
         Assert.AreEqual("Check again", stale.ActionLabel);

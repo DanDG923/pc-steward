@@ -679,6 +679,12 @@ public static class CantUpdateReasons
     public const string InstallerNotSupported = "PC Steward can't run the installer this update uses yet.";
     public const string NoInstallerForInstalledScope = "WinGet has no installer that matches how this app is installed.";
     public const string UpdatesItself = "This app updates itself.";
+    /// <summary>
+    /// Owner's PC, 2026-11-25 (ripgrep on 0.1.20): a Chocolatey package never states a release channel, so a confirmed Chocolatey match
+    /// always records missing evidence. Where the Chocolatey reviewed update can be opened, the row says so instead of "can't tell how
+    /// this app was installed". Wording only: the update still runs only through that review.
+    /// </summary>
+    public const string ReviewChocolateyUpdate = "Open it to review the Chocolatey update.";
 
     private static readonly (string Reason, string[] Recorded)[] Order =
     [
@@ -687,6 +693,16 @@ public static class CantUpdateReasons
         (MoreThanOne, [nameof(MappingReviewReason.AmbiguousCandidate), nameof(MappingReviewReason.MultipleInstallationInstanceAmbiguity), nameof(MappingReviewReason.SourceConflict), nameof(MappingReviewReason.SourceDisagreement)]),
         (HowInstalledUnknown, [nameof(MappingReviewReason.MissingScopeEvidence), nameof(MappingReviewReason.MissingArchitectureEvidence), nameof(MappingReviewReason.MissingChannelEvidence)])
     ];
+
+    /// <summary>
+    /// True when <paramref name="detail"/>'s app details offer the Chocolatey reviewed update: the same three conditions the details page
+    /// checks before it shows the entry. Presentation only; the review session checks everything again.
+    /// </summary>
+    public static bool OpensChocolateyReview(UpdateDetail? detail) =>
+        detail is { PackageId: { } packageId } &&
+        ChocolateyReviewedRouteReviewViewModel.AppliesTo(detail.SourceId) &&
+        ChocolateyPackageUpdateAdmission.IsOwnerApproved &&
+        ChocolateyPackageUpdateReviewSession.IsSelectablePackage(packageId);
 
     /// <summary>The one reason shown for a review-required row that can't be settled by confirming a match.</summary>
     public static string For(UpdateDetail? detail)
@@ -698,6 +714,7 @@ public static class CantUpdateReasons
         if (detail.ReviewReasons.Contains(nameof(MappingReviewReason.NoInstallerForInstalledScope), StringComparer.Ordinal)) return NoInstallerForInstalledScope;
         if (detail.ReviewReasons.Contains(nameof(MappingReviewReason.InstallerNotSupported), StringComparer.Ordinal)) return InstallerNotSupported;
         if (detail.RequiresFreshSourceEvidence || detail.ReviewReasons.Contains(nameof(MappingReviewReason.MissingSourceEvidence), StringComparer.Ordinal)) return NeedsFreshCheck;
+        if (OpensChocolateyReview(detail) && !detail.ReviewReasons.Any(item => Order[..^1].Any(entry => entry.Recorded.Contains(item, StringComparer.Ordinal)))) return ReviewChocolateyUpdate;
         foreach ((string reason, string[] recorded) in Order)
             if (detail.ReviewReasons.Any(item => recorded.Contains(item, StringComparer.Ordinal))) return reason;
         return NotSureItMatches;

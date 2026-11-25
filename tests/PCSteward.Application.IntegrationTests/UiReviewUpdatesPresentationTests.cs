@@ -161,6 +161,22 @@ public sealed class UiReviewUpdatesPresentationTests
     }
 
     [TestMethod]
+    [Description("Owner's PC, 2026-11-25 (ripgrep on 0.1.20): a confirmed Chocolatey match records no release channel, so the row points to the Chocolatey review instead of saying PC Steward can't tell how the app was installed.")]
+    public void AConfirmedChocolateyMatchPointsToTheChocolateyReview()
+    {
+        Assert.AreEqual(CantUpdateReasons.ReviewChocolateyUpdate, CantUpdateReasons.For(Chocolatey("ripgrep", ["MissingChannelEvidence"])));
+        Assert.IsTrue(CantUpdateReasons.OpensChocolateyReview(Chocolatey("ripgrep", ["MissingChannelEvidence"])));
+        // A stale check, a different build or two matches still say so first.
+        Assert.AreEqual(CantUpdateReasons.NeedsFreshCheck, CantUpdateReasons.For(Chocolatey("ripgrep", ["MissingChannelEvidence"], needsFreshCheck: true)));
+        Assert.AreEqual(CantUpdateReasons.DifferentBuild, CantUpdateReasons.For(Chocolatey("ripgrep", ["MissingChannelEvidence", "ScopeConflict"])));
+        Assert.AreEqual(CantUpdateReasons.MoreThanOne, CantUpdateReasons.For(Chocolatey("ripgrep", ["MissingChannelEvidence", "SourceDisagreement"])));
+        // A package the Chocolatey review doesn't admit, and the same reasons from WinGet, keep the plain reason.
+        Assert.IsFalse(CantUpdateReasons.OpensChocolateyReview(Chocolatey("jq", ["MissingChannelEvidence"])));
+        Assert.AreEqual(CantUpdateReasons.HowInstalledUnknown, CantUpdateReasons.For(Chocolatey("jq", ["MissingChannelEvidence"])));
+        Assert.AreEqual(CantUpdateReasons.HowInstalledUnknown, CantUpdateReasons.For(Detail("rg", "15.2.0", "16.0.0", "ripgrep", reasons: ["MissingChannelEvidence"])));
+    }
+
+    [TestMethod]
     [Description("Owner decision 2026-11-25 (Discord): an app that updates itself says so, whatever else is recorded.")]
     public void AnAppThatUpdatesItselfSaysSo()
     {
@@ -177,6 +193,10 @@ public sealed class UiReviewUpdatesPresentationTests
         new(key, installed, null, null, null, "None", "More than one package has the same strongest evidence.", "winget: live result from today.", "X64", null,
             "Fixture.", ["AmbiguousCandidate"], [],
             [.. versions.Select((version, index) => new ReviewCandidateChoice("winget", $"Contoso.Choice{index}", version, "Contoso", "User", "x64", "Stable", "Fixture.", []))]);
+
+    private static UpdateDetail Chocolatey(string packageId, string[] reasons, bool needsFreshCheck = false) =>
+        new("choco", "15.2.0", "16.0.0", "chocolatey-community", packageId, "High", "Fixture.", "chocolatey-community: live result from today.", "Neutral", null,
+            "Fixture.", reasons, [], [], RequiresFreshSourceEvidence: needsFreshCheck);
 
     private static UpdateDetail Detail(string key, string installed, string? candidate, string? packageId, string confidence = "High",
         string[]? reasons = null, bool canConfirm = false, bool needsFreshCheck = false) =>
