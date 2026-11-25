@@ -38,6 +38,13 @@ public enum SourceInstallerFit
 
     /// <summary>The source has no installer for the scope the app is installed in (for example only every-user, installed for one account).</summary>
     NoInstallerForInstalledScope = 2,
+
+    /// <summary>
+    /// Owner decision 2026-11-25 (Discord): the source marks the package as one that updates itself (WinGet lists it only under "require
+    /// explicit targeting", from the manifest's <c>RequireExplicitUpgrade</c>). The app's own updater decides its version and can switch
+    /// back a version PC Steward installed, so the update is never offered; the app stays listed and says it updates itself.
+    /// </summary>
+    UpdatesItself = 3,
 }
 
 public sealed record SourceSnapshot(

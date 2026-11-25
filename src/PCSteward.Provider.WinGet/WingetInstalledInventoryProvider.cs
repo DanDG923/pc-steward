@@ -34,7 +34,11 @@ public interface IWingetUpdateExecutor
 }
 public sealed record WingetInstalledRecord(string Name, string Id, string Version, string? Source);
 public sealed record WingetInventoryResult(IReadOnlyCollection<WingetInstalledRecord> Records, IReadOnlyCollection<string> Warnings);
-public sealed record WingetAvailableUpdateRecord(string Name, string Id, string InstalledVersion, string AvailableVersion, string Source);
+/// <summary>
+/// One row of WinGet's upgrade output. <see cref="UpdatesItself"/>: the row is in the table of packages that "require explicit targeting"
+/// (the manifest's <c>RequireExplicitUpgrade</c>, set for apps that update themselves).
+/// </summary>
+public sealed record WingetAvailableUpdateRecord(string Name, string Id, string InstalledVersion, string AvailableVersion, string Source, bool UpdatesItself = false);
 public sealed record WingetAvailableUpdateResult(string? ProviderVersion, IReadOnlyCollection<WingetAvailableUpdateRecord> Records, IReadOnlyCollection<string> Warnings);
 
 /// <summary>
@@ -303,8 +307,9 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
             .Select(record => upgrades.GetValueOrDefault(record.Id) is WingetAvailableUpdateRecord update
                 ? compatible.GetValueOrDefault(record.Id) is WingetCandidateCompatibility evidence
                     ? new SourcePackageRecord(SourceId, record.Id, record.Name, evidence.Publisher, record.Version, update.AvailableVersion, evidence.Scope, evidence.Architecture, evidence.Channel,
-                        ProviderSuppliedStableProductKey: evidence.LinkedProductKey, InstallerFit: evidence.InstallerFit)
-                    : new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, update.AvailableVersion, "Unknown", "Unknown", null)
+                        ProviderSuppliedStableProductKey: evidence.LinkedProductKey, InstallerFit: update.UpdatesItself ? SourceInstallerFit.UpdatesItself : evidence.InstallerFit)
+                    : new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, update.AvailableVersion, "Unknown", "Unknown", null,
+                        InstallerFit: update.UpdatesItself ? SourceInstallerFit.UpdatesItself : SourceInstallerFit.NoObjection)
                 : new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, updateCheckAvailable ? record.Version : null, "Unknown", "Unknown", null))
             .ToArray();
         warnings.AddRange(parsed.Warnings);
@@ -395,7 +400,7 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
             return new(providerVersion, [], ["winget:unrecognized-output"]);
         }
         // WinGet prints a count line after the table, may print notices (pins, unknown versions) and may print a second table of
-        // packages that need explicit targeting (`upgrade --id` still updates them, which is what a reviewed update runs). Each
+        // packages that need explicit targeting (apps that update themselves; their rows are marked and never offered). Each
         // table is read with its own header's columns; only the exact notice lines below are skipped, anything else stays a
         // malformed row.
         int[] separators = Enumerable.Range(separator, lines.Length - separator).Where(index => IsSeparatorLine(lines[index])).ToArray();
@@ -405,6 +410,8 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
             int end = table + 1 < separators.Length ? separators[table + 1] - 1 : lines.Length;
             int[] columnStarts = Regex.Matches(lines[start - 1], @"\S+").Select(match => match.Index).ToArray();
             if (columnStarts.Length < 4) return new(providerVersion, [], ["winget:unrecognized-output"]);
+            // Owner decision 2026-11-25 (Discord): a table that follows WinGet's explicit-targeting line lists apps that update themselves.
+            bool updatesItself = start >= 2 && string.Equals(lines[start - 2].Trim(), ExplicitTargetingLine, StringComparison.Ordinal);
             for (int index = start + 1; index < end; index++)
             {
                 string line = lines[index];
@@ -414,7 +421,7 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
                 if (columns.Length < 4) { warnings.Add("winget:malformed-update-row"); continue; }
                 string name = columns[0]; string id = columns[1]; string installed = columns[2]; string available = columns[3]; string source = columns.Length > 4 ? columns[^1] : expectedSource;
                 if (!Valid(name) || !PackageId().IsMatch(id) || !Version(installed) || !Version(available) || !string.Equals(source, expectedSource, StringComparison.OrdinalIgnoreCase)) { warnings.Add("winget:invalid-update-row"); continue; }
-                records.Add(new(name, id, installed, available, expectedSource));
+                records.Add(new(name, id, installed, available, expectedSource, updatesItself));
             }
         }
         if (providerVersion is null) warnings.Add("winget:provider-version-unavailable");
@@ -428,6 +435,7 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
     private static bool IsSeparatorLine(string line) => line.Length >= 3 && line.All(character => character is '-' or ' ' or '\t');
     /// <summary>The fixed WinGet 1.29 notice lines that can follow an upgrade table (English output, which the parser already requires).</summary>
     private static bool IsUpgradeNotice(string line) => UpgradeNotice().IsMatch(line.Trim());
+    private const string ExplicitTargetingLine = "The following packages have an upgrade available, but require explicit targeting for upgrade:";
     private static string CanonicalSource(string sourceId) => sourceId.Trim().ToLowerInvariant() switch { "winget" => "winget", "msstore" => "msstore", _ => throw new ArgumentOutOfRangeException(nameof(sourceId), "Only the fixed WinGet and Microsoft Store sources are supported.") };
     [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.+-]{0,255}$")]
     private static partial Regex PackageId();

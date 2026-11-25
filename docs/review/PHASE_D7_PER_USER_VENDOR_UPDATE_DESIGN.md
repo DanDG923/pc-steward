@@ -85,6 +85,12 @@ So an installer that doesn't say where it installs is already never run on this 
 - **Post-update check:** an MSIX package registers four-part versions (6.28899.6.0) for the manifest's 6.28899.6. For WinGet jobs, the export and the local instance now match by WinGet's own equality: plain dotted numbers whose parts are equal once trailing `.0` parts are dropped. Any other difference still fails.
 - **Outcome text:** exit code 0x8A15002B is recorded with the prefix `winget-no-applicable-update; update-not-applied` and reads as "Not started" (WinGet ran no installer, so nothing changed), not "The installer reported an error".
 
+### 5.4 Follow-up: apps that update themselves (owner's PC and owner decision, 2026-11-25, release 0.1.18)
+
+- **Seen:** Discord (`Discord.Discord`) 1.0.9269 to 1.0.9270 ran with exit code 0 but ended "Installed, not verified". Run again, it reached 1.0.9270 and was verified, yet Discord's own About screen, its running process (`app-1.0.9269`) and its uninstall entry went back to 1.0.9269 after a restart. Both version folders were present. The post-update check was right both times.
+- **Cause:** Discord's own updater picks the version it runs from Discord's servers and switches back to it. WinGet knows this kind of app: its manifest sets `RequireExplicitUpgrade`, and `winget upgrade` lists it only in the table after "The following packages have an upgrade available, but require explicit targeting for upgrade:". PC Steward used to offer those rows like any other.
+- **Owner decision:** keep such an app listed, never offer its update, and say "This app updates itself." The scan marks a row of the explicit-targeting table (`SourceInstallerFit.UpdatesItself`), matching adds the `UpdatesItself` review reason, which is never actionable, and confirming the match isn't offered since it would change nothing. The reason is said first under Can't update yet, whatever else is recorded. Migration 18 rebuilds the source cache table so its `installer_fit` CHECK also takes 3; every cached row is kept.
+
 ## 6. Coordination
 
 The MSIX stage changes MSIX inventory identity, `WingetCandidateCompatibility.cs`, `WingetPostUpdateRegistryLink.cs` and `InventoryWorkflow.CreateProfiles`. This stage stays out of those and rebases onto that PR if it merges first.

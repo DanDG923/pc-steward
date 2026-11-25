@@ -286,7 +286,7 @@ public sealed class InventoryExperienceViewModel
         if (item.Status != UpdateIntelligenceStatus.ReviewRequired || item.Mapping is not { Origin: not MappingOrigin.UserConfirmed, SourceId: { } sourceId, PackageId: { } packageId, CandidateVersion: { } candidateVersion }) return false;
         // Confirming the match settles identity only. An update whose installer can't be run would stay held back after it, so the
         // owner isn't asked a question whose answer changes nothing.
-        if (item.Mapping.ReviewReasons.Any(reason => reason is MappingReviewReason.InstallerNotSupported or MappingReviewReason.NoInstallerForInstalledScope)) return false;
+        if (item.Mapping.ReviewReasons.Any(reason => reason is MappingReviewReason.InstallerNotSupported or MappingReviewReason.NoInstallerForInstalledScope or MappingReviewReason.UpdatesItself)) return false;
         if (!sources.TryGetValue(sourceId, out SourceSnapshot? source) || source.State is not (SourceSnapshotState.Live or SourceSnapshotState.Cached)) return false;
         SourcePackageRecord[] exact = source.Packages.Where(candidate => string.Equals(candidate.SourceId, sourceId, StringComparison.OrdinalIgnoreCase) && string.Equals(candidate.PackageId, packageId, StringComparison.OrdinalIgnoreCase)).ToArray();
         if (exact.Length != 1 || !string.Equals(exact[0].InstalledVersion, installedVersion, StringComparison.Ordinal) || !string.Equals(exact[0].AvailableVersion, candidateVersion, StringComparison.Ordinal)) return false;

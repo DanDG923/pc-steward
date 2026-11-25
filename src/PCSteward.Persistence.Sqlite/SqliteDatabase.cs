@@ -96,6 +96,15 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
         }
         if (await MigrationRequiredAsync(connection, transaction, 17, cancellationToken))
             await CreateAdvisoryAiReviewCauseSchemaAsync(connection, transaction, cancellationToken);
+        if (await MigrationRequiredAsync(connection, transaction, 18, cancellationToken))
+        {
+            // Migration 18 (owner decision 2026-11-25, Discord): a cached update can say the app updates itself (SourceInstallerFit 3).
+            // SQLite can't widen a column's CHECK in place, so the cache table is rebuilt with every row kept.
+            await ExecuteAsync(connection, "CREATE TABLE source_package_cache_v18 (source_id TEXT NOT NULL, package_id TEXT NOT NULL, display_name TEXT NOT NULL, publisher TEXT, installed_version TEXT, available_version TEXT, scope TEXT NOT NULL, architecture TEXT NOT NULL, channel TEXT, connector_semantics INTEGER NOT NULL, stable_product_key TEXT, installer_fit INTEGER NOT NULL DEFAULT 0 CHECK(installer_fit IN (0,1,2,3)), PRIMARY KEY(source_id, package_id), FOREIGN KEY(source_id) REFERENCES source_snapshots(source_id) ON DELETE CASCADE); " +
+                "INSERT INTO source_package_cache_v18(source_id,package_id,display_name,publisher,installed_version,available_version,scope,architecture,channel,connector_semantics,stable_product_key,installer_fit) SELECT source_id,package_id,display_name,publisher,installed_version,available_version,scope,architecture,channel,connector_semantics,stable_product_key,installer_fit FROM source_package_cache; " +
+                "DROP TABLE source_package_cache; ALTER TABLE source_package_cache_v18 RENAME TO source_package_cache;", cancellationToken, transaction);
+            await ExecuteAsync(connection, "INSERT INTO schema_migrations(version) VALUES (18);", cancellationToken, transaction);
+        }
         await ValidateReviewedOperationsSchemaAsync(connection, transaction, cancellationToken);
         await ValidateUpdateDispatchSchemaAsync(connection, transaction, cancellationToken);
         await ValidateDiagnosticSnapshotSchemaAsync(connection, transaction, cancellationToken);
@@ -318,6 +327,7 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
     {
         0 => SourceInstallerFit.NoObjection,
         2 => SourceInstallerFit.NoInstallerForInstalledScope,
+        3 => SourceInstallerFit.UpdatesItself,
         _ => SourceInstallerFit.InstallerNotSupported,
     };
 

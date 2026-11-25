@@ -160,6 +160,16 @@ public sealed class UiReviewUpdatesPresentationTests
         Assert.AreNotEqual(ReviewReasonText.NeedsCloserLook, ReviewReasonText.Describe("NoInstallerForInstalledScope"));
     }
 
+    [TestMethod]
+    [Description("Owner decision 2026-11-25 (Discord): an app that updates itself says so, whatever else is recorded.")]
+    public void AnAppThatUpdatesItselfSaysSo()
+    {
+        Assert.AreEqual(CantUpdateReasons.UpdatesItself, CantUpdateReasons.For(Detail("chat", "1.0.9269", "1.0.9270", "Fabrikam.Chat", reasons: ["UpdatesItself"])));
+        Assert.AreEqual(CantUpdateReasons.UpdatesItself, CantUpdateReasons.For(Detail("chat", "1.0.9269", "1.0.9270", "Fabrikam.Chat", reasons: ["MissingArchitectureEvidence", "UpdatesItself"], needsFreshCheck: true)));
+        Assert.AreNotEqual(ReviewReasonText.NeedsCloserLook, ReviewReasonText.Describe("UpdatesItself"));
+        StringAssert.StartsWith(ReviewReasonText.Describe("UpdatesItself"), CantUpdateReasons.UpdatesItself);
+    }
+
     private static InventoryRow Row(string key, string name, string status, string version) =>
         new(Guid.NewGuid(), name, "Contoso", "winget", "User", version, status, "Application", [], key);
 

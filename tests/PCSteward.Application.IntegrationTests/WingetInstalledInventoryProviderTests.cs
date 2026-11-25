@@ -96,6 +96,7 @@ public sealed class WingetInstalledInventoryProviderTests
     // Shape of real WinGet 1.29.380 `upgrade --source winget` output (owner's PC, 2026-11-13; package names replaced): a count
     // line, an explicit-targeting table and an unknown-version notice follow the main table.
     private static readonly string[] ExpectedFooterRecordIds = ["Contoso.Widget", "Contoso.DesktopRuntime.8", "Fabrikam.Chat"];
+    private static readonly string[] ExpectedUpdatesItselfIds = ["Fabrikam.Chat"];
     private const string UpgradeOutputWithNotices =
         "Name                                             Id                                     Version     Available\n" +
         "---------------------------------------------------------------------------------------------------------------\n" +
@@ -117,6 +118,25 @@ public sealed class WingetInstalledInventoryProviderTests
         CollectionAssert.AreEqual(ExpectedFooterRecordIds, result.Records.Select(record => record.Id).ToArray());
         Assert.AreEqual("1.0.9268", result.Records.Single(record => record.Id == "Fabrikam.Chat").AvailableVersion);
         Assert.HasCount(0, result.Warnings);
+        // Owner decision 2026-11-25: only a row of the explicit-targeting table is marked as an app that updates itself.
+        CollectionAssert.AreEqual(ExpectedUpdatesItselfIds, result.Records.Where(record => record.UpdatesItself).Select(record => record.Id).ToArray());
+    }
+
+    [TestMethod]
+    public void AnExplicitTargetingTableOnItsOwnIsReadAsAppsThatUpdateThemselves()
+    {
+        const string output =
+            "The following packages have an upgrade available, but require explicit targeting for upgrade:\n" +
+            "Name     Id            Version  Available\n" +
+            "-----------------------------------------\n" +
+            "Fabrikam Fabrikam.Chat 1.0.9267 1.0.9268\n";
+        WingetAvailableUpdateResult result = WingetUpdateSourceConnector.ParseAvailableTable(output, "v1.29.380", "winget");
+
+        Assert.IsTrue(result.Records.Single().UpdatesItself);
+        Assert.HasCount(0, result.Warnings);
+        WingetAvailableUpdateResult plain = WingetUpdateSourceConnector.ParseAvailableTable(
+            "Name            Id              Version  Available\n--------------------------------------------------\nContoso Widget  Contoso.Widget  1.0.0    1.1.0\n", "v1", "winget");
+        Assert.IsFalse(plain.Records.Single().UpdatesItself);
     }
 
     [TestMethod]
@@ -150,6 +170,8 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.AreEqual("2.104.0", snapshot.Packages.Single(package => package.PackageId == "Contoso.Widget").AvailableVersion);
         Assert.AreEqual("1.0.9268", snapshot.Packages.Single(package => package.PackageId == "Fabrikam.Chat").AvailableVersion);
         Assert.AreEqual("3.0.0", snapshot.Packages.Single(package => package.PackageId == "Northwind.Tool").AvailableVersion);
+        Assert.AreEqual(SourceInstallerFit.UpdatesItself, snapshot.Packages.Single(package => package.PackageId == "Fabrikam.Chat").InstallerFit);
+        Assert.AreEqual(SourceInstallerFit.NoObjection, snapshot.Packages.Single(package => package.PackageId == "Contoso.Widget").InstallerFit);
     }
     [TestMethod]
     public async Task ExactPostUpdateQueryRequiresOneExpectedPackageAndVersion()
