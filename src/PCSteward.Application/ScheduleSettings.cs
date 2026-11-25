@@ -37,6 +37,37 @@ public static class ScheduledCheckNotificationPolicy
         settings.NotificationsEnabled && (attentionRequired || (!scanSucceeded && consecutiveFailures >= 2));
 }
 
+/// <summary>
+/// FR-SCH-04: records a scheduled check that started and then timed out or failed, so the failure count rises and the
+/// repeated-failure notice can fire. The check's own token is already cancelled by then, so this write has its own short limit.
+/// </summary>
+public static class ScheduledCheckFailureRecorder
+{
+    public const string TimedOutResult = "Timed out";
+    public const string FailedResult = "Failed";
+    public static readonly TimeSpan WriteLimit = TimeSpan.FromSeconds(10);
+
+    /// <summary>Returns the saved status, or null when it could not be read and saved within <see cref="WriteLimit"/>.</summary>
+    public static async Task<ScheduledCheckStatus?> RecordAsync(IScheduledCheckSettingsStore store, string result, TimeProvider? clock = null)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentException.ThrowIfNullOrWhiteSpace(result);
+        try
+        {
+            using CancellationTokenSource limit = new(WriteLimit);
+            ScheduledCheckStatus previous = await store.GetScheduledCheckStatusAsync(limit.Token).ConfigureAwait(false);
+            int failures = previous.ConsecutiveFailures >= int.MaxValue - 1 ? int.MaxValue : Math.Max(0, previous.ConsecutiveFailures) + 1;
+            ScheduledCheckStatus status = new((clock ?? TimeProvider.System).GetUtcNow(), result, failures);
+            await store.SaveScheduledCheckStatusAsync(status, limit.Token).ConfigureAwait(false);
+            return status;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return null;
+        }
+    }
+}
+
 public interface IScheduledCheckSettingsStore
 {
     Task<ScheduledCheckSettings> GetScheduledCheckSettingsAsync(CancellationToken cancellationToken);

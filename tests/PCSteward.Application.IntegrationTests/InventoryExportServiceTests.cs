@@ -25,7 +25,9 @@ public sealed class InventoryExportServiceTests
         Assert.AreEqual("2026-07-28T12:34:56.0000000+00:00", document.RootElement.GetProperty("exportedAt").GetString());
         Assert.AreEqual("Contoso, Widget", document.RootElement.GetProperty("inventory")[0].GetProperty("displayName").GetString());
         Assert.AreEqual(0, document.RootElement.GetProperty("updateHistory").GetArrayLength());
-        StringAssert.Contains(document.RootElement.GetProperty("updateHistoryStatus").GetString(), "Phase 3");
+        // FR-DAT-02 is still open; the export says the history is not included rather than naming a past phase.
+        Assert.AreEqual(InventoryExportService.UpdateHistoryNotExported, document.RootElement.GetProperty("updateHistoryStatus").GetString());
+        Assert.IsFalse(json.Content.Contains("Phase", StringComparison.Ordinal));
     }
 
     [TestMethod]

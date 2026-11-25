@@ -57,11 +57,14 @@ internal static class Program
 
     private static async Task<int> RunWithLeasesAsync(SqliteDatabase database, CancellationToken cancellationToken)
     {
+        // Set once an enabled check has begun; only then is a timeout or failure a scheduled-check result worth recording.
+        ScheduledCheckSettings? started = null;
         try
         {
             try { Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.BelowNormal; } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { }
             ScheduledCheckSettings settings = await database.GetScheduledCheckSettingsAsync(cancellationToken).ConfigureAwait(false);
             if (!settings.IsEnabled || settings.Cadence == ScheduleCadence.Manual) return 0;
+            started = settings;
 
             ConnectorState wingetInventory = await database.GetConnectorStateAsync(TrustedSourceConnectorConsent.InstalledInventoryConnector, false, cancellationToken).ConfigureAwait(false);
             ConnectorState appxInventory = await database.GetConnectorStateAsync("Current-user AppX/MSIX catalog", true, cancellationToken).ConfigureAwait(false);
@@ -87,6 +90,21 @@ internal static class Program
             if (ScheduledCheckNotificationPolicy.ShouldNotify(settings, attention, scan.Succeeded, failures)) WindowsScheduledCheckNotification.TryShow(result, attention ? "Updates or review items need your attention." : "PC Steward could not complete repeated scheduled checks.");
             return scan.Succeeded ? 0 : 1;
         }
-        catch (OperationCanceledException) { return 2; }
+        catch (OperationCanceledException) { await RecordFailureAsync(database, started, ScheduledCheckFailureRecorder.TimedOutResult).ConfigureAwait(false); return 2; }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { await RecordFailureAsync(database, started, ScheduledCheckFailureRecorder.FailedResult).ConfigureAwait(false); return 1; }
+    }
+
+    /// <summary>
+    /// FR-SCH-04: a check that began and then timed out or threw still counts as a failed check. Nothing is written when the
+    /// check never began or a reset is pending, and the write has its own short limit because the check's token is spent.
+    /// </summary>
+    private static async Task RecordFailureAsync(SqliteDatabase database, ScheduledCheckSettings? started, string result)
+    {
+        if (started is null) return;
+        try { if (FactoryReset.GetMarkerState() != FactoryResetMarkerState.None) return; }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { return; }
+        ScheduledCheckStatus? status = await ScheduledCheckFailureRecorder.RecordAsync(database, result).ConfigureAwait(false);
+        if (status is not null && ScheduledCheckNotificationPolicy.ShouldNotify(started, false, false, status.ConsecutiveFailures))
+            WindowsScheduledCheckNotification.TryShow(result, "PC Steward could not complete repeated scheduled checks.");
     }
 }

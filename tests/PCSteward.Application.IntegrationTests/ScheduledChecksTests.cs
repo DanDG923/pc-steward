@@ -33,6 +33,51 @@ public sealed class ScheduledChecksTests
     }
 
     [TestMethod]
+    public async Task ATimedOutOrFailedCheckIsRecordedAndRaisesTheFailureCount()
+    {
+        // FR-SCH-04 (four-model review F-09): the check's own token is spent by then, so the recorder uses its own limit.
+        StatusStore store = new(new ScheduledCheckStatus(DateTimeOffset.UnixEpoch, "Completed", 0));
+
+        ScheduledCheckStatus? first = await ScheduledCheckFailureRecorder.RecordAsync(store, ScheduledCheckFailureRecorder.TimedOutResult);
+        ScheduledCheckStatus? second = await ScheduledCheckFailureRecorder.RecordAsync(store, ScheduledCheckFailureRecorder.FailedResult);
+
+        Assert.AreEqual(1, first!.ConsecutiveFailures);
+        Assert.AreEqual("Timed out", first.LastResult);
+        Assert.AreEqual(2, second!.ConsecutiveFailures);
+        Assert.AreEqual(second, store.Status);
+        Assert.IsTrue(store.TokensCouldBeCancelled);
+        ScheduledCheckSettings notify = ScheduledCheckSettings.Manual with { NotificationsEnabled = true };
+        Assert.IsFalse(ScheduledCheckNotificationPolicy.ShouldNotify(notify, false, false, first.ConsecutiveFailures));
+        Assert.IsTrue(ScheduledCheckNotificationPolicy.ShouldNotify(notify, false, false, second.ConsecutiveFailures));
+    }
+
+    [TestMethod]
+    public async Task AFailureThatCannotBeSavedIsReportedAsNotRecorded()
+    {
+        StatusStore store = new(new ScheduledCheckStatus(null, "Completed", int.MaxValue)) { FailSave = true };
+        Assert.IsNull(await ScheduledCheckFailureRecorder.RecordAsync(store, ScheduledCheckFailureRecorder.FailedResult));
+        store.FailSave = false;
+        Assert.AreEqual(int.MaxValue, (await ScheduledCheckFailureRecorder.RecordAsync(store, ScheduledCheckFailureRecorder.FailedResult))!.ConsecutiveFailures);
+    }
+
+    private sealed class StatusStore(ScheduledCheckStatus status) : IScheduledCheckSettingsStore
+    {
+        public ScheduledCheckStatus Status { get; private set; } = status;
+        public bool FailSave { get; set; }
+        public bool TokensCouldBeCancelled { get; private set; } = true;
+        public Task<ScheduledCheckSettings> GetScheduledCheckSettingsAsync(CancellationToken cancellationToken) => Task.FromResult(ScheduledCheckSettings.Manual);
+        public Task SaveScheduledCheckSettingsAsync(ScheduledCheckSettings settings, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<ScheduledCheckStatus> GetScheduledCheckStatusAsync(CancellationToken cancellationToken) { TokensCouldBeCancelled &= cancellationToken.CanBeCanceled; return Task.FromResult(Status); }
+        public Task SaveScheduledCheckStatusAsync(ScheduledCheckStatus status, CancellationToken cancellationToken)
+        {
+            TokensCouldBeCancelled &= cancellationToken.CanBeCanceled;
+            if (FailSave) throw new IOException("The status could not be saved.");
+            Status = status;
+            return Task.CompletedTask;
+        }
+    }
+
+    [TestMethod]
     public async Task WindowsAdapterBuildsFixedScanOnlyTaskWithoutUpdateArguments()
     {
         RecordingTaskSchedulerCommandRunner runner = new();
