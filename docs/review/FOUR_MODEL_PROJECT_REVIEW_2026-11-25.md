@@ -7,6 +7,13 @@ depend on Chocolatey being installed (F-01), and every per-user registry app is 
 sixteen Low findings follow. The deletion, reset, helper-pipe and paid-request paths were read and nothing new was found in
 them.
 
+## Fixes made on 2026-11-25
+
+Fixed on branch `claude/four-model-review-fixes`, each by one model and reviewed by another: F-01 and F-03 (Opus; reviewed
+by Astra), F-04 and F-06 (Gemini; reviewed by Opus, with two follow-ups applied), F-05, F-14 and F-15 (Astra; reviewed by
+Gemini), F-09 and F-13 (coordinator; reviewed by Astra, whose deadline fault Astra then fixed). F-02 is left unfixed by owner
+decision. Every other finding below is still open. See `docs/STATUS.md` for what each fix does and does not cover.
+
 ## How it was run
 
 | Reviewer | Settings | First pass | Second pass |
@@ -86,7 +93,10 @@ Raised by Gemini; confirmed by Astra and the coordinator.
   A 32-bit per-user app can therefore be offered an x64 update, with `--architecture x64` in the reviewed command
   (`WingetReviewedUpdateArguments.cs:49`), or be wrongly blocked against an x86 one.
 - Not verified: whether WinGet or the vendor installer would complete the switch on a real PC.
-- Fix: record per-user architecture as Unknown unless something proves it.
+- **Owner decision (2026-11-25): left unfixed.** Recording per-user architecture as Unknown would stop every per-user
+  registry update and change those apps' stable keys, because the label is part of the key
+  (`RegistryLocalInventoryProvider.cs:22`). A real fix needs a designed proof of installed architecture, as the 32-bit
+  machine view has. The case is a 32-bit app installed per-user on 64-bit Windows, not a 32-bit PC.
 
 ### Medium
 
