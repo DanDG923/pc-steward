@@ -77,6 +77,14 @@ So an installer that doesn't say where it installs is already never run on this 
 - **Not seen:** entries the inventory skips (hidden system components), and anything outside uninstall entries (§4).
 - **Tests:** `WingetUserVendorInstallerTests` (26 cases in all, run in the cloud) and `InventoryWorkflowUpdateSourceTests.ReInventoryComparesWholePcEntriesWithTheBaselineOnlyWhenGivenOne` (SQLite, Windows CI only).
 
+### 5.3 Follow-up: the installer must fit how the app is installed (owner's PC, 2026-11-25, release 0.1.18)
+
+- **Seen:** Claude (`Anthropic.Claude`), installed as an MSIX package, was offered 6.28899.2.0 to 6.28899.6 and failed with WinGet exit code 0x8A15002B (`APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE`). Its manifest offers an MSIX installer (no declared scope) and a user-scope setup program. The review bound the setup program (`--installer-type exe`).
+- **Cause (winget-cli source):** `PackageVersionInfo.GetApplicableInstaller` builds its comparator from the install options only, so it never applies the installed-type filter. The command line's upgrade does (`SelectInstaller` with the installed version's metadata, `IsInstallerTypeCompatible`), and with `--version` it ends a mismatch as UPDATE_NOT_APPLICABLE. Among the remaining installers the user-scope preference ranks the declared-user setup program above the unscoped MSIX.
+- **Fix:** the review's read also takes WinGet's installed type (`PackageVersionMetadataField.InstallerType` of the installed version, from the same composite catalog shape as the scan's compatibility read). When the first choice doesn't fit, it asks again for the installed type, then the rest of its family (exe, Inno, Nullsoft and Burn; MSI and WiX; MSIX and Store; a zip judged by what it holds). The rule refuses anything that still doesn't fit with "WinGet's update for this app uses a different kind of installer…". An installed type WinGet doesn't report applies no filter, as in WinGet. The Confirm re-read uses the same read, so it binds the same installer.
+- **Post-update check:** an MSIX package registers four-part versions (6.28899.6.0) for the manifest's 6.28899.6. For WinGet jobs, the export and the local instance now match by WinGet's own equality: plain dotted numbers whose parts are equal once trailing `.0` parts are dropped. Any other difference still fails.
+- **Outcome text:** exit code 0x8A15002B is recorded with the prefix `winget-no-applicable-update; update-not-applied` and reads as "Not started" (WinGet ran no installer, so nothing changed), not "The installer reported an error".
+
 ## 6. Coordination
 
 The MSIX stage changes MSIX inventory identity, `WingetCandidateCompatibility.cs`, `WingetPostUpdateRegistryLink.cs` and `InventoryWorkflow.CreateProfiles`. This stage stays out of those and rebases onto that PR if it merges first.

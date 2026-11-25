@@ -162,6 +162,34 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.IsFalse(await new WingetInstalledInventoryProvider(mismatch).HasExactExpectedVersionAsync(job, CancellationToken.None));
         CollectionAssert.Contains(matching.Arguments.ToArray(), "export"); CollectionAssert.Contains(matching.Arguments.ToArray(), "--include-versions");
     }
+    /// <summary>Owner's PC, 2026-11-25 (Claude): WinGet's export shows an MSIX package's four-part version for a three-part manifest version.</summary>
+    [TestMethod]
+    public async Task ExactPostUpdateQueryTakesWinGetsVersionEquality()
+    {
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new PCSteward.Domain.UpdateJobSelection("winget:claude", PCSteward.Domain.UpdateProvider.WinGet, PCSteward.Domain.UpdateSource.WinGet, "Anthropic.Claude", "6.28899.2.0", "6.28899.6", PCSteward.Domain.UpdateScope.User, PCSteward.Domain.UpdateArchitecture.X64, PCSteward.Domain.UpdateChannel.Stable, "fixture")).Confirm(DateTimeOffset.UtcNow);
+        static ExportingProcess Export(string version) => new("{\"Sources\":[{\"SourceDetails\":{\"Name\":\"winget\"},\"Packages\":[{\"PackageIdentifier\":\"Anthropic.Claude\",\"Version\":\"" + version + "\"}]}]}");
+
+        Assert.IsTrue(await new WingetInstalledInventoryProvider(Export("6.28899.6.0")).HasExactExpectedVersionAsync(job, CancellationToken.None));
+        Assert.IsTrue(await new WingetInstalledInventoryProvider(Export("6.28899.6")).HasExactExpectedVersionAsync(job, CancellationToken.None));
+        Assert.IsFalse(await new WingetInstalledInventoryProvider(Export("6.28899.2.0")).HasExactExpectedVersionAsync(job, CancellationToken.None));
+        Assert.IsFalse(await new WingetInstalledInventoryProvider(Export("6.28899.6.1")).HasExactExpectedVersionAsync(job, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public void WinGetVersionEqualityIgnoresOnlyTrailingZeroParts()
+    {
+        Assert.IsTrue(WingetVersionText.SameVersion("6.28899.6", "6.28899.6.0"));
+        Assert.IsTrue(WingetVersionText.SameVersion("1.0", "1.0.0.0"));
+        Assert.IsTrue(WingetVersionText.SameVersion("1.2.3-beta", "1.2.3-beta"), "identical text always matches");
+        Assert.IsFalse(WingetVersionText.SameVersion("1.2.3-beta", "1.2.3-beta.0"), "only plain dotted numbers are normalized");
+        Assert.IsFalse(WingetVersionText.SameVersion("1.2", "1.20"));
+        Assert.IsFalse(WingetVersionText.SameVersion("1.02", "1.2"));
+        Assert.IsFalse(WingetVersionText.SameVersion("1.2.0.1", "1.2"));
+        Assert.IsFalse(WingetVersionText.SameVersion("1..2", "1.2"));
+        Assert.IsFalse(WingetVersionText.SameVersion(null, "1.2"));
+        Assert.IsFalse(WingetVersionText.SameVersion("", "0"));
+    }
+
     [TestMethod]
     public async Task ExactPostUpdateQueryCannotAuthorizeSuccessFromDisplayTableText()
     {

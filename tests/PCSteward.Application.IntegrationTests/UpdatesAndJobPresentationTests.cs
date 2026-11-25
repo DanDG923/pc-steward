@@ -422,6 +422,13 @@ public sealed class UpdatesAndJobPresentationTests
             "an unreadable recorded outcome is not described as installed");
         StringAssert.Contains(UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.ElevationDenied, "user-declined-elevation", null, "2.0").Summary, "cancelled the Windows permission prompt");
         StringAssert.Contains(UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.InstallerFailed, null, 1603, "2.0").Summary, "exit code 1603");
+        // Owner's PC, 2026-11-25 (Claude): WinGet's "no applicable update" ran no installer, so it reads as Not started, not Failed.
+        UpdateOutcomePresentation notApplicable = UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.InstallerFailed,
+            $"{UpdateOutcomePresenter.UpdateNotApplicableDiagnostic}; output", unchecked((int)0x8A15002B), "6.28899.6");
+        Assert.AreEqual(UpdateOutcomeKind.NotStarted, notApplicable.Kind);
+        Assert.AreEqual(UpdateOutcomePresenter.NotStartedLabel, notApplicable.Label);
+        StringAssert.Contains(notApplicable.Summary, "nothing was changed");
+        StringAssert.Contains(notApplicable.TechnicalDetail, "Recorded status: InstallerFailed");
         Assert.AreEqual(ElevationStory.HelperMissingOutcome,
             UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.ProductFailed, UpdateOutcomePresenter.HelperMissingDiagnostic, null, "2.0").Summary);
         StringAssert.Contains(UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.Success, null, 0, "2.0").Summary, "2.0");

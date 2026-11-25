@@ -185,6 +185,7 @@ public sealed class UpdateRunnerSecurityTests
     [DataRow(unchecked((int)0x8A150109), "", UpdateExecutionStatus.RestartReported, "provider-reported-restart-required-to-finish")]
     [DataRow(unchecked((int)0x8A15010B), "", UpdateExecutionStatus.RestartReported, "provider-reported-restart-initiated")]
     [DataRow(unchecked((int)0x8A15010A), "", UpdateExecutionStatus.ProviderFailed, "restart-required-before-install; update-not-applied")]
+    [DataRow(unchecked((int)0x8A15002B), "", UpdateExecutionStatus.ProviderFailed, "winget-no-applicable-update; update-not-applied")]
     [DataRow(3010, "Restart required", UpdateExecutionStatus.ProviderFailed, "")]
     [DataRow(1641, "", UpdateExecutionStatus.ProviderFailed, "")]
     [DataRow(1, "reboot required", UpdateExecutionStatus.ProviderFailed, "")]
@@ -213,6 +214,9 @@ public sealed class UpdateRunnerSecurityTests
         Assert.AreEqual(WingetRestartSignal.None, WingetRestartExitCodes.Classify(3010));
         Assert.IsFalse(WingetRestartExitCodes.ReportsFinishedPendingRestart(WingetRestartExitCodes.RebootRequiredForInstall), "nothing was applied");
         Assert.AreEqual(UpdateOutcomePresenter.RestartBeforeInstallDiagnostic, WingetRestartExitCodes.DiagnosticPrefix(WingetRestartExitCodes.RebootRequiredForInstall));
+        Assert.AreEqual(UpdateOutcomePresenter.UpdateNotApplicableDiagnostic, WingetRestartExitCodes.DiagnosticPrefix(WingetRestartExitCodes.UpdateNotApplicable));
+        Assert.AreEqual(WingetRestartSignal.None, WingetRestartExitCodes.Classify(WingetRestartExitCodes.UpdateNotApplicable), "never restart evidence");
+        Assert.IsFalse(WingetRestartExitCodes.ReportsFinishedPendingRestart(WingetRestartExitCodes.UpdateNotApplicable));
     }
 
     [TestMethod]

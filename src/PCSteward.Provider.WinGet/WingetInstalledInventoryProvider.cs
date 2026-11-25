@@ -232,7 +232,8 @@ public sealed partial class WingetInstalledInventoryProvider
                 matches.Add((id.GetString()!, version.GetString()!));
             }
         }
-        return matches.Count(match => string.Equals(match.Id, selection.PackageId, StringComparison.OrdinalIgnoreCase) && string.Equals(match.Version, selection.CandidateVersion, StringComparison.Ordinal)) == 1;
+        // An MSIX package's export shows Windows' four-part version (6.28899.6.0) for the manifest's 6.28899.6: WinGet's own equality.
+        return matches.Count(match => string.Equals(match.Id, selection.PackageId, StringComparison.OrdinalIgnoreCase) && WingetVersionText.SameVersion(match.Version, selection.CandidateVersion)) == 1;
     }
     private static bool ValidDisplayField(string value) => !string.IsNullOrWhiteSpace(value) && value.Length <= MaximumFieldLength && value.All(character => !char.IsControl(character));
     private static bool ValidInstalledVersion(string value) => ValidDisplayField(value) && value.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '+' or '_');

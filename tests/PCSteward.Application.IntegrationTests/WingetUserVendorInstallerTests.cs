@@ -275,6 +275,54 @@ public sealed class WingetUserVendorInstallerTests
         }
     }
 
+    /// <summary>
+    /// Owner's PC, 2026-11-25: Claude was installed as an MSIX package, its WinGet manifest offers MSIX and a user-scope setup program,
+    /// the review bound the setup program and WinGet refused the upgrade (0x8A15002B). An installer must fit WinGet's installed type.
+    /// </summary>
+    [TestMethod]
+    public void AnInstallerMustFitHowTheAppIsInstalled()
+    {
+        UpdateJobSelection selection = Selection();
+        WingetUserInstallerCheck mismatch = WingetUserInstallerRules.Evaluate(Observation("Exe") with { InstalledType = "msix" }, selection);
+        Assert.IsNull(mismatch.Installer);
+        Assert.IsFalse(mismatch.IsMsix);
+        Assert.AreEqual(WingetUserInstallerText.DifferentInstallTechnologyMessage, mismatch.Message);
+        Assert.AreEqual(WingetUserInstallerText.DifferentInstallTechnologyMessage,
+            WingetUserInstallerRules.Evaluate(Observation("Msix", scope: "Unknown") with { InstalledType = "exe" }, selection).Message);
+        Assert.AreEqual(WingetUserInstallerText.DifferentInstallTechnologyMessage,
+            WingetUserInstallerRules.Evaluate(Observation("Msi") with { InstalledType = "exe" }, selection).Message);
+        Assert.AreEqual(WingetUserInstallerText.DifferentInstallTechnologyMessage,
+            WingetUserInstallerRules.Evaluate(Observation("Zip", nested: "Portable", scope: "Unknown") with { InstalledType = "exe" }, selection).Message);
+
+        Assert.AreEqual(new WinGetUserInstaller(WinGetUserInstallerType.Msix, WinGetUserElevation.Unknown),
+            WingetUserInstallerRules.Evaluate(Observation("Msix", scope: "Unknown") with { InstalledType = "msix" }, selection).Installer);
+        Assert.IsTrue(WingetUserInstallerRules.Evaluate(Observation("MSStore", scope: "Unknown") with { InstalledType = "msix" }, selection).IsMsix);
+        // WinGet's families: exe, Inno, Nullsoft and Burn; MSI and WiX; MSIX and Store. A zip is judged by what it holds.
+        foreach ((string installed, string offered, string? nested) in new (string, string, string?)[]
+                 {
+                     ("exe", "Exe", null), ("exe", "Inno", null), ("inno", "Nullsoft", null), ("nullsoft", "Burn", null),
+                     ("msi", "Wix", null), ("wix", "Msi", null), ("EXE", "Exe", null), ("exe", "Zip", "Exe"),
+                     ("portable", "Portable", null), ("portable", "Zip", "Portable"),
+                 })
+            Assert.IsNotNull(WingetUserInstallerRules.Evaluate(Observation(offered, nested: nested, scope: offered is "Portable" || nested is "Portable" ? "Unknown" : "User") with { InstalledType = installed }, selection).Installer,
+                $"{installed} fits {offered}/{nested}");
+        // An installed type WinGet didn't report applies no filter, as in WinGet.
+        foreach (string? unknown in new[] { null, "", " ", "unknown", "Unknown" })
+            Assert.AreEqual(ExeInstaller, WingetUserInstallerRules.Evaluate(Observation("Exe") with { InstalledType = unknown }, selection).Installer, unknown ?? "null");
+    }
+
+    [TestMethod]
+    public void TheReadAsksForTheInstalledTypeFirstThenItsFamily()
+    {
+        CollectionAssert.AreEqual(new[] { "Msix", "MSStore" }, WingetUserInstallerRules.CompatibleInstallerTypes("msix").ToArray());
+        CollectionAssert.AreEqual(new[] { "Msix", "MSStore" }, WingetUserInstallerRules.CompatibleInstallerTypes("appx").ToArray());
+        CollectionAssert.AreEqual(new[] { "Inno", "Exe", "Nullsoft", "Burn" }, WingetUserInstallerRules.CompatibleInstallerTypes("inno").ToArray());
+        CollectionAssert.AreEqual(new[] { "Wix", "Msi" }, WingetUserInstallerRules.CompatibleInstallerTypes("wix").ToArray());
+        CollectionAssert.AreEqual(new[] { "Portable" }, WingetUserInstallerRules.CompatibleInstallerTypes("portable").ToArray());
+        Assert.HasCount(0, WingetUserInstallerRules.CompatibleInstallerTypes(null));
+        Assert.HasCount(0, WingetUserInstallerRules.CompatibleInstallerTypes("somethingnew"));
+    }
+
     [TestMethod]
     public async Task TheSourceFailsClosed()
     {
