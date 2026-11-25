@@ -48,6 +48,7 @@ public sealed class ScheduledChecksTests
         Assert.AreEqual("Timed out", first.LastResult);
         Assert.AreEqual(2, second!.ConsecutiveFailures);
         Assert.AreEqual(second, store.Status);
+        Assert.IsTrue(store.EveryCallWasLimited, "each read and write gets a cancellable token and a lock-wait limit");
         ScheduledCheckSettings notify = ScheduledCheckSettings.Manual with { NotificationsEnabled = true };
         Assert.IsFalse(ScheduledCheckNotificationPolicy.ShouldNotify(notify, false, false, first.ConsecutiveFailures));
         Assert.IsTrue(ScheduledCheckNotificationPolicy.ShouldNotify(notify, false, false, second.ConsecutiveFailures));
@@ -90,11 +91,13 @@ public sealed class ScheduledChecksTests
     {
         public ScheduledCheckStatus Status { get; private set; } = status;
         public bool FailSave { get; set; }
+        public bool EveryCallWasLimited { get; private set; } = true;
         public Task<ScheduledCheckSettings> GetScheduledCheckSettingsAsync(CancellationToken cancellationToken) => Task.FromResult(ScheduledCheckSettings.Manual);
         public Task SaveScheduledCheckSettingsAsync(ScheduledCheckSettings settings, CancellationToken cancellationToken) => Task.CompletedTask;
-        public Task<ScheduledCheckStatus> GetScheduledCheckStatusAsync(CancellationToken cancellationToken, TimeSpan? lockWaitLimit = null) => Task.FromResult(Status);
+        public Task<ScheduledCheckStatus> GetScheduledCheckStatusAsync(CancellationToken cancellationToken, TimeSpan? lockWaitLimit = null) { EveryCallWasLimited &= cancellationToken.CanBeCanceled && lockWaitLimit > TimeSpan.Zero; return Task.FromResult(Status); }
         public Task SaveScheduledCheckStatusAsync(ScheduledCheckStatus status, CancellationToken cancellationToken, TimeSpan? lockWaitLimit = null)
         {
+            EveryCallWasLimited &= cancellationToken.CanBeCanceled && lockWaitLimit > TimeSpan.Zero;
             if (FailSave) throw new IOException("The status could not be saved.");
             Status = status;
             return Task.CompletedTask;

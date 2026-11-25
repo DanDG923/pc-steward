@@ -301,6 +301,7 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
             .Select(group => group.Key)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (string duplicateId in duplicateUpdateIds
+            .Where(UpdateJobSelection.IsWinGetPackageId) // a warning is skipped, never thrown, if the parser's rule and this one ever differ
             .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
             .Take(SourceWarningText.MaximumDuplicateIdWarnings))
         {
@@ -316,6 +317,7 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
         foreach (string duplicateId in installedGroups
             .Where(group => group.Count() > 1)
             .Select(group => group.Key)
+            .Where(UpdateJobSelection.IsWinGetPackageId) // a warning is skipped, never thrown, if the parser's rule and this one ever differ
             .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
             .Take(SourceWarningText.MaximumDuplicateIdWarnings))
         {

@@ -338,12 +338,13 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
         return new(source, providerVersion, lastSuccess, SourceSnapshotState.Cached, packages, []);
     }
 
-    // Review F-14: older rows hold the text "True"/"False". Anything unreadable is false and never throws (storage is untrusted).
+    // Review F-14: older rows hold the text "True"/"False". A true flag holds an update back, so anything unreadable reads as true
+    // (storage is untrusted) and nothing throws.
     private static bool ConnectorSemantics(object? value) => value switch
     {
         long number => number != 0,
-        string text => bool.TryParse(text, out bool flag) ? flag : long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long number) && number != 0,
-        _ => false
+        string text => bool.TryParse(text, out bool flag) ? flag : !long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long number) || number != 0,
+        _ => true
     };
 
     // A stored number this build doesn't know holds the update back rather than dropping the objection.
@@ -615,6 +616,6 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
         await ExecuteAsync(connection, "INSERT INTO scan_runs VALUES ($id,$started,$completed,$status,$correlation);", token, transaction, ("$id", run.Id), ("$started", run.StartedAt), ("$completed", run.CompletedAt), ("$status", Text(run.Status)), ("$correlation", run.CorrelationId));
         foreach (ScanProviderTiming timing in timings) await ExecuteAsync(connection, "INSERT INTO scan_provider_timings VALUES ($id,$scan,$provider,$duration,$warning);", token, transaction, ("$id", timing.Id), ("$scan", timing.ScanRunId), ("$provider", Text(timing.Provider)), ("$duration", (long)timing.Duration.TotalMilliseconds), ("$warning", Text(timing.Warning)));
     }
-    private static async Task ExecuteAsync(SqliteConnection connection, string sql, CancellationToken token, SqliteTransaction? transaction = null, params (string Name, object? Value)[] parameters) { await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql; foreach ((string name, object? value) in parameters) command.Parameters.AddWithValue(name, value switch { null => DBNull.Value, bool flag => flag ? 1 : 0, int or long => value, DateTimeOffset timestamp => timestamp.ToString("O", CultureInfo.InvariantCulture), _ => Convert.ToString(value, CultureInfo.InvariantCulture) }); await command.ExecuteNonQueryAsync(token); }
+    private static async Task ExecuteAsync(SqliteConnection connection, string sql, CancellationToken token, SqliteTransaction? transaction = null, params (string Name, object? Value)[] parameters) { await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql; foreach ((string name, object? value) in parameters) command.Parameters.AddWithValue(name, value switch { null => DBNull.Value, bool flag => flag ? 1 : 0, int or long => value, DateTimeOffset timestamp => timestamp.ToString("O", CultureInfo.InvariantCulture), _ => (object?)Convert.ToString(value, CultureInfo.InvariantCulture) ?? DBNull.Value }); await command.ExecuteNonQueryAsync(token); }
     private static async Task<int> ExecuteCountAsync(SqliteConnection connection, string sql, SqliteTransaction transaction, CancellationToken token, params (string Name, object? Value)[] parameters) { await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql; foreach ((string name, object? value) in parameters) command.Parameters.AddWithValue(name, value ?? DBNull.Value); return await command.ExecuteNonQueryAsync(token); }
 }

@@ -94,9 +94,12 @@ Raised by Gemini; confirmed by Astra and the coordinator.
   (`WingetReviewedUpdateArguments.cs:49`), or be wrongly blocked against an x86 one.
 - Not verified: whether WinGet or the vendor installer would complete the switch on a real PC.
 - **Owner decision (2026-11-25): left unfixed.** Recording per-user architecture as Unknown would stop every per-user
-  registry update and change those apps' stable keys, because the label is part of the key
-  (`RegistryLocalInventoryProvider.cs:22`). A real fix needs a designed proof of installed architecture, as the 32-bit
-  machine view has. The case is a 32-bit app installed per-user on 64-bit Windows, not a 32-bit PC.
+  registry update, because nothing else supplies the installed architecture for those apps. A real fix needs a designed
+  proof of installed architecture, as the 32-bit machine view has. The case is a 32-bit app installed per-user on 64-bit
+  Windows, not a 32-bit PC.
+- **Correction (same day).** An earlier version of this entry said the fix would also change those apps' stable keys. It
+  would not: the stable key is a hash of the provider and its identity only (`InventoryNormalization.cs:30`). The label
+  is part of the instance fingerprint, not the product key, so pins, ignores and history would have been kept.
 
 ### Medium
 
