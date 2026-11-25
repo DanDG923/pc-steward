@@ -12,6 +12,7 @@ public sealed class WingetInstalledInventoryProviderTests
     private static readonly string[] ExpectedSourceListArguments = ["list", "--source", "winget", "--disable-interactivity"];
     private static readonly string[] ExpectedUpdateArguments = ["upgrade", "--source", "winget", "--disable-interactivity"];
     private static readonly string[] ExpectedOfficialPlusIds = ["Microsoft.VCRedist.2015+.x64", "Microsoft.VCRedist.2015+.x86", "Notepad++.Notepad++"];
+    private static readonly string[] ExpectedHealthyOnly = ["Contoso.Healthy"];
     [TestMethod]
     public async Task UsesFixedExecutableReadOnlyArgumentsAndParsesBoundedTableOutput()
     {
@@ -398,6 +399,127 @@ public sealed class WingetInstalledInventoryProviderTests
         Assert.HasCount(2, duplicate.Records);
     }
     [TestMethod]
+    [DataRow("Contoso.Dup", "Contoso.Dup")]
+    [DataRow("Contoso.Dup", "contoso.dup")]
+    public async Task DuplicateUpgradeIdsKeepPackageWithNullAvailableVersionWithoutCompatibilityQueryAndWarn(string firstId, string secondId)
+    {
+        SequencedProcess process = new(new WingetProcessResult[]
+        {
+            new(0, "v1.29.380", "", false),
+            new(0, InstalledTable(
+                ("Duplicated App", "Contoso.Dup", "1.0.0", "winget"),
+                ("Healthy Update", "Contoso.Healthy", "2.0.0", "winget"),
+                ("Healthy Current", "Contoso.Current", "3.0.0", "winget")), "", false),
+            new(0,
+                "Name            Id               Version  Available  Source\n" +
+                "-----------------------------------------------------------\n" +
+                $"Duplicated App  {firstId,-16} 1.0.0    1.1.0      winget\n" +
+                $"Duplicated App  {secondId,-16} 1.0.0    1.2.0      winget\n" +
+                "Healthy Update  Contoso.Healthy  2.0.0    2.1.0      winget",
+                "", false)
+        });
+        RecordingCompatibility compatibility = new();
+
+        SourceSnapshot snapshot = await new WingetUpdateSourceConnector(process, "winget", compatibility).RefreshAsync(CancellationToken.None);
+
+        Assert.AreEqual(SourceSnapshotState.Live, snapshot.State);
+        SourcePackageRecord duplicated = snapshot.Packages.Single(package => string.Equals(package.PackageId, "Contoso.Dup", StringComparison.OrdinalIgnoreCase));
+        Assert.AreEqual("1.0.0", duplicated.InstalledVersion);
+        Assert.IsNull(duplicated.AvailableVersion);
+        Assert.AreEqual("Unknown", duplicated.Scope);
+        Assert.AreEqual("Unknown", duplicated.Architecture);
+        Assert.IsNull(duplicated.Channel);
+        Assert.IsNull(duplicated.Publisher);
+        CollectionAssert.AreEqual(ExpectedHealthyOnly, compatibility.Requested.ToArray());
+        Assert.AreEqual("2.1.0", snapshot.Packages.Single(package => package.PackageId == "Contoso.Healthy").AvailableVersion);
+        Assert.AreEqual("3.0.0", snapshot.Packages.Single(package => package.PackageId == "Contoso.Current").AvailableVersion);
+        CollectionAssert.Contains(snapshot.Warnings.ToArray(), SourceWarningText.DuplicateUpdateId("winget", "Contoso.Dup"));
+        CollectionAssert.DoesNotContain(snapshot.Warnings.ToArray(), "winget:duplicate-update-id");
+
+        ProductMatchProfile installedProduct = new("product:dup", "Duplicated App", "Contoso.Dup", null, null, "Contoso", "1.0.0", "Machine", "x64", "Stable", InstalledSourceId: "winget");
+        UpdateIntelligenceItem assessed = UpdateIntelligence.Assess([installedProduct], [snapshot]).Items.Single();
+        Assert.AreNotEqual(UpdateIntelligenceStatus.Current, assessed.Status);
+        Assert.AreNotEqual(UpdateIntelligenceStatus.VerifiedUpdate, assessed.Status);
+        Assert.IsNotNull(assessed.Mapping);
+        Assert.IsNull(assessed.Mapping.CandidateVersion);
+        Assert.IsFalse(assessed.Mapping.IsActionable);
+        DeclaredPackageMapping confirmed = new(installedProduct.StableProductKey, "winget", "Contoso.Dup", MappingOrigin.UserConfirmed);
+        UpdateIntelligenceItem confirmedAssessed = UpdateIntelligence.Assess([installedProduct], [snapshot], [confirmed]).Items.Single();
+        Assert.AreNotEqual(UpdateIntelligenceStatus.Current, confirmedAssessed.Status);
+        Assert.AreNotEqual(UpdateIntelligenceStatus.VerifiedUpdate, confirmedAssessed.Status);
+        Assert.IsFalse(confirmedAssessed.Mapping!.IsActionable);
+    }
+
+    [TestMethod]
+    [DataRow("Contoso.Dup", "Contoso.Dup")]
+    [DataRow("Contoso.Dup", "contoso.dup")]
+    public async Task DuplicateInstalledIdsAreExcludedAndEmitPerPackageWarning(string firstId, string secondId)
+    {
+        SequencedProcess process = new(new WingetProcessResult[]
+        {
+            new(0, "v1.29.380", "", false),
+            new(0, InstalledTable(
+                ("Duplicated App", firstId, "1.0.0", "winget"),
+                ("Duplicated App copy", secondId, "2.0.0", "winget"),
+                ("Healthy App", "Contoso.Healthy", "3.0.0", "winget")), "", false),
+            new(0, "No applicable upgrade found.", "", false)
+        });
+
+        SourceSnapshot snapshot = await new WingetUpdateSourceConnector(process, "winget").RefreshAsync(CancellationToken.None);
+
+        Assert.AreEqual(SourceSnapshotState.Live, snapshot.State);
+        Assert.AreEqual("Contoso.Healthy", snapshot.Packages.Single().PackageId);
+        CollectionAssert.Contains(snapshot.Warnings.ToArray(), SourceWarningText.DuplicateInstalledId("winget", "Contoso.Dup"));
+        CollectionAssert.DoesNotContain(snapshot.Warnings.ToArray(), "winget:duplicate-installed-id");
+    }
+
+    [TestMethod]
+    public async Task DuplicatePackageIdWarningsAreBoundedWhileAllDuplicatesStayHandled()
+    {
+        int totalDuplicates = SourceWarningText.MaximumDuplicateIdWarnings + 5;
+        (string Name, string Id, string Version, string Source)[] installedRows = Enumerable.Range(1, totalDuplicates)
+            .Select(index => ($"App {index:D2}", $"Contoso.Dup{index:D2}", "1.0.0", "winget"))
+            .ToArray();
+        string upgradeRows = string.Join("\n", Enumerable.Range(1, totalDuplicates).SelectMany(index => new[]
+        {
+            $"App {index:D2}  Contoso.Dup{index:D2}  1.0.0  1.1.0  winget",
+            $"App {index:D2}  Contoso.Dup{index:D2}  1.0.0  1.2.0  winget"
+        }));
+        SequencedProcess upgradeProcess = new(new WingetProcessResult[]
+        {
+            new(0, "v1.29.380", "", false),
+            new(0, InstalledTable(installedRows), "", false),
+            new(0, "Name    Id             Version  Available  Source\n-------------------------------------------------\n" + upgradeRows, "", false)
+        });
+
+        SourceSnapshot upgradeSnapshot = await new WingetUpdateSourceConnector(upgradeProcess, "winget").RefreshAsync(CancellationToken.None);
+
+        Assert.HasCount(totalDuplicates, upgradeSnapshot.Packages);
+        Assert.IsTrue(upgradeSnapshot.Packages.All(package => package.AvailableVersion is null));
+        Assert.AreEqual(SourceWarningText.MaximumDuplicateIdWarnings, upgradeSnapshot.Warnings.Count(warning => SourceWarningText.TryReadDuplicateUpdateId(warning, out _)));
+
+        (string Name, string Id, string Version, string Source)[] duplicatedInstalledRows = Enumerable.Range(1, totalDuplicates)
+            .SelectMany(index => new[]
+            {
+                ($"Inst {index:D2}", $"Contoso.Inst{index:D2}", "1.0.0", "winget"),
+                ($"Inst {index:D2} copy", $"Contoso.Inst{index:D2}", "2.0.0", "winget")
+            })
+            .Append(("Healthy App", "Contoso.Healthy", "3.0.0", "winget"))
+            .ToArray();
+        SequencedProcess installedProcess = new(new WingetProcessResult[]
+        {
+            new(0, "v1.29.380", "", false),
+            new(0, InstalledTable(duplicatedInstalledRows), "", false),
+            new(0, "No applicable upgrade found.", "", false)
+        });
+
+        SourceSnapshot installedSnapshot = await new WingetUpdateSourceConnector(installedProcess, "winget").RefreshAsync(CancellationToken.None);
+
+        Assert.AreEqual("Contoso.Healthy", installedSnapshot.Packages.Single().PackageId);
+        Assert.AreEqual(SourceWarningText.MaximumDuplicateIdWarnings, installedSnapshot.Warnings.Count(warning => SourceWarningText.TryReadDuplicateInstalledId(warning, out _)));
+    }
+
+    [TestMethod]
     public void ProcessBoundaryHasNoExecutablePathParameterAndOversizedOutputFailsClosed()
     {
         Type[] parameterTypes = typeof(WindowsWingetProcess).GetMethod(nameof(WindowsWingetProcess.RunAsync))!.GetParameters().Select(parameter => parameter.ParameterType).ToArray();
@@ -432,6 +554,16 @@ public sealed class WingetInstalledInventoryProviderTests
     {
         public Task<WingetProcessResult> RunAsync(IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) => Task.FromException<WingetProcessResult>(exception);
     }
+    private sealed class RecordingCompatibility : IWinGetCandidateCompatibilityQuery
+    {
+        public List<string> Requested { get; } = [];
+        public Task<WinGetCandidateCompatibilityRead> QueryAsync(string sourceId, IReadOnlyList<string> packageIds, CancellationToken cancellationToken)
+        {
+            Requested.AddRange(packageIds);
+            return Task.FromResult(WinGetCandidateCompatibilityRead.Empty);
+        }
+    }
+
     private sealed class ExportingProcess(string json) : IWingetProcess
     {
         public IReadOnlyList<string> Arguments { get; private set; } = [];

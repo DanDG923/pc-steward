@@ -219,6 +219,36 @@ public sealed class InventoryWorkflowUpdateSourceTests
     }
 
     [TestMethod]
+    [DataRow("Notepad++.Notepad++", "Notepad++", "8.8.2", "8.8.3")]
+    [DataRow("Microsoft.VCRedist.2015+.x64", "Microsoft Visual C++ 2015-2022 Redistributable (x64)", "14.42.34438.0", "14.44.35211.0")]
+    public async Task ApprovedUpdateSelectionAcceptsWinGetPackageIdsContainingPlus(string packageId, string displayName, string installedVersion, string candidateVersion)
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        await EnableTrustedSourcesAsync(database);
+        Guid productId = Guid.NewGuid();
+        string stable = InventoryNormalization.ProductFingerprint(new("registry", "PlusRegistryKey", displayName, "Vendor", installedVersion, "Machine", "x64", "Stable", "Application", "fixture"));
+        CanonicalProduct product = new(productId, stable, displayName);
+        InstallationInstance installed = new(Guid.NewGuid(), productId, "registry", "PlusRegistryKey", installedVersion, "Machine", "x64", "Vendor", Channel: "Stable");
+        SourcePackageRecord package = new("winget", packageId, displayName, "Vendor", installedVersion, candidateVersion, "Machine", "x64", "Stable", ProviderSuppliedStableProductKey: stable);
+        using InventoryWorkflow workflow = new(
+            database.Store,
+            database.Store,
+            database.Store,
+            [new FixedProvider(new([product], [installed], [], []))],
+            decisions: database.Store,
+            sourceCache: database.Store,
+            updateSourceConnectors: [new FakeConnector(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []))],
+            structuredUpdateCandidates: new StructuredCandidateAuthority(new("winget", packageId, installedVersion, candidateVersion)));
+
+        UpdateSelectionPreparation prepared = await workflow.PrepareApprovedUpdateSelectionAsync(stable, CancellationToken.None);
+
+        Assert.IsNotNull(prepared.Selection, prepared.Message);
+        Assert.AreEqual(packageId, prepared.Selection.PackageId);
+        Assert.AreEqual(installedVersion, prepared.Selection.InstalledVersion);
+        Assert.AreEqual(candidateVersion, prepared.Selection.CandidateVersion);
+    }
+
+    [TestMethod]
     public async Task ApprovedUpdateSelectionRequiresPersistedConsentFreshEvidenceAndExactInstalledFields()
     {
         await using TestDatabase database = await TestDatabase.CreateAsync();

@@ -215,6 +215,72 @@ public sealed class InventoryExperienceViewModelTests
     }
 
     [TestMethod]
+    public void DuplicatePackageWarningsAreShownInPlainWordsOnlyOnTheAffectedApp()
+    {
+        InventoryExperienceViewModel viewModel = new();
+        Guid dupUpdate = Guid.NewGuid(), dupInstalled = Guid.NewGuid(), healthy = Guid.NewGuid();
+        viewModel.LoadInventory(
+            [new CanonicalProduct(dupUpdate, "product:dup-update", "Dup Update"), new CanonicalProduct(dupInstalled, "product:dup-installed", "Dup Installed"), new CanonicalProduct(healthy, "product:healthy", "Healthy")],
+            [new InstallationInstance(Guid.NewGuid(), dupUpdate, "registry", "dup-update", "1.0", "Machine", "x64", "Contoso"), new InstallationInstance(Guid.NewGuid(), dupInstalled, "registry", "dup-installed", "1.0", "Machine", "x64", "Contoso"), new InstallationInstance(Guid.NewGuid(), healthy, "registry", "healthy", "2.0", "Machine", "x64", "Contoso")]);
+        PackageMapping dupUpdateMapping = new("winget", "Contoso.DupUpdate", null, MappingConfidence.High, MappingOrigin.Automatic, "Match.", false, [MappingReviewReason.IncomparableVersion, MappingReviewReason.MissingScopeEvidence, MappingReviewReason.MissingArchitectureEvidence, MappingReviewReason.MissingChannelEvidence], new VersionComparisonResult(VersionComparisonOutcome.Incomparable, VersionComparisonExplanation.MissingCandidateVersion));
+        PackageMapping dupInstalledMapping = new("winget", "Contoso.DupInstalled", null, MappingConfidence.High, MappingOrigin.Automatic, "Match.", false, [MappingReviewReason.IncomparableVersion], new VersionComparisonResult(VersionComparisonOutcome.Incomparable, VersionComparisonExplanation.MissingCandidateVersion));
+        PackageMapping healthyMapping = new("winget", "Contoso.Healthy", "2.1", MappingConfidence.High, MappingOrigin.Automatic, "Exact identity.", true, [], new VersionComparisonResult(VersionComparisonOutcome.Newer, VersionComparisonExplanation.NumericDotted));
+        string updateWarning = SourceWarningText.DuplicateUpdateId("winget", "Contoso.DupUpdate");
+        string installedWarning = SourceWarningText.DuplicateInstalledId("winget", "Contoso.DupInstalled");
+        viewModel.LoadUpdateIntelligence(new UpdateIntelligenceSummary(
+            [
+                new UpdateIntelligenceItem("product:dup-update", UpdateIntelligenceStatus.ReviewRequired, dupUpdateMapping, "Review.", "winget", DateTimeOffset.UnixEpoch),
+                new UpdateIntelligenceItem("product:dup-installed", UpdateIntelligenceStatus.ReviewRequired, dupInstalledMapping, "Review.", "winget", DateTimeOffset.UnixEpoch),
+                new UpdateIntelligenceItem("product:healthy", UpdateIntelligenceStatus.VerifiedUpdate, healthyMapping, "Exact identity.", "winget", DateTimeOffset.UnixEpoch)
+            ],
+            Enum.GetValues<UpdateIntelligenceStatus>().ToDictionary(status => status, _ => 0),
+            [new SourceSnapshot("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, [], [updateWarning, installedWarning])]));
+
+        string dupUpdateFreshness = viewModel.UpdateDetails["product:dup-update"].Freshness;
+        string dupInstalledFreshness = viewModel.UpdateDetails["product:dup-installed"].Freshness;
+        string healthyFreshness = viewModel.UpdateDetails["product:healthy"].Freshness;
+
+        StringAssert.Contains(dupUpdateFreshness, SourceWarningText.DescribeDuplicateUpdateId());
+        Assert.IsFalse(dupUpdateFreshness.Contains("duplicate-update-id", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(dupUpdateFreshness.Contains("Source warning", StringComparison.Ordinal));
+        Assert.IsFalse(dupUpdateFreshness.Contains(SourceWarningText.DescribeDuplicateInstalledId(), StringComparison.Ordinal));
+
+        StringAssert.Contains(dupInstalledFreshness, SourceWarningText.DescribeDuplicateInstalledId());
+        Assert.IsFalse(dupInstalledFreshness.Contains("duplicate-installed-id", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(dupInstalledFreshness.Contains("Source warning", StringComparison.Ordinal));
+        Assert.IsFalse(dupInstalledFreshness.Contains(SourceWarningText.DescribeDuplicateUpdateId(), StringComparison.Ordinal));
+
+        Assert.IsFalse(healthyFreshness.Contains("more than once", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(healthyFreshness.Contains("installed copy", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(healthyFreshness.Contains("Source warning", StringComparison.Ordinal));
+        Assert.IsFalse(viewModel.UpdateFreshnessLabel.Contains("more than once", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(viewModel.UpdateFreshnessLabel.Contains("installed copy", StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(viewModel.UpdateFreshnessLabel.Contains("Source warning", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void DuplicatePackageIdWarningsValidateAndRoundTripPackageIds()
+    {
+        string updateWarning = SourceWarningText.DuplicateUpdateId("winget", "Notepad++.Notepad++");
+        string installedWarning = SourceWarningText.DuplicateInstalledId("msstore", "9NBLGGH4NNS1");
+
+        Assert.AreEqual("winget:duplicate-update-id:Notepad++.Notepad++", updateWarning);
+        Assert.AreEqual("msstore:duplicate-installed-id:9NBLGGH4NNS1", installedWarning);
+        Assert.IsTrue(SourceWarningText.TryReadDuplicateUpdateId(updateWarning, out string updatePackage));
+        Assert.AreEqual("Notepad++.Notepad++", updatePackage);
+        Assert.IsTrue(SourceWarningText.TryReadDuplicateInstalledId(installedWarning, out string installedPackage));
+        Assert.AreEqual("9NBLGGH4NNS1", installedPackage);
+
+        Assert.ThrowsExactly<ArgumentException>(() => SourceWarningText.DuplicateUpdateId("winget", "bad id!"));
+        Assert.ThrowsExactly<ArgumentException>(() => SourceWarningText.DuplicateInstalledId("winget", "bad:id"));
+        Assert.ThrowsExactly<ArgumentException>(() => SourceWarningText.DuplicateUpdateId("winget", ""));
+        Assert.IsFalse(SourceWarningText.TryReadDuplicateUpdateId("winget:duplicate-update-id", out _));
+        Assert.IsFalse(SourceWarningText.TryReadDuplicateUpdateId("winget:duplicate-update-id:bad id!", out _));
+        Assert.IsFalse(SourceWarningText.TryReadDuplicateInstalledId("winget:duplicate-installed-id:", out _));
+        Assert.IsFalse(SourceWarningText.TryReadDuplicateInstalledId(null, out _));
+    }
+
+    [TestMethod]
     public void AdministratorRequirementUsesValidatedSelectionAndRemainsUnknownBeforeReview()
     {
         AdministratorRequirementPresentation unknown = AdministratorRequirementPresenter.BeforeReview();

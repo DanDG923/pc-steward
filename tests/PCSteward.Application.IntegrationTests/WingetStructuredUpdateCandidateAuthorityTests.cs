@@ -60,6 +60,22 @@ public sealed class WingetStructuredUpdateCandidateAuthorityTests
     }
 
     [TestMethod]
+    [DataRow("Notepad++.Notepad++")]
+    [DataRow("Microsoft.VCRedist.2015+.x64")]
+    public async Task ProductionAuthorityAcceptsWinGetPlusPackageIds(string packageId)
+    {
+        WinGetStructuredCatalogObservation observation = ValidObservation() with { PackageId = packageId };
+        RecordingStructuredCatalogQuery query = new(observation);
+        WingetStructuredUpdateCandidateAuthority authority = new(query, TimeSpan.FromSeconds(1));
+
+        StructuredUpdateCandidateEvidence? evidence = await authority.ResolveAsync("winget", packageId, CancellationToken.None);
+
+        Assert.IsNotNull(evidence);
+        Assert.AreEqual(packageId, evidence.PackageId);
+        Assert.AreEqual(("winget", packageId), query.SingleCall);
+    }
+
+    [TestMethod]
     public async Task ProductionAuthorityRejectsUnsupportedOrUnboundedInputsWithoutQuerying()
     {
         RecordingStructuredCatalogQuery query = new(ValidObservation());
@@ -67,6 +83,10 @@ public sealed class WingetStructuredUpdateCandidateAuthorityTests
 
         Assert.IsNull(await authority.ResolveAsync("private", "Contoso.Widget", CancellationToken.None));
         Assert.IsNull(await authority.ResolveAsync("winget", "Contoso Widget", CancellationToken.None));
+        Assert.IsNull(await authority.ResolveAsync("winget", "+Contoso.Widget", CancellationToken.None));
+        Assert.IsNull(await authority.ResolveAsync("winget", "-Contoso.Widget", CancellationToken.None));
+        Assert.IsNull(await authority.ResolveAsync("winget", ".Contoso.Widget", CancellationToken.None));
+        Assert.IsNull(await authority.ResolveAsync("winget", "Contoso_Widget", CancellationToken.None));
         Assert.IsNull(await authority.ResolveAsync("winget", new string('a', 257), CancellationToken.None));
         Assert.AreEqual(0, query.CallCount);
     }

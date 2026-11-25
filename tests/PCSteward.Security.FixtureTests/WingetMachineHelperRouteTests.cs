@@ -39,6 +39,34 @@ public sealed class WingetMachineHelperRouteTests
             UpdateRouteContract.WinGetMachineSilentV1, ReviewedInstallerMode.Selected(InstallerMode.Silent), null);
     }
 
+    [TestMethod]
+    [DataRow("Notepad++.Notepad++")]
+    [DataRow("Microsoft.VCRedist.2015+.x64")]
+    public void WinGetPlusPackageIdsRoundTripThroughProtocol2WireCodecAndRouteAdmission(string packageId)
+    {
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.Parse("d4b10000-0000-0000-0000-000000000012"),
+            Guid.Parse("d4b10000-0000-0000-0000-000000000013"), new UpdateJobSelection("arp:hklm64:plusapp", UpdateProvider.WinGet,
+                UpdateSource.WinGet, packageId, "8.8.2", "8.8.3", UpdateScope.Machine, UpdateArchitecture.X64, UpdateChannel.Stable,
+                "winget-com-v1")).Confirm(Protocol2InterpreterFixture.ReviewedAt);
+        ReviewedUpdateOperation operation = new(job, Protocol2InterpreterFixture.User, "arp:hklm64:plusapp",
+            WingetMachineReviewedRoute.InstallationContextId, $"wgm1:exe:{Registration}:{Manifest}:{InstallerHash}",
+            Protocol2InterpreterFixture.ReviewedAt.AddSeconds(-1), UpdateRouteContract.WinGetMachineSilentV1,
+            ReviewedInstallerMode.Selected(InstallerMode.Silent), null);
+
+        byte[] requestFrame = ReviewedUpdateWireCodec.CreateRequest(operation.GetCanonicalBytes(), operation.Digest, Nonce,
+            Protocol2InterpreterFixture.ReviewedAt);
+        Assert.IsTrue(ReviewedUpdateWireCodec.TryReadRequest(requestFrame, out FramedUpdateRequest? framed));
+        Assert.IsNotNull(framed);
+        Assert.IsTrue(ReviewedUpdateOperation.TryRestore(framed.GetPayload(), framed.Digest, out ReviewedUpdateOperation? restored));
+        Assert.IsNotNull(restored);
+        Assert.AreEqual(packageId, restored.Selection.PackageId);
+        Assert.IsTrue(operation.HasSameIdentity(restored));
+        Assert.IsTrue(WingetMachineReviewedRoute.Admits(restored));
+        Assert.IsTrue(ReviewedUpdateProtocol2Interpreter.TryGetRouteProfileDigest(restored, out string digest, out ReviewedHelperReplyShape shape));
+        Assert.AreEqual(Registration, digest);
+        Assert.AreEqual(ReviewedHelperReplyShape.WinGetMachine, shape);
+    }
+
     // ---- Shape and route gate ----
 
     [TestMethod]
