@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using Microsoft.Data.Sqlite;
 using PCSteward.Application;
@@ -228,10 +229,10 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
         await using SqliteTransaction transaction = connection.BeginTransaction();
         foreach ((string connectorName, ConnectorState state) in states)
         {
-            await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", ConnectorKey(connectorName)), ("$value", state.Enabled));
+            await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", ConnectorKey(connectorName)), ("$value", state.Enabled.ToString()));
             if (RequiresSourceDisclosure(connectorName))
             {
-                await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", ConnectorApprovalKey(connectorName)), ("$value", state.SourceDisclosureApproved));
+                await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", ConnectorApprovalKey(connectorName)), ("$value", state.SourceDisclosureApproved.ToString()));
             }
         }
         await transaction.CommitAsync(cancellationToken);
@@ -257,8 +258,8 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
         await using SqliteTransaction transaction = connection.BeginTransaction();
         await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.cadence"), ("$value", normalized.Cadence));
-        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.enabled"), ("$value", normalized.IsEnabled));
-        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.notifications-enabled"), ("$value", normalized.NotificationsEnabled));
+        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.enabled"), ("$value", normalized.IsEnabled.ToString()));
+        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.notifications-enabled"), ("$value", normalized.NotificationsEnabled.ToString()));
         await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.weekly-day"), ("$value", normalized.WeeklyDay));
         await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.local-start-time"), ("$value", normalized.LocalStartTime.ToString("HH:mm", CultureInfo.InvariantCulture)));
         await transaction.CommitAsync(cancellationToken);
@@ -275,27 +276,42 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
         return count == 0 && (await GetScheduledCheckSettingsAsync(cancellationToken)).Equals(ScheduledCheckSettings.Manual);
     }
 
-    public async Task<ScheduledCheckStatus> GetScheduledCheckStatusAsync(CancellationToken cancellationToken)
+    private static void LimitStatusLockWait(SqliteConnection connection, TimeSpan? budget, long started)
     {
-        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
-        string? completed = await GetMetadataAsync(connection, "schedule.last-completed-at", cancellationToken);
-        DateTimeOffset? completedAt = DateTimeOffset.TryParse(completed, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset parsed) ? parsed : null;
-        string result = await GetMetadataAsync(connection, "schedule.last-result", cancellationToken) ?? "Not scheduled";
-        string? failures = await GetMetadataAsync(connection, "schedule.consecutive-failures", cancellationToken);
-        int consecutiveFailures = int.TryParse(failures, CultureInfo.InvariantCulture, out int parsedFailures) && parsedFailures >= 0 ? parsedFailures : 0;
-        return new ScheduledCheckStatus(completedAt, result, consecutiveFailures);
+        if (budget is null) return;
+        // SQLite timeouts use whole seconds. Zero means unlimited, so decline when less than a second remains.
+        int seconds = (int)(budget.Value - Stopwatch.GetElapsedTime(started)).TotalSeconds;
+        if (seconds < 1) throw new TimeoutException("The scheduled status lock wait budget is exhausted.");
+        connection.DefaultTimeout = seconds;
     }
 
-    public async Task SaveScheduledCheckStatusAsync(ScheduledCheckStatus status, CancellationToken cancellationToken)
+    public async Task<ScheduledCheckStatus> GetScheduledCheckStatusAsync(CancellationToken cancellationToken, TimeSpan? lockWaitLimit = null)
+    {
+        long started = Stopwatch.GetTimestamp();
+        await using SqliteConnection connection = new(connectionString);
+        LimitStatusLockWait(connection, lockWaitLimit, started);
+        await connection.OpenAsync(cancellationToken);
+        LimitStatusLockWait(connection, lockWaitLimit, started);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT (SELECT value FROM app_metadata WHERE key='schedule.last-completed-at'), (SELECT value FROM app_metadata WHERE key='schedule.last-result'), (SELECT value FROM app_metadata WHERE key='schedule.consecutive-failures');";
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        await reader.ReadAsync(cancellationToken);
+        DateTimeOffset? completedAt = DateTimeOffset.TryParse(reader.GetValue(0) as string, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset parsed) ? parsed : null;
+        int consecutiveFailures = int.TryParse(reader.GetValue(2) as string, CultureInfo.InvariantCulture, out int parsedFailures) && parsedFailures >= 0 ? parsedFailures : 0;
+        return new ScheduledCheckStatus(completedAt, reader.GetValue(1) as string ?? "Not scheduled", consecutiveFailures);
+    }
+
+    public async Task SaveScheduledCheckStatusAsync(ScheduledCheckStatus status, CancellationToken cancellationToken, TimeSpan? lockWaitLimit = null)
     {
         ArgumentNullException.ThrowIfNull(status);
-        int failures = Math.Max(0, status.ConsecutiveFailures);
-        await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken);
-        await using SqliteTransaction transaction = connection.BeginTransaction();
-        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.last-completed-at"), ("$value", status.LastCompletedAt?.ToString("O", CultureInfo.InvariantCulture) ?? string.Empty));
-        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.last-result"), ("$value", Text(status.LastResult)));
-        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ($key,$value) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", cancellationToken, transaction, ("$key", "schedule.consecutive-failures"), ("$value", failures));
-        await transaction.CommitAsync(cancellationToken);
+        long started = Stopwatch.GetTimestamp();
+        await using SqliteConnection connection = new(connectionString);
+        LimitStatusLockWait(connection, lockWaitLimit, started);
+        await connection.OpenAsync(cancellationToken);
+        LimitStatusLockWait(connection, lockWaitLimit, started);
+        // One atomic statement acquires the write lock within the command's remaining timeout.
+        await ExecuteAsync(connection, "INSERT INTO app_metadata(key,value) VALUES ('schedule.last-completed-at',$completed),('schedule.last-result',$result),('schedule.consecutive-failures',$failures) ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+            cancellationToken, null, ("$completed", status.LastCompletedAt?.ToString("O", CultureInfo.InvariantCulture) ?? string.Empty), ("$result", Text(status.LastResult)), ("$failures", Math.Max(0, status.ConsecutiveFailures)));
     }
 
     public async Task SaveSourceSnapshotAsync(SourceSnapshot snapshot, CancellationToken cancellationToken)
@@ -318,9 +334,17 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
         string source = SourceId(sourceId); await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteCommand snapshot = connection.CreateCommand(); snapshot.CommandText = "SELECT provider_version,last_success_at FROM source_snapshots WHERE source_id = $source;"; snapshot.Parameters.AddWithValue("$source", source); await using SqliteDataReader header = await snapshot.ExecuteReaderAsync(cancellationToken); if (!await header.ReadAsync(cancellationToken)) return null;
         string? providerVersion = header.IsDBNull(0) ? null : header.GetString(0); DateTimeOffset lastSuccess = DateTimeOffset.Parse(header.GetString(1), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
         await header.CloseAsync(); List<SourcePackageRecord> packages = []; await using SqliteCommand rows = connection.CreateCommand(); rows.CommandText = "SELECT package_id,display_name,publisher,installed_version,available_version,scope,architecture,channel,connector_semantics,stable_product_key,installer_fit FROM source_package_cache WHERE source_id = $source ORDER BY package_id;"; rows.Parameters.AddWithValue("$source", source); await using SqliteDataReader reader = await rows.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken)) packages.Add(new(source, reader.GetString(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.GetInt64(8) != 0, reader.IsDBNull(9) ? null : reader.GetString(9), InstallerFit(reader.GetInt64(10))));
+        while (await reader.ReadAsync(cancellationToken)) packages.Add(new(source, reader.GetString(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7), ConnectorSemantics(reader.GetValue(8)), reader.IsDBNull(9) ? null : reader.GetString(9), InstallerFit(reader.GetInt64(10))));
         return new(source, providerVersion, lastSuccess, SourceSnapshotState.Cached, packages, []);
     }
+
+    // Review F-14: older rows hold the text "True"/"False". Anything unreadable is false and never throws (storage is untrusted).
+    private static bool ConnectorSemantics(object? value) => value switch
+    {
+        long number => number != 0,
+        string text => bool.TryParse(text, out bool flag) ? flag : long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long number) && number != 0,
+        _ => false
+    };
 
     // A stored number this build doesn't know holds the update back rather than dropping the objection.
     private static SourceInstallerFit InstallerFit(long value) => value switch
@@ -500,7 +524,7 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
     public async Task RecoverInterruptedAsync(CancellationToken cancellationToken)
     {
         await using SqliteConnection connection = new(connectionString); await connection.OpenAsync(cancellationToken); await using SqliteTransaction transaction = connection.BeginTransaction();
-        List<UpdateHistoryEntry> interrupted = []; await using (SqliteCommand command = connection.CreateCommand()) { command.Transaction = transaction; command.CommandText = "SELECT job_id,correlation_id,stable_product_key,provider,package_id,installed_version,target_version FROM update_job_execution_state WHERE status IN ('Running','VerificationRequired');"; await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken); while (await reader.ReadAsync(cancellationToken)) interrupted.Add(new UpdateHistoryEntry(Guid.NewGuid(), Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)), reader.GetString(2), Enum.Parse<UpdateProvider>(reader.GetString(3), false), reader.GetString(4), reader.GetString(5), reader.GetString(6), DateTimeOffset.UtcNow, UpdateHistoryStatus.VerificationRequired, null, "recovered-after-interrupted-started-update; verification-required")); }
+        List<UpdateHistoryEntry> interrupted = []; await using (SqliteCommand command = connection.CreateCommand()) { command.Transaction = transaction; command.CommandText = "SELECT job_id,correlation_id,stable_product_key,provider,package_id,installed_version,target_version FROM update_job_execution_state WHERE status = 'Running';"; await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken); while (await reader.ReadAsync(cancellationToken)) interrupted.Add(new UpdateHistoryEntry(Guid.NewGuid(), Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)), reader.GetString(2), Enum.Parse<UpdateProvider>(reader.GetString(3), false), reader.GetString(4), reader.GetString(5), reader.GetString(6), DateTimeOffset.UtcNow, UpdateHistoryStatus.VerificationRequired, null, "recovered-after-interrupted-started-update; verification-required")); }
         foreach (UpdateHistoryEntry entry in interrupted)
         {
             await ExecuteAsync(connection, "INSERT INTO update_job_history(event_id,job_id,correlation_id,stable_product_key,provider,package_id,installed_version,target_version,occurred_at,status,exit_code,diagnostic) VALUES ($event,$job,$correlation,$stable,$provider,$package,$installed,$target,$occurred,$status,NULL,$diagnostic);", cancellationToken, transaction, ("$event", entry.EventId), ("$job", entry.JobId), ("$correlation", entry.CorrelationId), ("$stable", Text(entry.StableProductKey)), ("$provider", entry.Provider), ("$package", Text(entry.PackageId)), ("$installed", Text(entry.InstalledVersion)), ("$target", Text(entry.TargetVersion)), ("$occurred", entry.OccurredAt), ("$status", entry.Status), ("$diagnostic", entry.Diagnostic));
@@ -591,6 +615,6 @@ public sealed partial class SqliteDatabase : IScanDataStore, IUserDecisionStore,
         await ExecuteAsync(connection, "INSERT INTO scan_runs VALUES ($id,$started,$completed,$status,$correlation);", token, transaction, ("$id", run.Id), ("$started", run.StartedAt), ("$completed", run.CompletedAt), ("$status", Text(run.Status)), ("$correlation", run.CorrelationId));
         foreach (ScanProviderTiming timing in timings) await ExecuteAsync(connection, "INSERT INTO scan_provider_timings VALUES ($id,$scan,$provider,$duration,$warning);", token, transaction, ("$id", timing.Id), ("$scan", timing.ScanRunId), ("$provider", Text(timing.Provider)), ("$duration", (long)timing.Duration.TotalMilliseconds), ("$warning", Text(timing.Warning)));
     }
-    private static async Task ExecuteAsync(SqliteConnection connection, string sql, CancellationToken token, SqliteTransaction? transaction = null, params (string Name, object? Value)[] parameters) { await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql; foreach ((string name, object? value) in parameters) command.Parameters.AddWithValue(name, value is DateTimeOffset timestamp ? timestamp.ToString("O", CultureInfo.InvariantCulture) : value?.ToString() is string text ? text : DBNull.Value); await command.ExecuteNonQueryAsync(token); }
+    private static async Task ExecuteAsync(SqliteConnection connection, string sql, CancellationToken token, SqliteTransaction? transaction = null, params (string Name, object? Value)[] parameters) { await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql; foreach ((string name, object? value) in parameters) command.Parameters.AddWithValue(name, value switch { null => DBNull.Value, bool flag => flag ? 1 : 0, int or long => value, DateTimeOffset timestamp => timestamp.ToString("O", CultureInfo.InvariantCulture), _ => Convert.ToString(value, CultureInfo.InvariantCulture) }); await command.ExecuteNonQueryAsync(token); }
     private static async Task<int> ExecuteCountAsync(SqliteConnection connection, string sql, SqliteTransaction transaction, CancellationToken token, params (string Name, object? Value)[] parameters) { await using SqliteCommand command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql; foreach ((string name, object? value) in parameters) command.Parameters.AddWithValue(name, value ?? DBNull.Value); return await command.ExecuteNonQueryAsync(token); }
 }

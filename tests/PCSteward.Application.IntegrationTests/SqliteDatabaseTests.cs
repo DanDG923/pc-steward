@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using PCSteward.Application;
 using PCSteward.Domain;
@@ -405,10 +406,89 @@ public sealed class SqliteDatabaseTests
         Assert.HasCount(2, await database.Store.GetHistoryForProductAsync("winget:contoso.widget", CancellationToken.None));
     }
 
+    private static UpdateHistoryEntry HistoryEvent(UpdateHistoryStatus status) =>
+        new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "widget", UpdateProvider.WinGet, "Widget", "1", "2", DateTimeOffset.UtcNow, status, null, "test");
+
+    [TestMethod]
+    public async Task PruneKeepsExactlyTheTwoNewestTerminalEvents()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        UpdateHistoryEntry first = HistoryEvent(UpdateHistoryStatus.Success);
+        UpdateHistoryEntry second = first with { EventId = Guid.NewGuid(), OccurredAt = first.OccurredAt.AddMinutes(1) };
+        UpdateHistoryEntry third = second with { EventId = Guid.NewGuid(), OccurredAt = second.OccurredAt.AddMinutes(1) };
+        foreach (UpdateHistoryEntry entry in new[] { first, second, third }) await database.Store.RecordAsync(entry, CancellationToken.None);
+        await database.Store.PruneAsync(new UpdateHistoryRetention(2, third.OccurredAt.AddDays(1)), CancellationToken.None);
+        CollectionAssert.AreEquivalent(new[] { second.EventId, third.EventId }, (await database.Store.GetHistoryForProductAsync("widget", CancellationToken.None)).Select(e => e.EventId).ToArray());
+    }
+
+    [TestMethod]
+    public async Task InterruptedRecoveryPreservesEventsAndTimesOnSecondRun()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        await database.Store.RecordAsync(HistoryEvent(UpdateHistoryStatus.Running), CancellationToken.None);
+        await database.Store.RecoverInterruptedAsync(CancellationToken.None);
+        UpdateHistoryEntry[] first = (await database.Store.GetHistoryForProductAsync("widget", CancellationToken.None)).ToArray();
+        Assert.HasCount(2, first);
+        Assert.HasCount(1, first.Where(e => e.Status == UpdateHistoryStatus.VerificationRequired).ToArray());
+        await database.Store.RecoverInterruptedAsync(CancellationToken.None);
+        CollectionAssert.AreEquivalent(first, (await database.Store.GetHistoryForProductAsync("widget", CancellationToken.None)).ToArray());
+        using SqliteConnection connection = new(database.ConnectionString);
+        connection.Open();
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT occurred_at FROM update_job_execution_state WHERE status = 'VerificationRequired'";
+        Assert.AreEqual(first.Single(e => e.Status == UpdateHistoryStatus.VerificationRequired).OccurredAt.ToString("O", CultureInfo.InvariantCulture), command.ExecuteScalar());
+    }
+
+    [TestMethod]
+    [DataRow(true, false)]
+    [DataRow(false, false)]
+    [DataRow(true, true)]
+    [DataRow(false, true)]
+    public async Task ConnectorSemanticsSurvivesCacheRead(bool semantics, bool legacy)
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        SourcePackageRecord package = new("winget", "Widget", "Widget", null, "1", "2", "User", "x64", null, semantics);
+        await database.Store.SaveSourceSnapshotAsync(new("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [package], []), CancellationToken.None);
+        using SqliteConnection connection = new(database.ConnectionString);
+        connection.Open();
+        using SqliteCommand command = connection.CreateCommand();
+        if (legacy)
+        {
+            command.CommandText = "UPDATE source_package_cache SET connector_semantics=$flag";
+            command.Parameters.AddWithValue("$flag", semantics.ToString());
+            command.ExecuteNonQuery();
+        }
+        else
+        {
+            command.CommandText = "SELECT connector_semantics FROM source_package_cache";
+            Assert.AreEqual<object>(semantics ? 1L : 0L, command.ExecuteScalar());
+        }
+        Assert.AreEqual(semantics, (await database.Store.GetSourceSnapshotAsync("winget", CancellationToken.None))!.Packages.Single().RequiresConnectorSpecificVersionSemantics);
+    }
+
+    [TestMethod]
+    public async Task NegativeExitCodeSurvivesRegionalMinusSign()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        CultureInfo original = CultureInfo.CurrentCulture;
+        CultureInfo culture = (CultureInfo)original.Clone();
+        culture.NumberFormat.NegativeSign = "\u2212";
+        try
+        {
+            CultureInfo.CurrentCulture = culture;
+            UpdateHistoryEntry entry = HistoryEvent(UpdateHistoryStatus.InstallerFailed) with { ExitCode = -1978335212 };
+            await database.Store.RecordAsync(entry, CancellationToken.None);
+            UpdateHistoryEntry product = (await database.Store.GetHistoryForProductAsync("widget", CancellationToken.None)).Single();
+            UpdateHistoryEntry activity = (await database.Store.GetRecentUpdateHistoryAsync(1, CancellationToken.None)).Single();
+            CollectionAssert.AreEqual(new[] { entry.ExitCode, entry.ExitCode }, new[] { product.ExitCode, activity.ExitCode });
+        }
+        finally { CultureInfo.CurrentCulture = original; }
+    }
     private sealed class TestDatabase : IAsyncDisposable
     {
         private readonly string path;
         private TestDatabase(string path, SqliteDatabase store) { this.path = path; Store = store; }
+        public string ConnectionString => new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString();
         public SqliteDatabase Store { get; }
         public static async Task<TestDatabase> CreateAsync()
         {

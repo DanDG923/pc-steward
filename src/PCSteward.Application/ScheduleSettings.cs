@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace PCSteward.Application;
 
 /// <summary>Persisted user choice for scan-only scheduled checks. It contains no update or command authority.</summary>
@@ -48,17 +50,19 @@ public static class ScheduledCheckFailureRecorder
     public static readonly TimeSpan WriteLimit = TimeSpan.FromSeconds(10);
 
     /// <summary>Returns the saved status, or null when it could not be read and saved within <see cref="WriteLimit"/>.</summary>
-    public static async Task<ScheduledCheckStatus?> RecordAsync(IScheduledCheckSettingsStore store, string result, TimeProvider? clock = null)
+    public static async Task<ScheduledCheckStatus?> RecordAsync(IScheduledCheckSettingsStore store, string result, TimeProvider? clock = null, TimeSpan? writeLimit = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentException.ThrowIfNullOrWhiteSpace(result);
         try
         {
-            using CancellationTokenSource limit = new(WriteLimit);
-            ScheduledCheckStatus previous = await store.GetScheduledCheckStatusAsync(limit.Token).ConfigureAwait(false);
+            TimeSpan budget = writeLimit ?? WriteLimit;
+            long started = Stopwatch.GetTimestamp();
+            using CancellationTokenSource limit = new(budget);
+            ScheduledCheckStatus previous = await store.GetScheduledCheckStatusAsync(limit.Token, budget).ConfigureAwait(false);
             int failures = previous.ConsecutiveFailures >= int.MaxValue - 1 ? int.MaxValue : Math.Max(0, previous.ConsecutiveFailures) + 1;
             ScheduledCheckStatus status = new((clock ?? TimeProvider.System).GetUtcNow(), result, failures);
-            await store.SaveScheduledCheckStatusAsync(status, limit.Token).ConfigureAwait(false);
+            await store.SaveScheduledCheckStatusAsync(status, limit.Token, budget - Stopwatch.GetElapsedTime(started)).ConfigureAwait(false);
             return status;
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -72,6 +76,6 @@ public interface IScheduledCheckSettingsStore
 {
     Task<ScheduledCheckSettings> GetScheduledCheckSettingsAsync(CancellationToken cancellationToken);
     Task SaveScheduledCheckSettingsAsync(ScheduledCheckSettings settings, CancellationToken cancellationToken);
-    Task<ScheduledCheckStatus> GetScheduledCheckStatusAsync(CancellationToken cancellationToken);
-    Task SaveScheduledCheckStatusAsync(ScheduledCheckStatus status, CancellationToken cancellationToken);
+    Task<ScheduledCheckStatus> GetScheduledCheckStatusAsync(CancellationToken cancellationToken, TimeSpan? lockWaitLimit = null);
+    Task SaveScheduledCheckStatusAsync(ScheduledCheckStatus status, CancellationToken cancellationToken, TimeSpan? lockWaitLimit = null);
 }

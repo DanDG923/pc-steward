@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using Microsoft.Data.Sqlite;
+using PCSteward.Persistence.Sqlite;
 using PCSteward.Application;
 using PCSteward.Scheduling.Windows;
 
@@ -45,7 +48,6 @@ public sealed class ScheduledChecksTests
         Assert.AreEqual("Timed out", first.LastResult);
         Assert.AreEqual(2, second!.ConsecutiveFailures);
         Assert.AreEqual(second, store.Status);
-        Assert.IsTrue(store.TokensCouldBeCancelled);
         ScheduledCheckSettings notify = ScheduledCheckSettings.Manual with { NotificationsEnabled = true };
         Assert.IsFalse(ScheduledCheckNotificationPolicy.ShouldNotify(notify, false, false, first.ConsecutiveFailures));
         Assert.IsTrue(ScheduledCheckNotificationPolicy.ShouldNotify(notify, false, false, second.ConsecutiveFailures));
@@ -60,17 +62,39 @@ public sealed class ScheduledChecksTests
         Assert.AreEqual(int.MaxValue, (await ScheduledCheckFailureRecorder.RecordAsync(store, ScheduledCheckFailureRecorder.FailedResult))!.ConsecutiveFailures);
     }
 
+    [TestMethod]
+    public async Task FailureRecorderReturnsWithinDeadlineWhileAnotherConnectionHoldsWriteLock()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"pcsteward-status-{Guid.NewGuid():N}.db");
+        try
+        {
+            SqliteDatabase database = new(path);
+            await database.MigrateAsync(CancellationToken.None);
+            using SqliteConnection locker = new(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
+            locker.Open();
+            using SqliteTransaction transaction = locker.BeginTransaction();
+            TimeSpan budget = TimeSpan.FromSeconds(2);
+            Stopwatch elapsed = Stopwatch.StartNew();
+            Assert.IsNull(await ScheduledCheckFailureRecorder.RecordAsync(database, ScheduledCheckFailureRecorder.FailedResult, writeLimit: budget));
+            // Far below the 30 seconds an unbounded lock wait took, with room for a slow machine.
+            Assert.IsTrue(elapsed.Elapsed < budget + TimeSpan.FromSeconds(5), $"Elapsed {elapsed.Elapsed}");
+            transaction.Rollback();
+            Assert.AreEqual(ScheduledCheckStatus.NotScheduled, await database.GetScheduledCheckStatusAsync(CancellationToken.None));
+            ScheduledCheckStatus? saved = await ScheduledCheckFailureRecorder.RecordAsync(database, ScheduledCheckFailureRecorder.FailedResult, writeLimit: budget);
+            Assert.AreEqual(1, saved?.ConsecutiveFailures);
+            Assert.AreEqual(saved, await database.GetScheduledCheckStatusAsync(CancellationToken.None));
+        }
+        finally { File.Delete(path); }
+    }
     private sealed class StatusStore(ScheduledCheckStatus status) : IScheduledCheckSettingsStore
     {
         public ScheduledCheckStatus Status { get; private set; } = status;
         public bool FailSave { get; set; }
-        public bool TokensCouldBeCancelled { get; private set; } = true;
         public Task<ScheduledCheckSettings> GetScheduledCheckSettingsAsync(CancellationToken cancellationToken) => Task.FromResult(ScheduledCheckSettings.Manual);
         public Task SaveScheduledCheckSettingsAsync(ScheduledCheckSettings settings, CancellationToken cancellationToken) => Task.CompletedTask;
-        public Task<ScheduledCheckStatus> GetScheduledCheckStatusAsync(CancellationToken cancellationToken) { TokensCouldBeCancelled &= cancellationToken.CanBeCanceled; return Task.FromResult(Status); }
-        public Task SaveScheduledCheckStatusAsync(ScheduledCheckStatus status, CancellationToken cancellationToken)
+        public Task<ScheduledCheckStatus> GetScheduledCheckStatusAsync(CancellationToken cancellationToken, TimeSpan? lockWaitLimit = null) => Task.FromResult(Status);
+        public Task SaveScheduledCheckStatusAsync(ScheduledCheckStatus status, CancellationToken cancellationToken, TimeSpan? lockWaitLimit = null)
         {
-            TokensCouldBeCancelled &= cancellationToken.CanBeCanceled;
             if (FailSave) throw new IOException("The status could not be saved.");
             Status = status;
             return Task.CompletedTask;
