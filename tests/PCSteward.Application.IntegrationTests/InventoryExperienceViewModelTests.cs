@@ -111,6 +111,8 @@ public sealed class InventoryExperienceViewModelTests
         Assert.IsTrue(viewModel.IsWinGetTrustedSourcesEnabled);
     }
 
+    private static readonly string[] ListedAfterAssessment = ["registry-mega", "winget:winget:Contoso.Tool"];
+
     [TestMethod]
     [Description("Owner's choice 2026-11-25 (MEGAsync on 0.1.20): WinGet's own record of an app another row already carries is not listed on Installed apps.")]
     public void WinGetsOwnRecordOfAnAppAnotherRowCarriesIsNotListed()
@@ -128,7 +130,7 @@ public sealed class InventoryExperienceViewModelTests
         viewModel.LoadUpdateIntelligence(new UpdateIntelligenceSummary(
             [new UpdateIntelligenceItem("registry-mega", UpdateIntelligenceStatus.Current, null, "Current"), new UpdateIntelligenceItem("winget:winget:Contoso.Tool", UpdateIntelligenceStatus.Unmanaged, null, "None")],
             new Dictionary<UpdateIntelligenceStatus, int>(), []));
-        CollectionAssert.AreEquivalent(new[] { "registry-mega", "winget:winget:Contoso.Tool" }, viewModel.ListedRows.Select(row => row.StableProductKey).ToArray());
+        CollectionAssert.AreEquivalent(ListedAfterAssessment, viewModel.ListedRows.Select(row => row.StableProductKey).ToArray());
         Assert.HasCount(3, viewModel.AllRows, "saved data never changes");
         Assert.IsFalse(viewModel.VisibleRows.Any(row => row.StableProductKey == "winget:winget:Mega.MEGASync"));
         Assert.IsEmpty(InstalledAppsFilters.SharedNames(viewModel.ListedRows), "the registry row no longer needs its source named");
