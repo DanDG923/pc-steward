@@ -258,6 +258,46 @@ public sealed class DeploymentCapabilityBoundaryTests
         Assert.IsTrue(digest > 0 && evaluate > digest);
     }
 
+    /// <summary>
+    /// Four-model review F-01 (FR-UPD-01, FR-UPD-15): the one-argument constructor every production composition uses binds the
+    /// Chocolatey caller-trust check into the Chocolatey slot only, and the transport consults that slot only on the Chocolatey arm of
+    /// the route selection. The whole-PC WinGet route has no provider caller check (D4b design §5.4); an unnamed route is refused.
+    /// </summary>
+    [TestMethod]
+    public void TheChocolateyCallerCheckIsBoundOnlyToTheChocolateyRoutes()
+    {
+        string transport = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.Execution", "ReviewedHelperProtocol2Transport.cs"));
+        Assert.IsTrue(Regex.IsMatch(transport, @"internal WindowsReviewedHelperTransport\(IHelperProtocolCapability capability\) : this\(capability,\s*" +
+            @"InstalledHelperLaunchTrust\.ResolveFixedPaths, InstalledHelperLaunchTrust\.Validate, ChocolateyCallerTrusted, LaunchHelper,"),
+            "the production constructor binds ChocolateyCallerTrusted into the Chocolatey slot");
+        Assert.IsTrue(Regex.IsMatch(transport, @"Func<bool> chocolateyCallerTrusted,"), "the slot is named for Chocolatey");
+        Assert.AreEqual(1, Regex.Count(transport, @"Trusted\(chocolateyCallerTrusted\)"), "the Chocolatey check is consulted in one place");
+        Assert.IsTrue(Regex.IsMatch(transport, @"ReviewedHelperProviderCallerCheck\.Chocolatey => Trusted\(chocolateyCallerTrusted\),\s*" +
+            @"ReviewedHelperProviderCallerCheck\.None => true,\s*_ => false,"), "consulted on the Chocolatey arm only; anything unnamed refuses");
+        Assert.IsTrue(Regex.IsMatch(transport, @"!ProviderCallerTrusted\(operation\.RouteContract\)\)\s*return Refused\(\);"),
+            "the check is selected by the operation's own route before any path or launch work");
+        Assert.IsFalse(Regex.IsMatch(transport, @"Trusted\(providerCallerTrusted\)"), "no route-blind provider caller check remains");
+    }
+
+    /// <summary>
+    /// Four-model review F-03 (FR-UPD-14): the "possible start" mark is withdrawn only by the elevated runner, on the exchange's positive
+    /// proof that no helper launch was attempted. No other production source calls it.
+    /// </summary>
+    [TestMethod]
+    public void OnlyTheElevatedRunnerWithdrawsThePossibleStartOnProof()
+    {
+        string src = Path.Combine(FindRepositoryRoot(), "src");
+        foreach (string path in Sources(src))
+        {
+            int calls = Regex.Count(File.ReadAllText(path), @"\.NoHelperLaunched\(\)");
+            bool runner = path.EndsWith(Path.Combine("PCSteward.Execution", "ElevatedUpdateRunner.cs"), StringComparison.Ordinal);
+            Assert.AreEqual(runner ? 1 : 0, calls, path);
+        }
+        string runnerSource = File.ReadAllText(Path.Combine(src, "PCSteward.Execution", "ElevatedUpdateRunner.cs"));
+        Assert.IsTrue(Regex.IsMatch(runnerSource, @"noHelperLaunched = exchanged\.NoHelperLaunched && observation\.Invocation == ReviewedUpdateInvocation\.NotStarted;"));
+        Assert.IsTrue(Regex.IsMatch(runnerSource, @"if \(noHelperLaunched\) progress\?\.NoHelperLaunched\(\);"));
+    }
+
     [TestMethod]
     public void PolicyAndSeamSourcesArePureAndReusableByTheHelper()
     {

@@ -56,9 +56,12 @@ public sealed class ElevatedUpdateRunner
         // replied with anything but a not-started result.
         progress?.ElevationRequested();
         ReviewedUpdateDispatchObservation observation;
+        bool noHelperLaunched = false;
         try
         {
-            observation = await reviewedExchange.RunAsync(reviewed, cancellationToken).ConfigureAwait(false);
+            WingetMachineReviewedExchangeResult exchanged = await reviewedExchange.RunReportingLaunchAsync(reviewed, cancellationToken).ConfigureAwait(false);
+            observation = exchanged.Observation;
+            noHelperLaunched = exchanged.NoHelperLaunched && observation.Invocation == ReviewedUpdateInvocation.NotStarted;
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -66,6 +69,9 @@ public sealed class ElevatedUpdateRunner
             observation = new(ReviewedUpdateInvocation.Unknown, ReviewedUpdateProviderStatus.Failed, null, "dispatch-interrupted; invocation-unknown",
                 Pending, false, false, false, false, ExecutionUncertain: true);
         }
+        // Four-model review F-03: only the exchange's positive proof that no helper launch was attempted withdraws the "possible start"
+        // mark, so a refusal before the prompt is a plain failure. Without that proof the mark stays and the item needs verification.
+        if (noHelperLaunched) progress?.NoHelperLaunched();
         if (observation.Invocation != ReviewedUpdateInvocation.NotStarted) progress?.HandedToHelper();
         (UpdateExecutionStatus status, UpdateExecutionDenial denial, string fallback) = MapReviewed(observation);
         string diagnostic = string.IsNullOrWhiteSpace(observation.Diagnostic) ? fallback : $"{fallback}; {observation.Diagnostic}";
