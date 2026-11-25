@@ -136,7 +136,7 @@
 
 - **Review of `c1a1acb`.** The owner's Mythos 5.2 review returned PASS: no Critical or High finding, and the API key is written nowhere but Windows Credential Manager. The report is the owner's copy and is not committed.
 - **Fixed.** The WiX SDK that builds the MSI is byte-pinned and checked before it runs, and the CI reference MSI uses the pinned SDK (MY-01, Medium). `main` is no longer accepted as a release branch (MY-02). Fewer copies of the key stay in memory (MY-03), and a clipboard-history note sits by the key box (MY-04). Only the compiled release pins pass helper launch and peer checks (MY-05). The first CI job drops its token and uses `global.json` (MY-07).
-- **Proposed to accept.** MY-06: a planted reset marker is a same-user denial of service only.
+- **Accepted by the owner (2026-11-25).** MY-06: a planted reset marker is a same-user denial of service only. No change.
 
 **Updates: an update is Ready only when its installer can be run; MEGAsync is one row with a clear reason (2026-11-19; code and tests; rides the next release).** Requirements: `FR-UPD-01`, `FR-UPD-15`.
 
