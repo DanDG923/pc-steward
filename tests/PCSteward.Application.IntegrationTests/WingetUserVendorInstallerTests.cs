@@ -14,6 +14,10 @@ namespace PCSteward.Application.IntegrationTests;
 public sealed class WingetUserVendorInstallerTests
 {
     private static readonly string[] WidgetProcess = ["Widget"];
+    private static readonly string[] MsixFamily = ["Msix", "MSStore"];
+    private static readonly string[] InnoFirstExeFamily = ["Inno", "Exe", "Nullsoft", "Burn"];
+    private static readonly string[] WixFirstMsiFamily = ["Wix", "Msi"];
+    private static readonly string[] PortableOnly = ["Portable"];
     private const string Sid = "S-1-5-21-11-22-33-1001";
     private static readonly WinGetUserInstaller ExeInstaller = new(WinGetUserInstallerType.Exe, WinGetUserElevation.Unknown);
 
@@ -314,11 +318,11 @@ public sealed class WingetUserVendorInstallerTests
     [TestMethod]
     public void TheReadAsksForTheInstalledTypeFirstThenItsFamily()
     {
-        CollectionAssert.AreEqual(new[] { "Msix", "MSStore" }, WingetUserInstallerRules.CompatibleInstallerTypes("msix").ToArray());
-        CollectionAssert.AreEqual(new[] { "Msix", "MSStore" }, WingetUserInstallerRules.CompatibleInstallerTypes("appx").ToArray());
-        CollectionAssert.AreEqual(new[] { "Inno", "Exe", "Nullsoft", "Burn" }, WingetUserInstallerRules.CompatibleInstallerTypes("inno").ToArray());
-        CollectionAssert.AreEqual(new[] { "Wix", "Msi" }, WingetUserInstallerRules.CompatibleInstallerTypes("wix").ToArray());
-        CollectionAssert.AreEqual(new[] { "Portable" }, WingetUserInstallerRules.CompatibleInstallerTypes("portable").ToArray());
+        CollectionAssert.AreEqual(MsixFamily, WingetUserInstallerRules.CompatibleInstallerTypes("msix").ToArray());
+        CollectionAssert.AreEqual(MsixFamily, WingetUserInstallerRules.CompatibleInstallerTypes("appx").ToArray());
+        CollectionAssert.AreEqual(InnoFirstExeFamily, WingetUserInstallerRules.CompatibleInstallerTypes("inno").ToArray());
+        CollectionAssert.AreEqual(WixFirstMsiFamily, WingetUserInstallerRules.CompatibleInstallerTypes("wix").ToArray());
+        CollectionAssert.AreEqual(PortableOnly, WingetUserInstallerRules.CompatibleInstallerTypes("portable").ToArray());
         Assert.HasCount(0, WingetUserInstallerRules.CompatibleInstallerTypes(null));
         Assert.HasCount(0, WingetUserInstallerRules.CompatibleInstallerTypes("somethingnew"));
     }
