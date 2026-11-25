@@ -8,7 +8,8 @@ namespace PCSteward.Provider.WinGet;
 /// D7 design §3 item 1: what WinGet's structured API reported for one per-user update: the catalog, the exact package, how many catalog
 /// versions carry exactly the target version text, and the installer <see cref="PackageVersionInfo.GetApplicableInstaller"/> chose with
 /// user scope and the reviewed architecture. The installer's type, nested type, scope and elevation requirement are the projected enum
-/// names, so the rule is testable without WinGet.
+/// names, so the rule is testable without WinGet. <see cref="InstalledType"/> is WinGet's own record of how the installed app was
+/// installed (its <c>InstallerType</c> metadata, such as <c>msix</c> or <c>exe</c>), or null when WinGet didn't say.
 /// </summary>
 internal sealed record WinGetUserInstallerObservation(
     string RequestedPackageId,
@@ -22,7 +23,8 @@ internal sealed record WinGetUserInstallerObservation(
     string? InstallerType,
     string? NestedInstallerType,
     string? Scope,
-    string? ElevationRequirement);
+    string? ElevationRequirement,
+    string? InstalledType = null);
 
 internal interface IWinGetUserInstallerQuery
 {
@@ -49,6 +51,10 @@ internal static class WingetUserInstallerRules
             !string.Equals(observation.PackageId, selection.PackageId, StringComparison.OrdinalIgnoreCase) ||
             observation.InstallerType is null)
             return unreadable;
+        // Owner's PC, 2026-11-25 (Claude, installed as an MSIX package): an upgrade only uses an installer of a type compatible with how
+        // the app was installed. The review would otherwise bind an installer WinGet then refuses (0x8A15002B, no applicable update).
+        if (!IsCompatibleWithInstalledType(observation.InstalledType, observation.InstallerType, observation.NestedInstallerType))
+            return WingetUserInstallerCheck.Refused(WingetUserInstallerText.DifferentInstallTechnologyMessage);
         if (observation.InstallerType is "MSStore") return WingetUserInstallerCheck.Msix();
         WinGetUserInstallerType? type = observation.InstallerType switch
         {
@@ -79,6 +85,72 @@ internal static class WingetUserInstallerRules
         };
         return elevation is { } read ? WingetUserInstallerCheck.Vendor(new WinGetUserInstaller(bound, read)) : unreadable;
     }
+
+    /// <summary>
+    /// WinGet's install-technology rule (winget-cli <c>IsInstallerTypeCompatible</c>, used by its upgrade's installed-type filter): the
+    /// same type, or two types from one family: exe, Inno, Nullsoft and Burn; MSI and WiX; MSIX and Store. A zip is judged by the
+    /// installer inside it. An installed type WinGet didn't report applies no filter, as in WinGet.
+    /// </summary>
+    internal static bool IsCompatibleWithInstalledType(string? installedType, string? installerType, string? nestedInstallerType)
+    {
+        if (string.IsNullOrWhiteSpace(installedType) || Normalized(installedType) is "UNKNOWN") return true;
+        string? effective = string.Equals(installerType, "Zip", StringComparison.OrdinalIgnoreCase) ? nestedInstallerType : installerType;
+        if (string.IsNullOrWhiteSpace(effective)) return false;
+        string installed = Normalized(installedType), offered = Normalized(effective);
+        if (offered is "UNKNOWN") return false;
+        if (string.Equals(installed, offered, StringComparison.Ordinal)) return true;
+        string? family = Family(installed);
+        return family is not null && string.Equals(family, Family(offered), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The installer types, as projected enum names, to ask WinGet for when its first choice doesn't fit <paramref name="installedType"/>:
+    /// the installed type first, then the rest of its family. Empty when WinGet reported no installed type.
+    /// </summary>
+    internal static IReadOnlyList<string> CompatibleInstallerTypes(string? installedType)
+    {
+        if (string.IsNullOrWhiteSpace(installedType)) return [];
+        string installed = Normalized(installedType);
+        string[] family = Family(installed) switch
+        {
+            "EXE" => ["Exe", "Inno", "Nullsoft", "Burn"],
+            "MSI" => ["Msi", "Wix"],
+            "MSIX" => ["Msix", "MSStore"],
+            _ => [],
+        };
+        string? own = ProjectedName(installed);
+        if (own is null) return family;
+        return [own, .. family.Where(name => !string.Equals(name, own, StringComparison.Ordinal))];
+    }
+
+    /// <summary>WinGet writes installer types in lower case (<c>msix</c>) and the projection in Pascal case (<c>Msix</c>).</summary>
+    private static string Normalized(string type) => type.Trim().ToUpperInvariant() switch
+    {
+        "APPX" => "MSIX",
+        var upper => upper,
+    };
+
+    private static string? Family(string normalized) => normalized switch
+    {
+        "EXE" or "INNO" or "NULLSOFT" or "BURN" => "EXE",
+        "MSI" or "WIX" => "MSI",
+        "MSIX" or "MSSTORE" => "MSIX",
+        _ => null,
+    };
+
+    private static string? ProjectedName(string normalized) => normalized switch
+    {
+        "EXE" => "Exe",
+        "INNO" => "Inno",
+        "NULLSOFT" => "Nullsoft",
+        "BURN" => "Burn",
+        "MSI" => "Msi",
+        "WIX" => "Wix",
+        "MSIX" => "Msix",
+        "MSSTORE" => "MSStore",
+        "PORTABLE" => "Portable",
+        _ => null,
+    };
 }
 
 /// <summary>
@@ -159,12 +231,68 @@ internal sealed class WinGetComUserInstallerQuery : IWinGetUserInstallerQuery
         if (target.Length != 1)
             return new(selection.PackageId, predefined, trusted, exact, matches.Length, result.WasLimitExceeded, package.Id, target.Length, null, null, null, null);
         PackageVersionInfo versionInfo = package.GetPackageVersionInfo(target[0]);
-        InstallOptions install = new() { PackageInstallScope = PackageInstallScope.User };
-        install.AllowedArchitectures.Clear();
-        install.AllowedArchitectures.Add(architecture);
-        PackageInstallerInfo? installer = versionInfo.GetApplicableInstaller(install);
+        InstallOptions Options(PackageInstallerType? type)
+        {
+            InstallOptions install = new() { PackageInstallScope = PackageInstallScope.User };
+            install.AllowedArchitectures.Clear();
+            install.AllowedArchitectures.Add(architecture);
+            if (type is { } requested) install.InstallerType = requested;
+            return install;
+        }
+        PackageInstallerInfo? installer = versionInfo.GetApplicableInstaller(Options(null));
+        // The structured API's choice ignores how the app is installed; WinGet's upgrade doesn't (its installed-type filter). When the
+        // first choice doesn't fit WinGet's installed type, ask again for each type that does, as the upgrade would choose among them.
+        string? installedType = installer is null ? null : await ReadInstalledTypeAsync(manager, reference, selection.PackageId, cancellationToken).ConfigureAwait(false);
+        if (installer is not null && !WingetUserInstallerRules.IsCompatibleWithInstalledType(installedType, installer.InstallerType.ToString(), installer.NestedInstallerType.ToString()))
+        {
+            foreach (string name in WingetUserInstallerRules.CompatibleInstallerTypes(installedType))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (Enum.TryParse(name, out PackageInstallerType type) && versionInfo.GetApplicableInstaller(Options(type)) is { } compatible &&
+                    WingetUserInstallerRules.IsCompatibleWithInstalledType(installedType, compatible.InstallerType.ToString(), compatible.NestedInstallerType.ToString()))
+                {
+                    installer = compatible;
+                    break;
+                }
+            }
+        }
         return new(selection.PackageId, predefined, trusted, exact, matches.Length, result.WasLimitExceeded, package.Id, 1,
             installer?.InstallerType.ToString(), installer?.NestedInstallerType.ToString(), installer?.Scope.ToString(),
-            installer?.ElevationRequirement.ToString());
+            installer?.ElevationRequirement.ToString(), installedType);
+    }
+
+    /// <summary>
+    /// WinGet's own record of how the installed package was installed (<see cref="PackageVersionMetadataField.InstallerType"/> of the
+    /// installed version, through the same composite catalog shape as the scan's compatibility read); null when it can't be read, or
+    /// when exactly one installed package doesn't match. Null applies no filter, as WinGet applies none to an unknown installed type.
+    /// </summary>
+    private static async Task<string?> ReadInstalledTypeAsync(PackageManager manager, PackageCatalogReference reference, string packageId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            CreateCompositePackageCatalogOptions compositeOptions = new()
+            {
+                CompositeSearchBehavior = CompositeSearchBehavior.RemotePackagesFromAllCatalogs,
+                InstalledScope = PackageInstallScope.Any
+            };
+            compositeOptions.Catalogs.Add(reference);
+            ConnectResult connection = await manager.CreateCompositePackageCatalog(compositeOptions).ConnectAsync().AsTask(cancellationToken).ConfigureAwait(false);
+            if (connection.Status != ConnectResultStatus.Ok) return null;
+            FindPackagesOptions options = new() { ResultLimit = 2 };
+            options.Filters.Add(new PackageMatchFilter { Field = PackageMatchField.Id, Option = PackageFieldMatchOption.Equals, Value = packageId });
+            FindPackagesResult result = await connection.PackageCatalog.FindPackagesAsync(options).AsTask(cancellationToken).ConfigureAwait(false);
+            if (result.Status != FindPackagesResultStatus.Ok) return null;
+            MatchResult[] matches = [.. result.Matches];
+            if (matches.Length != 1 || matches[0].CatalogPackage?.InstalledVersion is not { } installed ||
+                !string.Equals(matches[0].CatalogPackage.Id, packageId, StringComparison.OrdinalIgnoreCase))
+                return null;
+            string type = installed.GetMetadata(PackageVersionMetadataField.InstallerType);
+            return string.IsNullOrWhiteSpace(type) || type.Length > 32 ? null : type.Trim();
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
     }
 }

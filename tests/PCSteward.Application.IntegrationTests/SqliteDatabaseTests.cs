@@ -217,13 +217,17 @@ public sealed class SqliteDatabaseTests
         [
             new("winget", "Contoso.Fine", "Fine", "Contoso", "1.0", "1.1", "Machine", "X64", "Stable"),
             new("winget", "Contoso.Zip", "Zip", "Contoso", "1.0", "1.1", "Machine", "X64", "Stable", InstallerFit: SourceInstallerFit.InstallerNotSupported),
-            new("winget", "Contoso.User", "User", "Contoso", "1.0", "1.1", "User", "Unknown", "Stable", InstallerFit: SourceInstallerFit.NoInstallerForInstalledScope)
+            new("winget", "Contoso.User", "User", "Contoso", "1.0", "1.1", "User", "Unknown", "Stable", InstallerFit: SourceInstallerFit.NoInstallerForInstalledScope),
+            // Migration 18 (owner decision 2026-11-25): an app that updates itself stays held back from the cache too.
+            new("winget", "Fabrikam.Chat", "Chat", "Fabrikam", "1.0", "1.1", "User", "X64", "Stable", InstallerFit: SourceInstallerFit.UpdatesItself)
         ];
         await database.Store.SaveSourceSnapshotAsync(new SourceSnapshot("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live, packages, []), CancellationToken.None);
 
         SourceSnapshot restored = (await database.Store.GetSourceSnapshotAsync("winget", CancellationToken.None))!;
 
-        CollectionAssert.AreEqual(packages.Select(package => package.InstallerFit).ToArray(), restored.Packages.OrderBy(package => package.PackageId == "Contoso.Fine" ? 0 : package.PackageId == "Contoso.Zip" ? 1 : 2).Select(package => package.InstallerFit).ToArray());
+        foreach (SourcePackageRecord package in packages)
+            Assert.AreEqual(package.InstallerFit, restored.Packages.Single(item => item.PackageId == package.PackageId).InstallerFit, package.PackageId);
+        Assert.HasCount(packages.Length, restored.Packages);
     }
 
     [TestMethod]
@@ -247,6 +251,36 @@ public sealed class SqliteDatabaseTests
         await database.Store.PruneSourceSnapshotsAsync(DateTimeOffset.UtcNow.AddDays(-30), CancellationToken.None);
 
         Assert.IsNull(await database.Store.GetSourceSnapshotAsync("winget", CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task MigrationEighteenKeepsCachedRowsAndTakesAnAppThatUpdatesItself()
+    {
+        // Migration 18 (owner decision 2026-11-25): a database from before it has the cache column's CHECK of 0 to 2.
+        string path = Path.Combine(Path.GetTempPath(), $"pcsteward-m18-{Guid.NewGuid():N}.db");
+        try
+        {
+            SqliteDatabase store = new(path);
+            await store.MigrateAsync(CancellationToken.None);
+            await store.SaveSourceSnapshotAsync(new SourceSnapshot("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live,
+                [new SourcePackageRecord("winget", "Contoso.User", "User", "Contoso", "1.0", "1.1", "User", "Unknown", "Stable", InstallerFit: SourceInstallerFit.NoInstallerForInstalledScope)], []), CancellationToken.None);
+            await using (SqliteConnection connection = new($"Data Source={path};Pooling=False"))
+            {
+                await connection.OpenAsync();
+                await using SqliteCommand command = connection.CreateCommand();
+                command.CommandText = "ALTER TABLE source_package_cache DROP COLUMN installer_fit; ALTER TABLE source_package_cache ADD COLUMN installer_fit INTEGER NOT NULL DEFAULT 0 CHECK(installer_fit IN (0,1,2)); " +
+                    "UPDATE source_package_cache SET installer_fit = 2; DELETE FROM schema_migrations WHERE version = 18;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await store.MigrateAsync(CancellationToken.None);
+
+            Assert.AreEqual(SourceInstallerFit.NoInstallerForInstalledScope, (await store.GetSourceSnapshotAsync("winget", CancellationToken.None))!.Packages.Single().InstallerFit);
+            await store.SaveSourceSnapshotAsync(new SourceSnapshot("winget", "v1", DateTimeOffset.UnixEpoch, SourceSnapshotState.Live,
+                [new SourcePackageRecord("winget", "Fabrikam.Chat", "Chat", "Fabrikam", "1.0", "1.1", "User", "X64", "Stable", InstallerFit: SourceInstallerFit.UpdatesItself)], []), CancellationToken.None);
+            Assert.AreEqual(SourceInstallerFit.UpdatesItself, (await store.GetSourceSnapshotAsync("winget", CancellationToken.None))!.Packages.Single().InstallerFit);
+        }
+        finally { File.Delete(path); }
     }
 
     [TestMethod]

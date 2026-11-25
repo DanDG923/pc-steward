@@ -14,6 +14,10 @@ namespace PCSteward.Application.IntegrationTests;
 public sealed class WingetUserVendorInstallerTests
 {
     private static readonly string[] WidgetProcess = ["Widget"];
+    private static readonly string[] MsixFamily = ["Msix", "MSStore"];
+    private static readonly string[] InnoFirstExeFamily = ["Inno", "Exe", "Nullsoft", "Burn"];
+    private static readonly string[] WixFirstMsiFamily = ["Wix", "Msi"];
+    private static readonly string[] PortableOnly = ["Portable"];
     private const string Sid = "S-1-5-21-11-22-33-1001";
     private static readonly WinGetUserInstaller ExeInstaller = new(WinGetUserInstallerType.Exe, WinGetUserElevation.Unknown);
 
@@ -273,6 +277,54 @@ public sealed class WingetUserVendorInstallerTests
             Assert.IsNull(check.Installer);
             Assert.AreEqual(WingetUserInstallerText.UnreadableMessage, check.Message, unreadable?.ToString());
         }
+    }
+
+    /// <summary>
+    /// Owner's PC, 2026-11-25: Claude was installed as an MSIX package, its WinGet manifest offers MSIX and a user-scope setup program,
+    /// the review bound the setup program and WinGet refused the upgrade (0x8A15002B). An installer must fit WinGet's installed type.
+    /// </summary>
+    [TestMethod]
+    public void AnInstallerMustFitHowTheAppIsInstalled()
+    {
+        UpdateJobSelection selection = Selection();
+        WingetUserInstallerCheck mismatch = WingetUserInstallerRules.Evaluate(Observation("Exe") with { InstalledType = "msix" }, selection);
+        Assert.IsNull(mismatch.Installer);
+        Assert.IsFalse(mismatch.IsMsix);
+        Assert.AreEqual(WingetUserInstallerText.DifferentInstallTechnologyMessage, mismatch.Message);
+        Assert.AreEqual(WingetUserInstallerText.DifferentInstallTechnologyMessage,
+            WingetUserInstallerRules.Evaluate(Observation("Msix", scope: "Unknown") with { InstalledType = "exe" }, selection).Message);
+        Assert.AreEqual(WingetUserInstallerText.DifferentInstallTechnologyMessage,
+            WingetUserInstallerRules.Evaluate(Observation("Msi") with { InstalledType = "exe" }, selection).Message);
+        Assert.AreEqual(WingetUserInstallerText.DifferentInstallTechnologyMessage,
+            WingetUserInstallerRules.Evaluate(Observation("Zip", nested: "Portable", scope: "Unknown") with { InstalledType = "exe" }, selection).Message);
+
+        Assert.AreEqual(new WinGetUserInstaller(WinGetUserInstallerType.Msix, WinGetUserElevation.Unknown),
+            WingetUserInstallerRules.Evaluate(Observation("Msix", scope: "Unknown") with { InstalledType = "msix" }, selection).Installer);
+        Assert.IsTrue(WingetUserInstallerRules.Evaluate(Observation("MSStore", scope: "Unknown") with { InstalledType = "msix" }, selection).IsMsix);
+        // WinGet's families: exe, Inno, Nullsoft and Burn; MSI and WiX; MSIX and Store. A zip is judged by what it holds.
+        foreach ((string installed, string offered, string? nested) in new (string, string, string?)[]
+                 {
+                     ("exe", "Exe", null), ("exe", "Inno", null), ("inno", "Nullsoft", null), ("nullsoft", "Burn", null),
+                     ("msi", "Wix", null), ("wix", "Msi", null), ("EXE", "Exe", null), ("exe", "Zip", "Exe"),
+                     ("portable", "Portable", null), ("portable", "Zip", "Portable"),
+                 })
+            Assert.IsNotNull(WingetUserInstallerRules.Evaluate(Observation(offered, nested: nested, scope: offered is "Portable" || nested is "Portable" ? "Unknown" : "User") with { InstalledType = installed }, selection).Installer,
+                $"{installed} fits {offered}/{nested}");
+        // An installed type WinGet didn't report applies no filter, as in WinGet.
+        foreach (string? unknown in new[] { null, "", " ", "unknown", "Unknown" })
+            Assert.AreEqual(ExeInstaller, WingetUserInstallerRules.Evaluate(Observation("Exe") with { InstalledType = unknown }, selection).Installer, unknown ?? "null");
+    }
+
+    [TestMethod]
+    public void TheReadAsksForTheInstalledTypeFirstThenItsFamily()
+    {
+        CollectionAssert.AreEqual(MsixFamily, WingetUserInstallerRules.CompatibleInstallerTypes("msix").ToArray());
+        CollectionAssert.AreEqual(MsixFamily, WingetUserInstallerRules.CompatibleInstallerTypes("appx").ToArray());
+        CollectionAssert.AreEqual(InnoFirstExeFamily, WingetUserInstallerRules.CompatibleInstallerTypes("inno").ToArray());
+        CollectionAssert.AreEqual(WixFirstMsiFamily, WingetUserInstallerRules.CompatibleInstallerTypes("wix").ToArray());
+        CollectionAssert.AreEqual(PortableOnly, WingetUserInstallerRules.CompatibleInstallerTypes("portable").ToArray());
+        Assert.HasCount(0, WingetUserInstallerRules.CompatibleInstallerTypes(null));
+        Assert.HasCount(0, WingetUserInstallerRules.CompatibleInstallerTypes("somethingnew"));
     }
 
     [TestMethod]

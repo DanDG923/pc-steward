@@ -42,6 +42,12 @@ public static class WingetRestartExitCodes
     /// <summary>0x8A15010B.</summary>
     public const int RebootInitiated = unchecked((int)0x8A15010B);
 
+    /// <summary>
+    /// 0x8A15002B, <c>APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE</c>: WinGet found no update it could apply (none newer, or none of an
+    /// installer type that fits how the app is installed), so it ran no installer. Not a restart code; it only names the diagnostic.
+    /// </summary>
+    public const int UpdateNotApplicable = unchecked((int)0x8A15002B);
+
     public static WingetRestartSignal Classify(int exitCode) => exitCode switch
     {
         RebootRequiredToFinish => WingetRestartSignal.RestartRequiredToFinish,
@@ -54,8 +60,11 @@ public static class WingetRestartExitCodes
     public static bool ReportsFinishedPendingRestart(int exitCode) =>
         Classify(exitCode) is WingetRestartSignal.RestartRequiredToFinish or WingetRestartSignal.RestartInitiated;
 
-    /// <summary>A fixed, presentation-safe diagnostic prefix for a restart exit code; empty for <see cref="WingetRestartSignal.None"/>.</summary>
-    public static string DiagnosticPrefix(int exitCode) => Classify(exitCode) switch
+    /// <summary>
+    /// A fixed, presentation-safe diagnostic prefix for a restart exit code, or for <see cref="UpdateNotApplicable"/>; empty for any other
+    /// code.
+    /// </summary>
+    public static string DiagnosticPrefix(int exitCode) => exitCode == UpdateNotApplicable ? UpdateOutcomePresenter.UpdateNotApplicableDiagnostic : Classify(exitCode) switch
     {
         WingetRestartSignal.RestartRequiredToFinish => "provider-reported-restart-required-to-finish",
         WingetRestartSignal.RestartInitiated => "provider-reported-restart-initiated",

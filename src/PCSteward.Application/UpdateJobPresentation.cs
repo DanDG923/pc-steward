@@ -628,6 +628,19 @@ public static class UpdateOutcomePresenter
     /// </summary>
     public const string RestartBeforeInstallDiagnostic = "restart-required-before-install; update-not-applied";
 
+    /// <summary>
+    /// Owner's PC, 2026-11-25 (Claude): the diagnostic prefix a WinGet provider records (as <see cref="UpdateHistoryStatus.InstallerFailed"/>)
+    /// for exit code 0x8A15002B: WinGet found no update it could apply and ran no installer, so nothing was changed.
+    /// </summary>
+    public const string UpdateNotApplicableDiagnostic = "winget-no-applicable-update; update-not-applied";
+
+    private const string UpdateNotApplicableSummary =
+        "Not started — WinGet found no update it could apply to this app, so it ran no installer and nothing was changed. The app may " +
+        "have updated itself, or WinGet's update may need a different kind of installer from the one this app was installed with.";
+
+    private const string UpdateNotApplicableNextStep =
+        "Scan again to see the app's current version. If the update is still offered, review it again: PC Steward checks the installer first.";
+
     private const string AdmissionRefusedSummary = "Not started — another update is still running or its work isn't finished, so nothing was changed.";
 
     /// <summary>
@@ -675,6 +688,9 @@ public static class UpdateOutcomePresenter
             UpdateHistoryStatus.DownloadFailed => Failed("The update couldn't be downloaded.", technical),
             UpdateHistoryStatus.InstallerFailed when diagnostic?.StartsWith(RestartBeforeInstallDiagnostic, StringComparison.Ordinal) == true => Failed(
                 "The installer needs Windows to restart before it can install this update, so nothing was updated. Restart when it suits you, then review the update again.", technical),
+            // Presentation only (the record stays InstallerFailed): WinGet refused before any installer ran.
+            UpdateHistoryStatus.InstallerFailed when diagnostic?.StartsWith(UpdateNotApplicableDiagnostic, StringComparison.Ordinal) == true =>
+                new(UpdateOutcomeKind.NotStarted, NotStartedLabel, "", StatusTone.Neutral, UpdateNotApplicableSummary, UpdateNotApplicableNextStep, technical),
             UpdateHistoryStatus.InstallerFailed => Failed(exitCode is { } code ? $"The installer reported an error (exit code {code})." : "The installer reported an error.", technical),
             // A timeout ends the attempt before any verification runs. The recorded status stays TimedOut (FR-HIS-03); the display
             // is "Result not verified": nothing shows the installer finished, it may have partly applied, and nothing checked it.

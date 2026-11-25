@@ -263,11 +263,13 @@ public sealed class InventoryExperienceViewModelTests
         Assert.IsFalse(CreateViewModel(new SourceSnapshot("winget", "v1", DateTimeOffset.UtcNow, SourceSnapshotState.Live, [exact with { InstalledVersion = "0.9" }], [])).UpdateDetails["product:widget"].CanConfirmPackageIdentity);
     }
 
+    private static readonly MappingReviewReason[] HeldBackReasons = [MappingReviewReason.InstallerNotSupported, MappingReviewReason.NoInstallerForInstalledScope, MappingReviewReason.UpdatesItself];
+
     [TestMethod]
     public void AMatchHeldBackByItsInstallerIsNotOfferedForConfirmation()
     {
         // Owner's PC, 2026-11-19: confirming the package settles identity only, so it isn't asked when the installer still holds it back.
-        foreach (MappingReviewReason held in new[] { MappingReviewReason.InstallerNotSupported, MappingReviewReason.NoInstallerForInstalledScope })
+        foreach (MappingReviewReason held in HeldBackReasons)
         {
             InventoryExperienceViewModel viewModel = new();
             Guid id = Guid.NewGuid();

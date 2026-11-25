@@ -19,6 +19,18 @@ public sealed class ProductPackageMatchingTests
     }
 
     [TestMethod]
+    [Description("Owner decision 2026-11-25 (Discord): an exact match for an app that updates itself is never offered.")]
+    public void AnAppThatUpdatesItselfIsNeverActionable()
+    {
+        ProductPackageMatchResult result = ProductPackageMatching.Resolve(Product(), [Candidate() with { InstallerFit = SourceInstallerFit.UpdatesItself }]);
+
+        Assert.IsNotNull(result.Mapping);
+        Assert.AreEqual(MappingConfidence.High, result.Mapping.Confidence);
+        Assert.IsFalse(result.Mapping.IsActionable);
+        CollectionAssert.Contains(result.Mapping.ReviewReasons.ToArray(), MappingReviewReason.UpdatesItself);
+    }
+
+    [TestMethod]
     public void UnknownCandidateCompatibilityEvidenceIsReviewOnly()
     {
         ProductPackageMatchResult result = ProductPackageMatching.Resolve(Product(), [Candidate(architecture: "Unknown") with { Scope = "Unknown" }]);

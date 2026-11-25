@@ -40,6 +40,14 @@ public static class WingetUserInstallerText
     public const string UnsupportedTypeMessage =
         "WinGet would use a kind of installer PC Steward can't review for your account, so this update isn't offered. Nothing was started.";
 
+    /// <summary>
+    /// Owner's PC, 2026-11-25 (Claude): WinGet's update has no installer of the kind the app was installed with (for example the app is
+    /// an MSIX package and the update offers only a setup program), so WinGet won't apply it. Nothing was reviewed or started.
+    /// </summary>
+    public const string DifferentInstallTechnologyMessage =
+        "WinGet's update for this app uses a different kind of installer from the one this app was installed with, so WinGet won't " +
+        "apply it. The app may update itself, or you can update it from its own settings. Nothing was started.";
+
     /// <summary>The installer read at Confirm differs from the reviewed one; nothing was approved or started.</summary>
     public const string ChangedMessage =
         "The installer WinGet would use changed after you reviewed this update. Review it again; no update was started.";

@@ -49,7 +49,9 @@ public enum MappingReviewReason
     /// <summary>The source said the update's installer is of a kind PC Steward's reviewed route can't run (<see cref="SourceInstallerFit.InstallerNotSupported"/>). Appended.</summary>
     InstallerNotSupported,
     /// <summary>The source has no installer for the scope the app is installed in (<see cref="SourceInstallerFit.NoInstallerForInstalledScope"/>). Appended.</summary>
-    NoInstallerForInstalledScope
+    NoInstallerForInstalledScope,
+    /// <summary>The source marks the package as one that updates itself (<see cref="SourceInstallerFit.UpdatesItself"/>). Appended.</summary>
+    UpdatesItself
 }
 
 public sealed record ProductMatchProfile(
@@ -185,6 +187,7 @@ public static class ProductPackageMatching
         // Only ever holds an update back: an installer the reviewed route can't run is never offered, whatever the match.
         if (candidate.InstallerFit == SourceInstallerFit.InstallerNotSupported) reasons.Add(MappingReviewReason.InstallerNotSupported);
         if (candidate.InstallerFit == SourceInstallerFit.NoInstallerForInstalledScope) reasons.Add(MappingReviewReason.NoInstallerForInstalledScope);
+        if (candidate.InstallerFit == SourceInstallerFit.UpdatesItself) reasons.Add(MappingReviewReason.UpdatesItself);
         VersionComparisonResult comparison = VersionComparison.Compare(new(product.InstalledVersion, candidate.CandidateVersion, candidate.RequiresConnectorSpecificVersionSemantics));
         // A name-only candidate with incomplete publisher evidence has not established that its
         // version uses the same scheme as the installed product. Keep it review-only without

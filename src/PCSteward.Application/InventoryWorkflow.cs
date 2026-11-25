@@ -376,7 +376,7 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
             exactLocal = instances.Where(instance =>
                 productIds.Contains(instance.ProductId) &&
                 IsConcreteLocalEvidence(instance) &&
-                string.Equals(instance.Version, job.Selection.CandidateVersion, StringComparison.Ordinal) &&
+                IsTargetVersion(job.Selection, instance.Version) &&
                 string.Equals(instance.Scope, job.Selection.Scope.ToString(), StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(instance.Architecture, job.Selection.Architecture.ToString(), StringComparison.OrdinalIgnoreCase)).ToArray();
         }
@@ -384,6 +384,15 @@ public sealed class InventoryWorkflow : IDisposable, IPostUpdateInventory
             !productIds.Any(id => id != exactLocal[0].ProductId && instances.Any(instance => instance.ProductId == id && IsConcreteLocalEvidence(instance)));
         return new(expectedVersionDetected, false) { WholePcChanges = wholePcChanges };
     }
+
+    /// <summary>
+    /// The installed version is the target. For WinGet, by WinGet's own equality (an MSIX package registers 6.28899.6.0 for the manifest's
+    /// 6.28899.6); otherwise exactly.
+    /// </summary>
+    private static bool IsTargetVersion(UpdateJobSelection selection, string? installedVersion) =>
+        selection.Provider == UpdateProvider.WinGet
+            ? WingetVersionText.SameVersion(installedVersion, selection.CandidateVersion)
+            : string.Equals(installedVersion, selection.CandidateVersion, StringComparison.Ordinal);
 
     private static bool IsRegistryEntry(InstallationInstance instance, string key) =>
         string.Equals(instance.Provider, "registry", StringComparison.OrdinalIgnoreCase) &&

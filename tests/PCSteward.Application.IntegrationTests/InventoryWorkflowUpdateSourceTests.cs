@@ -504,6 +504,36 @@ public sealed class InventoryWorkflowUpdateSourceTests
         StringAssert.Contains(prepared.Message, nameof(MappingReviewReason.MissingScopeEvidence));
     }
 
+    /// <summary>
+    /// Owner's PC, 2026-11-25 (Claude): an MSIX package registers 6.28899.6.0 for the WinGet manifest's 6.28899.6. The post-update check
+    /// takes WinGet's own equality (only trailing zero parts may differ) for WinGet jobs; any other difference still fails.
+    /// </summary>
+    [TestMethod]
+    public async Task ReInventoryTakesWinGetsVersionEqualityForAnMsixPackage()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        Guid productId = Guid.NewGuid();
+        CanonicalProduct product = new(productId, "ignored", "Claude");
+        InstallationInstance installed = new(Guid.NewGuid(), productId, "msix", "Claude_pzs8sxrjxfjjc", "6.28899.6.0", "User", "x64", "Anthropic", Channel: "Stable");
+        string stableKey = InventoryNormalization.ProductFingerprint(new RawInstallEvidence("msix", "Claude_pzs8sxrjxfjjc", "Claude", "Anthropic", "6.28899.6.0", "User", "x64", "Stable", "Application", "fixture"));
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(), new UpdateJobSelection(stableKey, UpdateProvider.WinGet, UpdateSource.WinGet,
+            "Anthropic.Claude", "6.28899.2.0", "6.28899.6", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "fixture")).Confirm(DateTimeOffset.UtcNow);
+
+        async Task<bool> CheckAsync(string version)
+        {
+            using InventoryWorkflow workflow = new(database.Store, database.Store, database.Store,
+                [new FixedProvider(new ProviderScanResult([product], [installed with { Version = version }], [], []))], postUpdatePackageInventory: new PostUpdatePackageInventory(true));
+            return (await workflow.ReInventoryAsync(job, CancellationToken.None)).ExpectedVersionDetected;
+        }
+
+        Assert.IsTrue(await CheckAsync("6.28899.6.0"));
+        Assert.IsTrue(await CheckAsync("6.28899.6"));
+        Assert.IsFalse(await CheckAsync("6.28899.2.0"), "the old version");
+        Assert.IsFalse(await CheckAsync("6.28899.6.1"));
+        Assert.IsFalse(await CheckAsync("6.28899.60"));
+        Assert.IsFalse(await CheckAsync("6.28899.06"), "leading zeros are not WinGet-equal here");
+    }
+
     [TestMethod]
     public async Task ReInventoryCombinesExactExportWithTheReviewedStructuredProductAndRejectsConflicts()
     {
