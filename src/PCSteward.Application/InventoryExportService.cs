@@ -12,6 +12,7 @@ public sealed record InventoryExport(string Content, string FileExtension, DateT
 public sealed class InventoryExportService(IInventorySnapshotStore store, TimeProvider? clock = null)
 {
     private const string PrivacyWarning = "This export reveals installed software and may contain identifying machine metadata. Keep it private.";
+    public const string UpdateHistoryNotExported = "Update history is not included in this export. See Activity in PC Steward.";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
     private readonly TimeProvider clock = clock ?? TimeProvider.System;
 
@@ -43,7 +44,8 @@ public sealed class InventoryExportService(IInventorySnapshotStore store, TimePr
                 instances = instances.Where(instance => instance.ProductId == product.Id).Select(instance => new { instance.Provider, instance.ProviderIdentity, instance.Version, instance.Scope, instance.Architecture })
             }),
             updateHistory = includeUpdateHistory ? Array.Empty<object>() : null,
-            updateHistoryStatus = includeUpdateHistory ? "Not collected until Phase 3." : null
+            // FR-DAT-02 is still open: update history is recorded, but this export does not carry it yet. Say so plainly.
+            updateHistoryStatus = includeUpdateHistory ? UpdateHistoryNotExported : null
         };
         return new InventoryExport(JsonSerializer.Serialize(document, JsonOptions), ".json", exportedAt);
     }

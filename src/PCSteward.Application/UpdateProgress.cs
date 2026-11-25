@@ -163,6 +163,8 @@ public sealed class UpdateItemProgress
 {
     private readonly ImmutableUpdateJob job;
     private readonly UpdateProgressMailbox? mailbox;
+    // 0: nothing may have started; 1: elevation requested and nothing observed since; 2: a process or the helper may have the work.
+    private const int NotPossible = 0, ElevationOnly = 1, Started = 2;
     private int invocationPossible;
 
     internal UpdateItemProgress(ImmutableUpdateJob job, UpdateProgressMailbox? mailbox)
@@ -172,15 +174,24 @@ public sealed class UpdateItemProgress
         this.mailbox = mailbox;
     }
 
-    internal bool InvocationPossible => Volatile.Read(ref invocationPossible) != 0;
+    internal bool InvocationPossible => Volatile.Read(ref invocationPossible) != NotPossible;
     public void ElevationRequested() => Observe(UpdateProgressPhase.ElevationRequested);
     public void HandedToHelper() => Observe(UpdateProgressPhase.HandedToHelper);
     public void ProcessStarted() => Observe(UpdateProgressPhase.ProcessStarted);
 
+    /// <summary>
+    /// Four-model review F-03 (FR-UPD-14): the elevated runner's positive proof that the exchange refused before any helper launch was
+    /// attempted. It withdraws only the mark that <see cref="ElevationRequested"/> set when nothing has been observed since; after
+    /// <see cref="HandedToHelper"/> or <see cref="ProcessStarted"/> the possible start stands. It offers no progress phase.
+    /// </summary>
+    public void NoHelperLaunched() => Interlocked.CompareExchange(ref invocationPossible, NotPossible, ElevationOnly);
+
     private void Observe(UpdateProgressPhase phase)
     {
-        if (phase is UpdateProgressPhase.ElevationRequested or UpdateProgressPhase.ProcessStarted)
-            Interlocked.Exchange(ref invocationPossible, 1);
+        if (phase is UpdateProgressPhase.ProcessStarted or UpdateProgressPhase.HandedToHelper)
+            Interlocked.Exchange(ref invocationPossible, Started);
+        else if (phase is UpdateProgressPhase.ElevationRequested)
+            Interlocked.CompareExchange(ref invocationPossible, ElevationOnly, NotPossible);
         mailbox?.Offer(job.Id, job.CorrelationId, phase);
     }
 }

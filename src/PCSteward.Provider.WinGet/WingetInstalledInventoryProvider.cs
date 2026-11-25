@@ -245,7 +245,7 @@ public sealed partial class WingetInstalledInventoryProvider
     private static bool ValidSource(string value) => value is "winget" or "msstore";
     [GeneratedRegex(@"\S+")]
     private static partial Regex HeaderColumns();
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.+-]{0,255}$")]
+    [GeneratedRegex(@"\A[A-Za-z0-9][A-Za-z0-9.+-]{0,255}\z", RegexOptions.CultureInvariant)]
     private static partial Regex PackageId();
     [GeneratedRegex(@"^[<>]=?\s+[A-Za-z0-9][A-Za-z0-9._+-]{0,252}$")]
     private static partial Regex InexactInstalledVersion();
@@ -293,10 +293,37 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
         {
             throw new InvalidOperationException(string.Join(",", parsed.Warnings));
         }
-        Dictionary<string, WingetAvailableUpdateRecord> upgrades = parsed.Records.ToDictionary(record => record.Id, StringComparer.OrdinalIgnoreCase);
-        WingetInstalledRecord[] sourceManaged = installed.Records
+        IGrouping<string, WingetAvailableUpdateRecord>[] upgradeGroups = parsed.Records
+            .GroupBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        HashSet<string> duplicateUpdateIds = upgradeGroups
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (string duplicateId in duplicateUpdateIds
+            .Where(UpdateJobSelection.IsWinGetPackageId) // a warning is skipped, never thrown, if the parser's rule and this one ever differ
+            .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+            .Take(SourceWarningText.MaximumDuplicateIdWarnings))
+        {
+            warnings.Add(SourceWarningText.DuplicateUpdateId(SourceId, duplicateId));
+        }
+        Dictionary<string, WingetAvailableUpdateRecord> upgrades = upgradeGroups
+            .Where(group => group.Count() == 1)
+            .ToDictionary(group => group.Key, group => group.Single(), StringComparer.OrdinalIgnoreCase);
+        IGrouping<string, WingetInstalledRecord>[] installedGroups = installed.Records
             .Where(record => record.Source is null || string.Equals(record.Source, SourceId, StringComparison.OrdinalIgnoreCase))
             .GroupBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        foreach (string duplicateId in installedGroups
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .Where(UpdateJobSelection.IsWinGetPackageId) // a warning is skipped, never thrown, if the parser's rule and this one ever differ
+            .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+            .Take(SourceWarningText.MaximumDuplicateIdWarnings))
+        {
+            warnings.Add(SourceWarningText.DuplicateInstalledId(SourceId, duplicateId));
+        }
+        WingetInstalledRecord[] sourceManaged = installedGroups
             .Where(group => group.Count() == 1)
             .Select(group => group.Single())
             .OrderBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
@@ -310,10 +337,9 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
                         ProviderSuppliedStableProductKey: evidence.LinkedProductKey, InstallerFit: update.UpdatesItself ? SourceInstallerFit.UpdatesItself : evidence.InstallerFit)
                     : new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, update.AvailableVersion, "Unknown", "Unknown", null,
                         InstallerFit: update.UpdatesItself ? SourceInstallerFit.UpdatesItself : SourceInstallerFit.NoObjection)
-                : new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, updateCheckAvailable ? record.Version : null, "Unknown", "Unknown", null))
+                : new SourcePackageRecord(SourceId, record.Id, record.Name, null, record.Version, updateCheckAvailable && !duplicateUpdateIds.Contains(record.Id) ? record.Version : null, "Unknown", "Unknown", null))
             .ToArray();
         warnings.AddRange(parsed.Warnings);
-        warnings.AddRange(sourceManaged.GroupBy(record => record.Id, StringComparer.OrdinalIgnoreCase).Where(group => group.Count() > 1).Select(_ => "winget:duplicate-installed-id"));
         return new(SourceId, parsed.ProviderVersion, DateTimeOffset.UtcNow, SourceSnapshotState.Live,
             packages, warnings.Distinct(StringComparer.Ordinal).ToArray());
     }
@@ -437,7 +463,7 @@ public sealed partial class WingetUpdateSourceConnector : IUpdateSourceConnector
     private static bool IsUpgradeNotice(string line) => UpgradeNotice().IsMatch(line.Trim());
     private const string ExplicitTargetingLine = "The following packages have an upgrade available, but require explicit targeting for upgrade:";
     private static string CanonicalSource(string sourceId) => sourceId.Trim().ToLowerInvariant() switch { "winget" => "winget", "msstore" => "msstore", _ => throw new ArgumentOutOfRangeException(nameof(sourceId), "Only the fixed WinGet and Microsoft Store sources are supported.") };
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.+-]{0,255}$")]
+    [GeneratedRegex(@"\A[A-Za-z0-9][A-Za-z0-9.+-]{0,255}\z", RegexOptions.CultureInvariant)]
     private static partial Regex PackageId();
     [GeneratedRegex(@"^(?:[0-9]{1,6} upgrades? available\.|[0-9]{1,6} package\(s\) have (?:version numbers that cannot be determined|pins that prevent upgrade)\. Use [^\p{C}]{1,160}|The following packages have an upgrade available, but require explicit targeting for upgrade:)$")]
     private static partial Regex UpgradeNotice();

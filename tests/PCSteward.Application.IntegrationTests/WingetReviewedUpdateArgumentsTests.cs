@@ -67,6 +67,27 @@ public sealed class WingetReviewedUpdateArgumentsTests
             WingetReviewedUpdateArguments.Build(operation).ToArray());
     }
 
+    [TestMethod]
+    [DataRow("Notepad++.Notepad++")]
+    [DataRow("Microsoft.VCRedist.2015+.x64")]
+    public void PerUserSilentArgumentsPreserveWinGetPlusPackageIdsAsSeparateArguments(string packageId)
+    {
+        DateTimeOffset at = new(2026, 10, 30, 12, 0, 0, TimeSpan.Zero);
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.NewGuid(), Guid.NewGuid(),
+            new("registry:plus-app", UpdateProvider.WinGet, UpdateSource.WinGet, packageId, "1.0.0", "1.1.0",
+                UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "winget-com-v1")).Confirm(at);
+        ReviewedUpdateOperation operation = new(job, "S-1-5-21-11-22-33-1001", "registry:plus-app", "user:winget",
+            "evidence:plus", at, UpdateRouteContract.WinGetUserSilentV1, ReviewedInstallerMode.Selected(InstallerMode.Silent));
+
+        IReadOnlyList<string> arguments = WingetReviewedUpdateArguments.Build(operation);
+
+        CollectionAssert.AreEqual(new[]
+        {
+            "upgrade", "--id", packageId, "--version", "1.1.0", "--source", "winget", "--exact",
+            "--scope", "user", "--architecture", "x64", "--disable-interactivity", "--silent"
+        }, arguments.ToArray());
+    }
+
     private static ReviewedUpdateOperation Operation(UpdateArchitecture architecture = UpdateArchitecture.X64,
         UpdateChannel channel = UpdateChannel.Stable)
     {

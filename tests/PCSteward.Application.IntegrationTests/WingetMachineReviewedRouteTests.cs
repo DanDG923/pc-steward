@@ -58,6 +58,41 @@ public sealed class WingetMachineReviewedRouteTests
     }
 
     [TestMethod]
+    [DataRow("Notepad++.Notepad++")]
+    [DataRow("Microsoft.VCRedist.2015+.x64")]
+    public void MachineArgumentBuildersPreserveWinGetPlusPackageIdsAndRejectInvalidRawIds(string packageId)
+    {
+        DateTimeOffset at = new(2026, 11, 12, 21, 0, 0, TimeSpan.Zero);
+        UpdateJobSelection selection = new("arp:hklm64:plusapp", UpdateProvider.WinGet, UpdateSource.WinGet,
+            packageId, "8.8.2", "8.8.3", UpdateScope.Machine, UpdateArchitecture.X64, UpdateChannel.Unknown, "winget-com-v1");
+        ImmutableUpdateJob job = new UpdateJobReview(Guid.Parse("d4b00000-0000-0000-0000-000000000011"),
+            Guid.Parse("d4b00000-0000-0000-0000-000000000012"), selection).Confirm(at);
+        ReviewedUpdateOperation operation = new(job, "S-1-5-21-11-22-33-1001", "arp:hklm64:plusapp", "machine:winget",
+            $"wgm1:exe:{Registration}:{Manifest}:{Installer}", at, UpdateRouteContract.WinGetMachineSilentV1,
+            ReviewedInstallerMode.Selected(InstallerMode.Silent));
+        string folder = OperatingSystem.IsWindows() ? @"C:\Windows\Temp\PCSteward-plus\d" : "/tmp/PCSteward-plus/d";
+
+        CollectionAssert.AreEqual(new[]
+        {
+            "upgrade", "--id", packageId, "--version", "8.8.3", "--source", "winget", "--exact", "--scope", "machine",
+            "--architecture", "x64", "--installer-type", "exe", "--disable-interactivity", "--silent"
+        }, WingetMachineReviewedArguments.BuildUpgrade(operation).ToArray());
+        CollectionAssert.AreEqual(new[]
+        {
+            "download", "--id", packageId, "--version", "8.8.3", "--source", "winget", "--exact", "--scope", "machine",
+            "--architecture", "x64", "--installer-type", "exe", "--download-directory", folder, "--disable-interactivity"
+        }, WingetMachineReviewedArguments.BuildDownload(operation, folder).ToArray());
+        CollectionAssert.AreEqual(new[]
+        {
+            "download", "--id", packageId, "--version", "8.8.3", "--source", "winget", "--exact", "--scope", "machine",
+            "--architecture", "x64", "--download-directory", folder, "--disable-interactivity"
+        }, WingetMachineReviewedArguments.BuildReviewDownload(selection, folder).ToArray());
+
+        foreach (string badId in new[] { "+Bad.Id", "-Bad.Id", ".Bad.Id", "Bad_Id", "Bad Id" })
+            Assert.ThrowsExactly<ArgumentException>(() => WingetMachineReviewedArguments.BuildReviewDownload(badId, "8.8.3", "x64", folder), badId);
+    }
+
+    [TestMethod]
     public void NoLineCarriesAForbiddenSwitch()
     {
         string folder = OperatingSystem.IsWindows() ? @"C:\Windows\Temp\x\d" : "/tmp/x/d";

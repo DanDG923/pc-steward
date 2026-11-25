@@ -137,11 +137,14 @@ public sealed class WindowCloseRunningApplicationCloser : IRunningApplicationClo
     }
 }
 
-/// <summary>The process-name rule shared by running-app detection and "Close it for me".</summary>
+/// <summary>
+/// The process-name rule shared by running-app detection and "Close it for me". "+" is allowed because WinGet package IDs can
+/// carry it (review F-04): <c>Notepad++.Notepad++</c> runs as <c>notepad++</c>. Names are only ever compared exactly.
+/// </summary>
 internal static class RunningApplicationNames
 {
     public const int MaximumLength = 64;
 
     public static bool IsValid(string? name) => name is { Length: > 0 and <= MaximumLength } &&
-        name.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_');
+        name.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_' or '+');
 }

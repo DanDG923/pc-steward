@@ -16,6 +16,7 @@ public enum UpdateJobReviewState { AwaitingConfirmation }
 public sealed partial class UpdateJobSelection
 {
     private const int MaximumStableKeyLength = 256;
+    private const int MaximumPackageIdLength = 256;
     private const int MaximumVersionLength = 128;
     private const int MaximumEvidenceVersionLength = 128;
 
@@ -34,7 +35,9 @@ public sealed partial class UpdateJobSelection
         StableProductKey = Validate(StableKey(), stableProductKey, MaximumStableKeyLength, nameof(stableProductKey));
         Provider = ValidateEnum(provider, nameof(provider));
         Source = ValidateEnum(source, nameof(source));
-        PackageId = Validate(PackageIdentifier(), packageId, 256, nameof(packageId));
+        // Review F-04: "+" is a WinGet identifier character only, so it needs the WinGet provider and one of WinGet's own sources.
+        bool wingetIdentifier = Provider == UpdateProvider.WinGet && Source is UpdateSource.WinGet or UpdateSource.MicrosoftStore;
+        PackageId = Validate(wingetIdentifier ? WinGetPackageIdentifier() : PackageIdentifier(), packageId, MaximumPackageIdLength, nameof(packageId));
         InstalledVersion = Validate(Version(), installedVersion, MaximumVersionLength, nameof(installedVersion));
         CandidateVersion = Validate(Version(), candidateVersion, MaximumVersionLength, nameof(candidateVersion));
         Scope = ValidateEnum(scope, nameof(scope));
@@ -78,6 +81,13 @@ public sealed partial class UpdateJobSelection
     public static bool IsVersionText(string? value) =>
         value is { Length: > 0 and <= MaximumVersionLength } && string.Equals(value.Trim(), value, StringComparison.Ordinal) && Version().IsMatch(value);
 
+    /// <summary>
+    /// True when <paramref name="value"/> is exactly a WinGet package identifier this selection accepts (already trimmed, at most 256
+    /// characters, starting with an ASCII letter or digit and containing only ASCII letters, digits, <c>.</c>, <c>-</c>, and <c>+</c>).
+    /// </summary>
+    public static bool IsWinGetPackageId(string? value) =>
+        value is { Length: > 0 and <= MaximumPackageIdLength } && string.Equals(value.Trim(), value, StringComparison.Ordinal) && WinGetPackageIdentifier().IsMatch(value);
+
     public bool EqualsEvidence(UpdateJobSelection other) =>
         other is not null &&
         string.Equals(CanonicalText, other.CanonicalText, StringComparison.Ordinal);
@@ -100,8 +110,11 @@ public sealed partial class UpdateJobSelection
     [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$", RegexOptions.CultureInvariant)]
     private static partial Regex StableKey();
 
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9.-]{0,255}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\A[A-Za-z0-9][A-Za-z0-9.-]{0,255}\z", RegexOptions.CultureInvariant)]
     private static partial Regex PackageIdentifier();
+
+    [GeneratedRegex(@"\A[A-Za-z0-9][A-Za-z0-9.+-]{0,255}\z", RegexOptions.CultureInvariant)]
+    private static partial Regex WinGetPackageIdentifier();
 
     [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$", RegexOptions.CultureInvariant)]
     private static partial Regex Version();

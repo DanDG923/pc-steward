@@ -264,6 +264,56 @@ public sealed class ReviewedHelperProtocol2TransportTests
         Assert.AreEqual(0, resolves + launches + capability.EvaluateCalls + capability.HoldCalls);
     }
 
+    /// <summary>
+    /// Four-model review F-01 (FR-UPD-01, FR-UPD-15): the desktop's Chocolatey caller-trust check gates only the Chocolatey routes. The
+    /// whole-PC WinGet route has no desktop provider caller check (D4b design §5.4: gate, reply shape and capability in the exchange, then
+    /// launch trust, the held capability and the helper's own H1–H9), so a PC without Chocolatey still reaches its next pre-launch step.
+    /// </summary>
+    [TestMethod]
+    public async Task TheChocolateyCallerCheckGatesOnlyTheChocolateyRoutes()
+    {
+        RequireWindows("protocol-2 transport pre-launch order");
+        int checks = 0, resolves = 0, launches = 0;
+        CountingCapability capability = new(_ => HelperProtocolCapabilityResult.For(Status.Supported));
+        WindowsReviewedHelperTransport transport = new(capability, () => { resolves++; return null; }, _ => new(true, string.Empty),
+            () => { checks++; return false; }, (string _, string _, string _, out bool declined) => { launches++; declined = false; return null; }, Fast);
+
+        ReviewedHelperExchange winget = await transport.ExchangeAsync(WingetMachineReviewedDispatchTests.Frozen().Operation, Nonce, CancellationToken.None)
+            .WaitAsync(ExchangeWait);
+        Assert.AreEqual(ReviewedHelperTransportOutcome.LaunchRefusedBeforeElevation, winget.Outcome, "the fixture has no fixed paths");
+        Assert.AreEqual(0, checks, "the WinGet machine route never consults the Chocolatey caller check");
+        Assert.AreEqual(1, resolves, "it went on to the fixed-path step");
+
+        foreach (ReviewedUpdateOperation chocolatey in new[] { Protocol2InterpreterFixture.Operation(), ReviewedHelperEndpointClientRunFaultTests.ClientOperation() })
+        {
+            ReviewedHelperExchange refused = await transport.ExchangeAsync(chocolatey, Nonce, CancellationToken.None).WaitAsync(ExchangeWait);
+            Assert.AreEqual(ReviewedHelperTransportOutcome.LaunchRefusedBeforeElevation, refused.Outcome, chocolatey.RouteContract.ToString());
+        }
+        Assert.AreEqual(2, checks, "each Chocolatey route consults the check");
+        Assert.AreEqual(1, resolves, "an untrusted Chocolatey caller is refused before the fixed-path step");
+        Assert.AreEqual(0, launches + capability.HoldCalls);
+    }
+
+    /// <summary>F-01: every route has a fixed provider caller check; only the two Chocolatey routes and the whole-PC WinGet route are named.</summary>
+    [TestMethod]
+    public void EveryRouteHasAFixedProviderCallerCheckAndAnUnnamedRouteIsRefused()
+    {
+        foreach (UpdateRouteContract route in Enum.GetValues<UpdateRouteContract>())
+        {
+            ReviewedHelperProviderCallerCheck expected = route switch
+            {
+                UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 or UpdateRouteContract.ChocolateyClientSelfUpdateV1 => ReviewedHelperProviderCallerCheck.Chocolatey,
+                UpdateRouteContract.WinGetMachineSilentV1 => ReviewedHelperProviderCallerCheck.None,
+                _ => ReviewedHelperProviderCallerCheck.Refused,
+            };
+            Assert.AreEqual(expected, WindowsReviewedHelperTransport.ProviderCallerCheckFor(route), route.ToString());
+        }
+        Assert.AreEqual(ReviewedHelperProviderCallerCheck.Refused, WindowsReviewedHelperTransport.ProviderCallerCheckFor((UpdateRouteContract)999));
+        // Each route on the capability allow-list (the routes the transport serves) has a named caller check.
+        foreach (UpdateRouteContract route in DeploymentCapabilityPolicy.CapabilityOperationAllowlist)
+            Assert.AreNotEqual(ReviewedHelperProviderCallerCheck.Refused, WindowsReviewedHelperTransport.ProviderCallerCheckFor(route), route.ToString());
+    }
+
     [TestMethod]
     [DataRow("caller-untrusted")]
     [DataRow("paths-unavailable")]
@@ -289,6 +339,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
 
         Assert.AreEqual(ReviewedHelperTransportOutcome.LaunchRefusedBeforeElevation, exchange.Outcome, scenario);
         Assert.AreEqual(0, launches);
+        Assert.IsTrue(exchange.NoHelperLaunchAttempted, $"{scenario}: F-03 proof that the launcher was never invoked");
         Assert.AreEqual(scenario is "hold-refused" or "hold-throws" ? 1 : 0, capability.HoldCalls, scenario);
         Assert.IsTrue(validations <= 1, "final trust never runs without a held binding");
     }
@@ -336,6 +387,7 @@ public sealed class ReviewedHelperProtocol2TransportTests
 
         Assert.AreEqual(expected, exchange.Outcome, scenario);
         Assert.AreEqual(expectedLaunches, launches, scenario);
+        Assert.AreEqual(expectedLaunches == 0, exchange.NoHelperLaunchAttempted, $"{scenario}: F-03 proof only while the launcher was never invoked");
         Assert.AreEqual(1, capability.HoldCalls);
         Assert.IsNotNull(capability.Binding);
         Assert.IsTrue(capability.Binding.IsDisposed, "no helper process exists, so the binding is released");

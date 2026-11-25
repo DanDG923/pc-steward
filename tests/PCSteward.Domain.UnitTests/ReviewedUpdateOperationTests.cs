@@ -187,6 +187,32 @@ public sealed class ReviewedUpdateOperationTests
         Assert.IsTrue(ReviewedUpdateOperation.TryRestore(bytes, operation.Digest, out _));
     }
 
+    [TestMethod]
+    [DataRow("Notepad++.Notepad++")]
+    [DataRow("Microsoft.VCRedist.2015+.x64")]
+    public void WinGetPlusPackageIdsRoundTripThroughCanonicalRestoreAndChocolateyPlusStillRefuses(string packageId)
+    {
+        ImmutableUpdateJob job = new UpdateJobReview(
+            Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            Guid.Parse("22222222-2222-2222-2222-222222222222"),
+            new UpdateJobSelection("registry:plus-app", UpdateProvider.WinGet, UpdateSource.WinGet, packageId,
+                "1.0.0", "1.1.0", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "winget-com-v1"))
+            .Confirm(ReviewedAt);
+        ReviewedUpdateOperation operation = new(job, "S-1-5-21-11-22-33-1001", "registry:plus-app", "user:winget",
+            "evidence:plus", ReviewedAt.AddSeconds(-1), UpdateRouteContract.WinGetUserSilentV1,
+            ReviewedInstallerMode.Selected(InstallerMode.Silent));
+
+        Assert.IsTrue(ReviewedUpdateOperation.TryRestore(operation.GetCanonicalBytes(), operation.Digest, out ReviewedUpdateOperation? restored));
+        Assert.IsNotNull(restored);
+        Assert.AreEqual(packageId, restored.Selection.PackageId);
+        Assert.IsTrue(operation.HasSameIdentity(restored));
+
+        string[] chocoLines = Encoding.UTF8.GetString(Operation("provider").GetCanonicalBytes()).Split('\n');
+        chocoLines[9] = packageId;
+        byte[] chocoMutated = Encoding.UTF8.GetBytes(string.Join('\n', chocoLines));
+        Assert.IsFalse(RestoreWithRecomputedDigest(chocoMutated));
+    }
+
     private static bool RestoreWithRecomputedDigest(byte[] bytes) =>
         ReviewedUpdateOperation.TryRestore(bytes, Convert.ToHexString(SHA256.HashData(bytes)), out _);
 

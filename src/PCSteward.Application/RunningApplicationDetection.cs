@@ -54,7 +54,6 @@ internal sealed record RunningApplicationSnapshot(string[] Names, RunningApplica
 public sealed class PackageDerivedRunningApplicationDetector : IRunningApplicationDetector
 {
     private const int MaximumProcesses = 4096;
-    private const int MaximumProcessNameLength = 64;
     private static readonly HashSet<string> AmbiguousSuffixes = new(StringComparer.OrdinalIgnoreCase)
     {
         "app", "application", "client", "desktop", "installer", "launcher", "setup", "update", "updater"
@@ -124,8 +123,8 @@ public sealed class PackageDerivedRunningApplicationDetector : IRunningApplicati
             otherSession.ToArray());
     }
 
-    private static bool IsValidName(string? name) => name is { Length: > 0 and <= MaximumProcessNameLength } &&
-        name.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_');
+    // One rule with "Close it for me", so a name detection reports is always one the closer accepts.
+    private static bool IsValidName(string? name) => RunningApplicationNames.IsValid(name);
 
     private static void AddCandidate(HashSet<string> candidates, string value)
     {

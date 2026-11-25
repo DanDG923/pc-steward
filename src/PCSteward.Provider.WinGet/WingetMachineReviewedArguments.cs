@@ -71,6 +71,8 @@ internal static class WingetMachineReviewedArguments
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentException.ThrowIfNullOrWhiteSpace(downloadDirectory);
+        if (!UpdateJobSelection.IsWinGetPackageId(packageId))
+            throw new ArgumentException("The package ID must be a bounded WinGet package identifier.", nameof(packageId));
         if (!Path.IsPathFullyQualified(downloadDirectory))
             throw new ArgumentException("The download folder must be a fully qualified path.", nameof(downloadDirectory));
         if (!WingetArchitectureProofRules.IsBoundedVersion(version))

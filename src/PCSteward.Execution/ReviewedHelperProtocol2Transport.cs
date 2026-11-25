@@ -14,8 +14,11 @@ namespace PCSteward.Execution;
 /// The raw result of one protocol-2 helper exchange: the closed transport phase, the single response frame (empty unless
 /// <see cref="ReviewedHelperTransportOutcome.ResponseFrameReceived"/>), and desktop-observed facts only. Nothing here is
 /// interpreted; <see cref="ReviewedUpdateProtocol2Interpreter"/> alone turns it into a workflow observation.
+/// <see cref="NoHelperLaunchAttempted"/> (four-model review F-03) is positive proof that the exchange refused before the launcher was
+/// ever invoked, so no helper process and no UAC prompt can exist. It defaults to false (not proven) and the interpreter ignores it.
 /// </summary>
-internal sealed record ReviewedHelperExchange(ReviewedHelperTransportOutcome Outcome, byte[] ResponseFrame, ReviewedHelperDesktopObservation Desktop);
+internal sealed record ReviewedHelperExchange(ReviewedHelperTransportOutcome Outcome, byte[] ResponseFrame, ReviewedHelperDesktopObservation Desktop,
+    bool NoHelperLaunchAttempted = false);
 
 /// <summary>One protocol-2 exchange for one frozen operation and one fresh nonce. Must not throw for expected failures.</summary>
 internal interface IReviewedHelperTransport
@@ -178,14 +181,33 @@ internal static class ReviewedHelperExchangeSession
     }
 }
 
+/// <summary>
+/// Four-model review F-01: which desktop provider caller check a protocol-2 route needs before launch. The default,
+/// <see cref="Refused"/>, fails closed for any route the transport does not name.
+/// </summary>
+internal enum ReviewedHelperProviderCallerCheck
+{
+    /// <summary>No known route: refuse before launch.</summary>
+    Refused,
+    /// <summary>The Chocolatey routes: the desktop's Chocolatey caller-trust check (A.4 step 3).</summary>
+    Chocolatey,
+    /// <summary>
+    /// The whole-PC WinGet route: no desktop provider caller check (D4b design §5.4). It relies on the exchange's gate, reply shape and
+    /// capability checks, the transport's launch trust and held capability, and the helper's own trusted-<c>winget.exe</c> check (H4).
+    /// </summary>
+    None,
+}
+
 /// <summary>Launches the fixed helper with <c>runas</c>. Returns null when no process exists; <paramref name="elevationDeclined"/> marks UAC denial.</summary>
 internal delegate Process? ReviewedHelperLauncher(string helperPath, string pipeName, string nonce, out bool elevationDeclined);
 
 /// <summary>
 /// FR-UPD-15, FR-UPD-01, TM-03/04/07/13; adapter gates §A.4 step 3 and reviewed fact extension rev 3 §4.1/§6: the Windows
-/// protocol-2 transport for the single route <see cref="UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3"/>.
+/// protocol-2 transport for the routes <see cref="UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3"/>,
+/// <see cref="UpdateRouteContract.ChocolateyClientSelfUpdateV1"/> and <see cref="UpdateRouteContract.WinGetMachineSilentV1"/>.
 /// <para>
-/// Pre-launch order: provider caller trust, fixed paths, initial launch trust, restricted per-request pipe,
+/// Pre-launch order: the route's provider caller check (<see cref="ProviderCallerCheckFor"/>: Chocolatey caller trust for the
+/// Chocolatey routes, none for the whole-PC WinGet route, refusal for any other route), fixed paths, initial launch trust, restricted per-request pipe,
 /// <see cref="IHelperProtocolCapability.TryHold"/> (the binding set stays held), final launch trust, cancellation, then one
 /// <c>runas</c> launch with <c>--protocol 2</c>. Any pre-launch failure is
 /// <see cref="ReviewedHelperTransportOutcome.LaunchRefusedBeforeElevation"/> with no UAC prompt; UAC denial is
@@ -197,8 +219,8 @@ internal delegate Process? ReviewedHelperLauncher(string helperPath, string pipe
 /// process exists, or by <see cref="ReleaseAfterOwnership"/> once the helper exit has been observed and the transport is
 /// sealed. A helper that never exits keeps the binding held. The transport also keeps a strong reference until after seal.
 /// </para>
-/// No production composition constructs this type yet (the Chocolatey routes are admitted at the review gate, the capability
-/// allow-list and the dispatcher since the Task 50 activation, but no Desktop composition dispatches them).
+/// Production composes it once in each of <see cref="ChocolateyPackageUpdateComposition"/>, <see cref="ChocolateyClientUpdateComposition"/>
+/// and <see cref="WingetMachineUpdateComposition"/>, always through the one-argument constructor.
 /// </summary>
 internal sealed partial class WindowsReviewedHelperTransport : IReviewedHelperTransport
 {
@@ -208,7 +230,7 @@ internal sealed partial class WindowsReviewedHelperTransport : IReviewedHelperTr
     private readonly IHelperProtocolCapability capability;
     private readonly Func<HelperLaunchPaths?> resolvePaths;
     private readonly Func<HelperLaunchPaths, HelperLaunchTrustResult> validatePreLaunchTrust;
-    private readonly Func<bool> providerCallerTrusted;
+    private readonly Func<bool> chocolateyCallerTrusted;
     private readonly ReviewedHelperLauncher launchHelper;
     private readonly ReviewedHelperBudgets budgets;
 
@@ -219,13 +241,13 @@ internal sealed partial class WindowsReviewedHelperTransport : IReviewedHelperTr
     }
 
     internal WindowsReviewedHelperTransport(IHelperProtocolCapability capability, Func<HelperLaunchPaths?> resolvePaths,
-        Func<HelperLaunchPaths, HelperLaunchTrustResult> validatePreLaunchTrust, Func<bool> providerCallerTrusted,
+        Func<HelperLaunchPaths, HelperLaunchTrustResult> validatePreLaunchTrust, Func<bool> chocolateyCallerTrusted,
         ReviewedHelperLauncher launchHelper, ReviewedHelperBudgets budgets)
     {
         this.capability = capability ?? throw new ArgumentNullException(nameof(capability));
         this.resolvePaths = resolvePaths ?? throw new ArgumentNullException(nameof(resolvePaths));
         this.validatePreLaunchTrust = validatePreLaunchTrust ?? throw new ArgumentNullException(nameof(validatePreLaunchTrust));
-        this.providerCallerTrusted = providerCallerTrusted ?? throw new ArgumentNullException(nameof(providerCallerTrusted));
+        this.chocolateyCallerTrusted = chocolateyCallerTrusted ?? throw new ArgumentNullException(nameof(chocolateyCallerTrusted));
         this.launchHelper = launchHelper ?? throw new ArgumentNullException(nameof(launchHelper));
         this.budgets = budgets ?? throw new ArgumentNullException(nameof(budgets));
     }
@@ -235,7 +257,7 @@ internal sealed partial class WindowsReviewedHelperTransport : IReviewedHelperTr
         ArgumentNullException.ThrowIfNull(operation);
         // ADR-031 design §7.1: either route shape; the capability hold below still refuses a route outside the allow-list.
         if (!OperatingSystem.IsWindows() || !ReviewedUpdateProtocol2Interpreter.TryGetRouteProfileDigest(operation, out _, out _) ||
-            !TryCreateRequest(operation, nonce, out _) || !Trusted(providerCallerTrusted))
+            !TryCreateRequest(operation, nonce, out _) || !ProviderCallerTrusted(operation.RouteContract))
             return Refused();
         HelperLaunchPaths? paths;
         try { paths = resolvePaths(); }
@@ -278,9 +300,11 @@ internal sealed partial class WindowsReviewedHelperTransport : IReviewedHelperTr
             if (helper is null)
             {
                 ReleaseWithoutHelper(binding);
+                // F-03: the launcher was invoked, so "no helper was launched" is not proven here (a shell launch can start a process
+                // without returning its handle): the refusal carries no NoHelperLaunchAttempted proof.
                 return declined
                     ? new(ReviewedHelperTransportOutcome.ElevationDeclined, [], NoHelper)
-                    : Refused();
+                    : new(ReviewedHelperTransportOutcome.LaunchRefusedBeforeElevation, [], NoHelper);
             }
 
             HelperProcessWork owned;
@@ -324,7 +348,9 @@ internal sealed partial class WindowsReviewedHelperTransport : IReviewedHelperTr
 
     internal static string CreatePipeName() => PipeNamePrefix + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
 
-    private static ReviewedHelperExchange Refused() => new(ReviewedHelperTransportOutcome.LaunchRefusedBeforeElevation, [], NoHelper);
+    /// <summary>A refusal before the launcher is invoked (F-03: positive proof that no helper launch was attempted).</summary>
+    private static ReviewedHelperExchange Refused() =>
+        new(ReviewedHelperTransportOutcome.LaunchRefusedBeforeElevation, [], NoHelper, NoHelperLaunchAttempted: true);
 
     private static bool TryCreateRequest(ReviewedUpdateOperation operation, string nonce, out byte[] request)
     {
@@ -345,6 +371,25 @@ internal sealed partial class WindowsReviewedHelperTransport : IReviewedHelperTr
         try { return validatePreLaunchTrust(paths).Trusted; }
         catch (Exception exception) when (exception is not OutOfMemoryException) { return false; }
     }
+
+    /// <summary>F-01: only this route's provider caller check (<see cref="ProviderCallerCheckFor"/>) runs; an unnamed route is refused.</summary>
+    private bool ProviderCallerTrusted(UpdateRouteContract route) => ProviderCallerCheckFor(route) switch
+    {
+        ReviewedHelperProviderCallerCheck.Chocolatey => Trusted(chocolateyCallerTrusted),
+        ReviewedHelperProviderCallerCheck.None => true,
+        _ => false,
+    };
+
+    /// <summary>
+    /// F-01 (FR-UPD-01, FR-UPD-15): the Chocolatey caller-trust check belongs to the two Chocolatey routes only. The whole-PC WinGet
+    /// route has no desktop provider caller check (D4b design §5.4). Every other route is refused.
+    /// </summary>
+    internal static ReviewedHelperProviderCallerCheck ProviderCallerCheckFor(UpdateRouteContract route) => route switch
+    {
+        UpdateRouteContract.ChocolateyMachineRuntimeLimitsV3 or UpdateRouteContract.ChocolateyClientSelfUpdateV1 => ReviewedHelperProviderCallerCheck.Chocolatey,
+        UpdateRouteContract.WinGetMachineSilentV1 => ReviewedHelperProviderCallerCheck.None,
+        _ => ReviewedHelperProviderCallerCheck.Refused,
+    };
 
     private static bool Trusted(Func<bool> check)
     {

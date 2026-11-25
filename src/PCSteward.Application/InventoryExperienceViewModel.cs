@@ -199,7 +199,7 @@ public sealed class InventoryExperienceViewModel
         ApplyFilters();
     }
 
-    // A per-package warning (SourceWarningText.DetailUnused) is said only on the details of the app matched to that package.
+    // A per-package warning (SourceWarningText) is said only on the details of the app matched to that package.
     private static string DescribeSource(SourceSnapshot source, string? packageId)
     {
         string warningDescription = DescribeSourceWarnings(source.Warnings, packageId);
@@ -218,6 +218,10 @@ public sealed class InventoryExperienceViewModel
         {
             _ when SourceWarningText.TryReadDetailUnused(warning, out string package, out string reason) =>
                 packageId is not null && string.Equals(package, packageId, StringComparison.OrdinalIgnoreCase) ? SourceWarningText.DescribeDetailUnused(reason) : string.Empty,
+            _ when SourceWarningText.TryReadDuplicateUpdateId(warning, out string package) =>
+                packageId is not null && string.Equals(package, packageId, StringComparison.OrdinalIgnoreCase) ? SourceWarningText.DescribeDuplicateUpdateId() : string.Empty,
+            _ when SourceWarningText.TryReadDuplicateInstalledId(warning, out string package) =>
+                packageId is not null && string.Equals(package, packageId, StringComparison.OrdinalIgnoreCase) ? SourceWarningText.DescribeDuplicateInstalledId() : string.Empty,
             "source:stale" => string.Empty,
             "source:offline" => "The source was offline.",
             _ when warning.EndsWith(":update-check-unavailable", StringComparison.OrdinalIgnoreCase) => "Update availability was not established.",

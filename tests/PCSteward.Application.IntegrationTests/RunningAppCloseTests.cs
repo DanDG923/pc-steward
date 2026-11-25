@@ -160,6 +160,31 @@ public sealed class RunningAppCloseTests
 
     [TestMethod]
     [TestCategory("FR-UPD-06")]
+    public async Task AnAppWhoseWinGetIdCarriesAPlusIsDetectedAndCanBeAskedToClose()
+    {
+        // Four-model review F-04: "+" IDs can now be updated, so their running-app warning has to work too.
+        PackageDerivedRunningApplicationDetector detector = new(_ =>
+        [
+            new RunningProcessObservation(RunningProcessObservationKind.Name, "notepad++"),
+            new RunningProcessObservation(RunningProcessObservationKind.Name, "explorer"),
+            new RunningProcessObservation(RunningProcessObservationKind.Name, "bad name!")
+        ]);
+
+        RunningApplicationDetection detection = await detector.DetectAsync(Selection("Notepad++.Notepad++"), CancellationToken.None);
+
+        Assert.IsTrue(detection.OpenInThisSession);
+        Assert.AreEqual("notepad++", detection.ProcessNames.Single());
+        Assert.AreEqual(1, detection.Coverage!.InvalidNameCount, "only the name with a space and '!' is invalid");
+
+        FakeProcesses processes = new();
+        processes.Add("notepad++", 40, hasWindow: true, exitsWhenAsked: true);
+        WindowCloseRunningApplicationCloser closer = new(processes, TimeSpan.FromMilliseconds(50), (_, token) => Task.Delay(5, token));
+        RunningApplicationCloseResult closed = await closer.RequestCloseAsync(detection.InThisSession, CancellationToken.None);
+        Assert.IsTrue(closed.AllClosed, "the closer accepts every name detection reports");
+    }
+
+    [TestMethod]
+    [TestCategory("FR-UPD-06")]
     public void CheckAgainRefreshesOnlyTheWarningTheReviewConfirms()
     {
         // Codex review (PR #103): confirming after "Check again" covers the warning now shown; the reviewed selection stays.
@@ -179,7 +204,7 @@ public sealed class RunningAppCloseTests
     }
 
     private static UpdateJobSelection Selection(string packageId) =>
-        new(packageId, UpdateProvider.WinGet, UpdateSource.WinGet, packageId, "1.0", "2.0", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "fixture-evidence");
+        new(packageId.Replace('+', '-'), UpdateProvider.WinGet, UpdateSource.WinGet, packageId, "1.0", "2.0", UpdateScope.User, UpdateArchitecture.X64, UpdateChannel.Stable, "fixture-evidence");
 
     private sealed class FakeProcesses : IClosableProcesses
     {

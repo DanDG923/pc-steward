@@ -11,7 +11,6 @@ namespace PCSteward.Provider.WinGet;
 public sealed class WingetStructuredUpdateCandidateAuthority : IStructuredUpdateCandidateAuthority
 {
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(20);
-    private const int MaximumIdentifierLength = 256;
     private const int MaximumVersionLength = 128;
     private readonly IWinGetStructuredCatalogQuery query;
     private readonly TimeSpan timeout;
@@ -124,10 +123,7 @@ public sealed class WingetStructuredUpdateCandidateAuthority : IStructuredUpdate
     }
 
     private static bool IsBoundedIdentifier(string value) =>
-        !string.IsNullOrWhiteSpace(value) &&
-        value.Length <= MaximumIdentifierLength &&
-        value.All(character =>
-            char.IsLetterOrDigit(character) || character is '.' or '-' or '_' or '+');
+        UpdateJobSelection.IsWinGetPackageId(value);
 
     private static bool IsBoundedVersion(string value) =>
         !string.IsNullOrWhiteSpace(value) &&
