@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using PCSteward.Domain;
 
 namespace PCSteward.Application;
 
@@ -30,6 +31,38 @@ public sealed record ScheduledCheckSettings(
 public sealed record ScheduledCheckStatus(DateTimeOffset? LastCompletedAt, string LastResult, int ConsecutiveFailures)
 {
     public static ScheduledCheckStatus NotScheduled { get; } = new(null, "Not scheduled", 0);
+}
+
+/// <summary>
+/// FR-SCH-04, UJ-09 step 3 (review F-24): what a scheduled check found that the owner may want to act on, as counts only.
+/// Updates that are ready count as attention, alongside matches that need review and apps whose source gave no result, and
+/// the notification says how many of each. It carries no update authority.
+/// </summary>
+public sealed record ScheduledCheckFindings(int ReadyUpdates, int NeedReview, int Unavailable)
+{
+    public static ScheduledCheckFindings None { get; } = new(0, 0, 0);
+
+    public static ScheduledCheckFindings From(UpdateIntelligenceSummary summary)
+    {
+        ArgumentNullException.ThrowIfNull(summary);
+        return new(
+            summary.Items.Count(item => item.Status == UpdateIntelligenceStatus.VerifiedUpdate),
+            summary.Items.Count(item => item.Status == UpdateIntelligenceStatus.ReviewRequired),
+            summary.Items.Count(item => item.Status == UpdateIntelligenceStatus.FailedUnavailable));
+    }
+
+    public bool AttentionRequired => ReadyUpdates > 0 || NeedReview > 0 || Unavailable > 0;
+
+    /// <summary>The saved result of a check whose scan succeeded.</summary>
+    public string Result => NeedReview > 0 || Unavailable > 0 ? "Attention required" : ReadyUpdates > 0 ? "Updates ready" : "Completed";
+
+    /// <summary>The notification's one line, with the counts; empty when nothing needs attention.</summary>
+    public string NotificationText => string.Join(" ", new[]
+    {
+        ReadyUpdates == 0 ? null : ReadyUpdates == 1 ? "1 update is ready." : $"{ReadyUpdates} updates are ready.",
+        NeedReview == 0 ? null : NeedReview == 1 ? "1 app needs review." : $"{NeedReview} apps need review.",
+        Unavailable == 0 ? null : Unavailable == 1 ? "1 app couldn't be checked." : $"{Unavailable} apps couldn't be checked.",
+    }.Where(part => part is not null));
 }
 
 /// <summary>Notification policy deliberately contains no notification transport or update authority.</summary>

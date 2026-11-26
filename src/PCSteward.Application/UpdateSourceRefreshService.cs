@@ -34,7 +34,8 @@ public sealed partial class UpdateSourceRefreshService
         if (!online)
         {
             List<SourceSnapshot> cached = [];
-            foreach (IUpdateSourceConnector connector in connectors) cached.Add(await CachedOrLocalOnlyAsync(connector.SourceId, "source:offline", cancellationToken));
+            // Review F-22: nothing is contacted here, so nothing is said to be offline or unreachable. The saved result is returned as it was saved.
+            foreach (IUpdateSourceConnector connector in connectors) cached.Add(await CachedOrLocalOnlyAsync(connector.SourceId, cancellationToken));
             return cached;
         }
         using SemaphoreSlim slots = new(maximumConcurrency, maximumConcurrency);
@@ -58,10 +59,10 @@ public sealed partial class UpdateSourceRefreshService
         })).ConfigureAwait(false);
     }
 
-    private async Task<SourceSnapshot> CachedOrLocalOnlyAsync(string sourceId, string warning, CancellationToken cancellationToken)
+    private async Task<SourceSnapshot> CachedOrLocalOnlyAsync(string sourceId, CancellationToken cancellationToken)
     {
         SourceSnapshot? cached = await cache.GetSourceSnapshotAsync(sourceId, cancellationToken).ConfigureAwait(false);
-        return cached is null ? new(sourceId, null, null, SourceSnapshotState.LocalOnly, [], [warning]) : cached with { State = SourceSnapshotState.Cached, Warnings = cached.Warnings.Concat([warning]).Distinct(StringComparer.Ordinal).ToArray() };
+        return cached is null ? new(sourceId, null, null, SourceSnapshotState.LocalOnly, [], []) : cached with { State = SourceSnapshotState.Cached };
     }
     private async Task<SourceSnapshot> CachedOrUnavailableAsync(string sourceId, string[] warnings, CancellationToken cancellationToken)
     {

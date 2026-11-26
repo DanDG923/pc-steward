@@ -246,7 +246,8 @@ public static class AppDetailSummaryPresenter
         SourceSnapshot? snapshot = sources.FirstOrDefault(item => string.Equals(item.SourceId, sourceId, StringComparison.OrdinalIgnoreCase));
         if (snapshot?.LastSuccessAt is not { } at) return "Not yet";
         string when = DisplayFormat.Relative(at, now, culture, zone);
-        return snapshot.State == SourceSnapshotState.Live ? when : $"{when} (couldn't be reached since)";
+        // Review F-22: "couldn't be reached" only when a check was tried and failed, not for a saved result shown again.
+        return FreshnessPresenter.LastCheckFailed(snapshot) ? $"{when} (couldn't be reached since)" : when;
     }
 
 }

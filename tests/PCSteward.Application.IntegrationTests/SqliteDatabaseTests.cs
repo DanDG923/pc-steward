@@ -484,6 +484,37 @@ public sealed class SqliteDatabaseTests
         }
         finally { CultureInfo.CurrentCulture = original; }
     }
+    [TestMethod]
+    [Description("Review F-29 (FR-HIS-01): an exit code an earlier build stored as regional text reads the same in every reader, and never as 0.")]
+    public async Task ExitCodesStoredAsRegionalTextByEarlierBuildsReadTheSameEverywhere()
+    {
+        await using TestDatabase database = await TestDatabase.CreateAsync();
+        await database.Store.RecordAsync(HistoryEvent(UpdateHistoryStatus.InstallerFailed) with { ExitCode = 1 }, CancellationToken.None);
+        (string Stored, int? Expected)[] cases =
+        [
+            ("−1978335212", -1978335212), ("-1978335212", -1978335212), ("‎-5", -5), ("‎−‎5", -5), ("1603", 1603),
+            ("not a number", null), ("", null), ("--5", null), ("5-", null), ("99999999999", null),
+        ];
+        foreach ((string stored, int? expected) in cases)
+        {
+            await using (SqliteConnection connection = new(database.ConnectionString))
+            {
+                await connection.OpenAsync();
+                await using SqliteCommand command = connection.CreateCommand();
+                command.CommandText = "UPDATE update_job_history SET exit_code = $code;";
+                command.Parameters.AddWithValue("$code", stored);
+                Assert.AreEqual(1, await command.ExecuteNonQueryAsync());
+                command.CommandText = "SELECT typeof(exit_code) FROM update_job_history;";
+                // A regional sign keeps the value as text in the INTEGER column; plain digits are converted by SQLite itself.
+                if (stored.Any(character => character > 0x7F)) Assert.AreEqual("text", await command.ExecuteScalarAsync(), stored);
+            }
+            UpdateHistoryEntry product = (await database.Store.GetHistoryForProductAsync("widget", CancellationToken.None)).Single();
+            UpdateHistoryEntry activity = (await database.Store.GetRecentUpdateHistoryAsync(1, CancellationToken.None)).Single();
+            Assert.AreEqual(expected, product.ExitCode, $"app details: '{stored}'");
+            Assert.AreEqual(expected, activity.ExitCode, $"Activity: '{stored}'");
+        }
+    }
+
     private sealed class TestDatabase : IAsyncDisposable
     {
         private readonly string path;

@@ -38,7 +38,8 @@ public static class SelfUpdateText
         return check.Status switch
         {
             SelfUpdateCheckStatus.NewerRelease => "PC Steward " + check.Release!.Version.Text + " is available. It was built by GitHub from a reviewed commit, and its check file is genuine.",
-            SelfUpdateCheckStatus.CurrentRelease => "You have the newest published version (" + check.Release!.Version.Text + "). Checked " + at + ".",
+            // Review F-32: true whether this build is the published release or ahead of it.
+            SelfUpdateCheckStatus.CurrentRelease => "No newer version has been published (the newest is " + check.Release!.Version.Text + "). Checked " + at + ".",
             SelfUpdateCheckStatus.NoReleasesPublished => "No PC Steward release has been published yet. Checked " + at + ".",
             SelfUpdateCheckStatus.NotTrusted => "An update was found but failed a check. " + Describe(check.Refusal) + " Nothing was downloaded or changed.",
             _ => "Could not check for updates. GitHub could not be reached or answered unexpectedly. Nothing was changed.",
@@ -110,6 +111,7 @@ public static class SelfUpdateText
             _ => status.Code switch
             {
                 "install-failed" => "Windows could not install " + to + " and kept " + status.FromVersion + ". The install log is in " + status.InstallLogPath + " (administrators only).",
+                "install-not-finished" => "Windows did not finish installing " + to + " in the time allowed, or could not start the installer, so PC Steward can't confirm which version is installed. Check the version shown below; reinstall PC Steward from its release page if it looks wrong. The install log is in " + status.InstallLogPath + " (administrators only).",
                 "pc-steward-did-not-close" => to + " was not installed because PC Steward did not close in time. Nothing was changed.",
                 "refused-before-install" => to + " was not installed: a check just before installing failed. Nothing was changed.",
                 "mismatch-uninstalled" => "The installed files did not match the release build, so PC Steward was removed. Reinstall it from its release page.",

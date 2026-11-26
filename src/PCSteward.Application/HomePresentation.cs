@@ -103,8 +103,18 @@ public static class FreshnessPresenter
     private static bool NeedsWarning(SourceSnapshot[] checkedSources, LeastFreshSuccess least, DateTimeOffset now) =>
         least.AnyNeverSucceeded || least.OldestSuccessAt is not { } oldest || now - oldest > StaleAfter || checkedSources.Any(FellBack);
 
-    /// <summary>A cached source whose latest check failed: the refresh kept the older results and recorded why.</summary>
-    private static bool FellBack(SourceSnapshot source) => source.State == SourceSnapshotState.Cached && source.Warnings.Count != 0;
+    /// <summary>
+    /// A cached source whose latest check failed: the refresh kept the older results and recorded why with a <c>source:</c> code.
+    /// A provider's own warning saved with a good result (review F-22) is not a failed check.
+    /// </summary>
+    private static bool FellBack(SourceSnapshot source) => source.State == SourceSnapshotState.Cached && source.Warnings.Any(static warning => warning.StartsWith("source:", StringComparison.Ordinal));
+
+    /// <summary>True when the latest check of this source failed: it is unavailable, or it fell back to older results.</summary>
+    public static bool LastCheckFailed(SourceSnapshot source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return source.State == SourceSnapshotState.Unavailable || FellBack(source);
+    }
 
     private static EvidenceFreshness Of(SourceSnapshot source, DateTimeOffset now) => source.State switch
     {
