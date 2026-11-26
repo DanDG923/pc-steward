@@ -690,7 +690,7 @@ public static class UpdateOutcomePresenter
                 "The installer needs Windows to restart before it can install this update, so nothing was updated. Restart when it suits you, then review the update again.", technical),
             // Presentation only (the record stays InstallerFailed): WinGet refused before any installer ran.
             UpdateHistoryStatus.InstallerFailed when diagnostic?.StartsWith(UpdateNotApplicableDiagnostic, StringComparison.Ordinal) == true =>
-                new(UpdateOutcomeKind.NotStarted, NotStartedLabel, "", StatusTone.Neutral, UpdateNotApplicableSummary, UpdateNotApplicableNextStep, technical),
+                new(UpdateOutcomeKind.NotStarted, NotStartedLabel, "", StatusTone.Neutral, UpdateNotApplicableSummary, UpdateNotApplicableNextStep, technical),
             UpdateHistoryStatus.InstallerFailed => Failed(exitCode is { } code ? $"The installer reported an error (exit code {code})." : "The installer reported an error.", technical),
             // A timeout ends the attempt before any verification runs. The recorded status stays TimedOut (FR-HIS-03); the display
             // is "Result not verified": nothing shows the installer finished, it may have partly applied, and nothing checked it.

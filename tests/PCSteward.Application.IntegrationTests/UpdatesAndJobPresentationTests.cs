@@ -428,6 +428,12 @@ public sealed class UpdatesAndJobPresentationTests
         Assert.AreEqual(UpdateOutcomeKind.NotStarted, notApplicable.Kind);
         Assert.AreEqual(UpdateOutcomePresenter.NotStartedLabel, notApplicable.Label);
         StringAssert.Contains(notApplicable.Summary, "nothing was changed");
+        // Review F-30: it carries the same icon as every other Not started outcome, and no outcome has an empty icon.
+        Assert.AreEqual(UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.Cancelled, null, null, "2.0").Glyph, notApplicable.Glyph);
+        foreach (UpdateHistoryStatus status in Enum.GetValues<UpdateHistoryStatus>())
+            foreach (string? diagnostic in new[] { null, "diag", UpdateOutcomePresenter.UpdateNotApplicableDiagnostic, UpdateOutcomePresenter.ProviderCompletedCheckInterruptedDiagnostic })
+                foreach (int? exitCode in new int?[] { null, 0, 1 })
+                    Assert.AreEqual(1, UpdateOutcomePresenter.ForStatus(status, diagnostic, exitCode, "2.0").Glyph.Length, $"{status}/{diagnostic}/{exitCode}");
         StringAssert.Contains(notApplicable.TechnicalDetail, "Recorded status: InstallerFailed");
         Assert.AreEqual(ElevationStory.HelperMissingOutcome,
             UpdateOutcomePresenter.ForStatus(UpdateHistoryStatus.ProductFailed, UpdateOutcomePresenter.HelperMissingDiagnostic, null, "2.0").Summary);

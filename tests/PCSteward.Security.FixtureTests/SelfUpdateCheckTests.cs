@@ -51,6 +51,10 @@ public sealed class SelfUpdateCheckTests
             SelfUpdateCheck check = await fixture.CheckAsync();
             Assert.AreEqual(SelfUpdateCheckStatus.CurrentRelease, check.Status, running);
             Assert.IsNotNull(check.Release);
+            // Review F-32: the sentence holds for a build ahead of the published release too; it never says the owner "has" that version.
+            string sentence = SelfUpdateText.Describe(check);
+            StringAssert.StartsWith(sentence, "No newer version has been published (the newest is " + check.Release.Version.Text + ").", running);
+            Assert.IsFalse(sentence.Contains("You have", StringComparison.Ordinal), running);
         }
 
         using Fixture failing = new() { Running = "0.1.1-private-beta" };

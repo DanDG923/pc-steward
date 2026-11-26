@@ -78,13 +78,17 @@ public static class FreshnessPresenter
                 sourcesEnabled ? "Local-only: PC Steward hasn't looked for updates yet." : "Local-only: update checks are off.",
                 StatusTone.Neutral);
         }
+        // Fix review RV-3: a source with no saved result at all is not covered by the others' check, so the summary is never
+        // Live or calm while one is missing.
+        bool someNeverChecked = checkedSources.Length != sources.Count;
         EvidenceFreshness worst = checkedSources.Select(source => Of(source, now)).Max();
+        if (someNeverChecked && worst == EvidenceFreshness.Live) worst = EvidenceFreshness.Cached;
         LeastFreshSuccess least = LeastFresh(checkedSources);
         string age = least.OldestSuccessAt is { } at ? DisplayFormat.Relative(at, now, culture, zone) : "at an unknown time";
         string lastCheck = least.AnyNeverSucceeded
             ? (checkedSources.Length == 1 ? "It has never completed a successful check." : "One source has never completed a successful check.")
             : checkedSources.Length == 1 ? $"The last successful check was {age}." : $"The least fresh source's last successful check was {age}.";
-        bool calm = worst == EvidenceFreshness.Live || (worst == EvidenceFreshness.Cached && !NeedsWarning(checkedSources, least, now));
+        bool calm = !someNeverChecked && (worst == EvidenceFreshness.Live || (worst == EvidenceFreshness.Cached && !NeedsWarning(checkedSources, least, now)));
         string sentence = worst switch
         {
             EvidenceFreshness.Live => $"Live: update sources were checked {age}.",
@@ -93,6 +97,7 @@ public static class FreshnessPresenter
             EvidenceFreshness.Offline => $"Offline: an update source couldn't be reached. {lastCheck}",
             _ => $"Unavailable: an update source couldn't complete its check. {lastCheck}"
         };
+        if (someNeverChecked) sentence += " Some update sources have no saved result yet.";
         return new(worst, Word(worst), sentence, calm ? StatusTone.Information : StatusTone.Attention);
     }
 
@@ -103,8 +108,18 @@ public static class FreshnessPresenter
     private static bool NeedsWarning(SourceSnapshot[] checkedSources, LeastFreshSuccess least, DateTimeOffset now) =>
         least.AnyNeverSucceeded || least.OldestSuccessAt is not { } oldest || now - oldest > StaleAfter || checkedSources.Any(FellBack);
 
-    /// <summary>A cached source whose latest check failed: the refresh kept the older results and recorded why.</summary>
-    private static bool FellBack(SourceSnapshot source) => source.State == SourceSnapshotState.Cached && source.Warnings.Count != 0;
+    /// <summary>
+    /// A cached source whose latest check failed: the refresh kept the older results and recorded why with a <c>source:</c> code.
+    /// A provider's own warning saved with a good result (review F-22) is not a failed check.
+    /// </summary>
+    private static bool FellBack(SourceSnapshot source) => source.State == SourceSnapshotState.Cached && source.Warnings.Any(static warning => warning.StartsWith("source:", StringComparison.Ordinal));
+
+    /// <summary>True when the latest check of this source failed: it is unavailable, or it fell back to older results.</summary>
+    public static bool LastCheckFailed(SourceSnapshot source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return source.State == SourceSnapshotState.Unavailable || FellBack(source);
+    }
 
     private static EvidenceFreshness Of(SourceSnapshot source, DateTimeOffset now) => source.State switch
     {

@@ -36,6 +36,53 @@ public sealed class ScheduledChecksTests
     }
 
     [TestMethod]
+    [Description("Review F-24 (FR-SCH-04, UJ-09 step 3): ready updates count as attention and the notification gives the counts.")]
+    public void AScheduledCheckCountsReadyUpdatesAsAttention()
+    {
+        static PCSteward.Domain.UpdateIntelligenceSummary Summary(params PCSteward.Domain.UpdateIntelligenceStatus[] statuses) =>
+            new([.. statuses.Select((status, index) => new PCSteward.Domain.UpdateIntelligenceItem($"product:{index}", status, null, "Explanation."))],
+                new Dictionary<PCSteward.Domain.UpdateIntelligenceStatus, int>(), []);
+        const PCSteward.Domain.UpdateIntelligenceStatus Ready = PCSteward.Domain.UpdateIntelligenceStatus.VerifiedUpdate,
+            Review = PCSteward.Domain.UpdateIntelligenceStatus.ReviewRequired, Unavailable = PCSteward.Domain.UpdateIntelligenceStatus.FailedUnavailable;
+
+        ScheduledCheckFindings nothing = ScheduledCheckFindings.From(Summary(PCSteward.Domain.UpdateIntelligenceStatus.Current,
+            PCSteward.Domain.UpdateIntelligenceStatus.Pinned, PCSteward.Domain.UpdateIntelligenceStatus.Ignored, PCSteward.Domain.UpdateIntelligenceStatus.Skipped));
+        Assert.IsFalse(nothing.AttentionRequired, "current, pinned, ignored and skipped apps never notify");
+        Assert.AreEqual("Completed", nothing.Result);
+        Assert.AreEqual(string.Empty, nothing.NotificationText);
+
+        ScheduledCheckFindings one = ScheduledCheckFindings.From(Summary(Ready));
+        Assert.IsTrue(one.AttentionRequired, "an update that is ready notifies on its own");
+        Assert.AreEqual("Updates ready", one.Result);
+        Assert.AreEqual("1 update is ready.", one.NotificationText);
+
+        ScheduledCheckFindings mixed = ScheduledCheckFindings.From(Summary(Ready, Ready, Ready, Review, Unavailable, Unavailable));
+        Assert.AreEqual("Attention required", mixed.Result);
+        Assert.AreEqual("3 updates are ready. 1 app needs review. 2 apps couldn't be checked.", mixed.NotificationText);
+        Assert.AreEqual("2 apps need review.", ScheduledCheckFindings.From(Summary(Review, Review)).NotificationText);
+        Assert.AreEqual("1 app couldn't be checked.", ScheduledCheckFindings.From(Summary(Unavailable)).NotificationText);
+
+        // Fix review RV-4: two records of one app (Windows and WinGet both list it) are one update, as on the Updates page.
+        static PCSteward.Domain.UpdateIntelligenceItem ReadyFor(string key, string package, string version) => new(key, Ready,
+            new PCSteward.Domain.PackageMapping("winget", package, version, PCSteward.Domain.MappingConfidence.High, PCSteward.Domain.MappingOrigin.Automatic, "Exact match.", true, [],
+                new PCSteward.Domain.VersionComparisonResult(PCSteward.Domain.VersionComparisonOutcome.Newer, PCSteward.Domain.VersionComparisonExplanation.NumericDotted)), "Explanation.");
+        ScheduledCheckFindings sameApp = ScheduledCheckFindings.From(new(
+            [ReadyFor("registry:7zip", "7zip.7zip", "24.09"), ReadyFor("winget:7zip", "7ZIP.7zip", "24.09"), ReadyFor("registry:vlc", "VideoLAN.VLC", "3.0.21"), ReadyFor("registry:old7zip", "7zip.7zip", "24.08")],
+            new Dictionary<PCSteward.Domain.UpdateIntelligenceStatus, int>(), []));
+        Assert.AreEqual("3 updates are ready.", sameApp.NotificationText, "four records, three distinct package versions");
+
+        string host = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.ScheduledHost", "Program.cs"));
+        StringAssert.Contains(host, "ScheduledCheckFindings.From(updates)", "the host takes its attention and its text from this rule");
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "AGENTS.md"))) directory = directory.Parent;
+        return directory?.FullName ?? throw new InvalidOperationException("Repository root not found.");
+    }
+
+    [TestMethod]
     public async Task ATimedOutOrFailedCheckIsRecordedAndRaisesTheFailureCount()
     {
         // FR-SCH-04 (four-model review F-09): the check's own token is spent by then, so the recorder uses its own limit.

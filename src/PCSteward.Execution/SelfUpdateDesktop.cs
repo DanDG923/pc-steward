@@ -210,7 +210,9 @@ internal static partial class SelfUpdateDesktop
                     ? new(SelfUpdateJobState.Updated, "installed-after-restart")
                     : new(SelfUpdateJobState.Failed, "installed-tree-differs", BlocksUpdates: !Reinstalled(expected, inputs));
             case SelfUpdateFinishOutcome.InstallFailed:
-                return new(SelfUpdateJobState.Failed, "install-failed");
+                // Review F-23: with no exit code the installer was stopped at its time limit or never started, and nothing
+                // observed how it ended, so the job never claims the previous version was kept.
+                return new(SelfUpdateJobState.Failed, result.ExitCode is null ? "install-not-finished" : "install-failed");
             // The finish copy found an install unlike the CI build. That blocks further updates until a signed release is
             // installed again: an intact install of another release, or one whose whole tree and permissions match the expected one.
             case SelfUpdateFinishOutcome.MismatchUninstalled:

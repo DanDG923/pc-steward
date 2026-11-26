@@ -166,6 +166,20 @@ public sealed class UiReviewAppDetailsPresentationTests
         Assert.IsFalse(again.CanUndo);
     }
 
+    [TestMethod]
+    [Description("Review F-22 (FR-UI-05): 'couldn't be reached since' is said only when a check was tried and failed.")]
+    public void CheckedSaysUnreachableOnlyAfterAFailedCheck()
+    {
+        InventoryRow row = Row("Discord", "VerifiedUpdate", "1.0.9267");
+        UpdateDetail detail = Detail("1.0.9267", "1.0.9268", "Discord.Discord");
+        string Checked(SourceSnapshotState state, params string[] warnings) => AppDetailSummaryPresenter.Build(row, detail, true, [],
+            [new SourceSnapshot("winget", "1.9", Now.AddMinutes(-8), state, [], warnings)], Now, Culture, Utc).FromSource[3].Value;
+
+        Assert.AreEqual("8 minutes ago", Checked(SourceSnapshotState.Cached), "a saved result shown again");
+        Assert.AreEqual("8 minutes ago", Checked(SourceSnapshotState.Cached, "winget:duplicate-upgrade-id"), "a provider's own warning is not a failed check");
+        Assert.AreEqual("8 minutes ago (couldn't be reached since)", Checked(SourceSnapshotState.Cached, "source:timeout", "source:stale"));
+    }
+
     private static AppDetailSummary Build(InventoryRow row, UpdateDetail? detail, bool sourcesEnabled = true) =>
         AppDetailSummaryPresenter.Build(row, detail, sourcesEnabled, [], Live, Now, Culture, Utc);
 

@@ -78,8 +78,8 @@ public sealed partial class MainWindow
         works.Children.Add(StewardVisuals.ExpanderRow("\uEA18", "Updates and administrator permission", "Checking never asks for permission. Windows asks once for each machine-wide app you approve.", elevation, "amber"));
         works.Children.Add(StewardVisuals.ExpanderRow("\uE74E", "Data and removal", "Everything is kept locally. Factory reset removes PC Steward's data and its scheduled check.",
             PageCopy("Your app list, settings, decisions, history, downloads and logs are stored on this PC only. Uninstalling PC Steward leaves that data in place. To remove it as well, use Factory reset (Settings, Data & reset) before you uninstall; it also removes the scheduled check."), "purple"));
-        works.Children.Add(StewardVisuals.ExpanderRow("\uE777", "If updating PC Steward fails", "The version you have stays installed. Copy the diagnostic, then try again.",
-            PageCopy("If an update to PC Steward can't finish, Windows puts the version you had back. Select Copy diagnostic above to keep a record of what happened, then check for a new version again later, or get the installer from the GitHub releases page. Don't download PC Steward from mirrors or other download sites."), "blue"));
+        works.Children.Add(StewardVisuals.ExpanderRow("\uE777", "If updating PC Steward fails", "The version you have normally stays installed. Copy the diagnostic, then try again.",
+            PageCopy("If the installer reports an error, Windows puts the version you had back. If PC Steward never saw the installer finish, it says so and asks you to check the version shown at the top of this page. Select Copy diagnostic above to keep a record of what happened, then check for a new version again later, or get the installer from the GitHub releases page. Don't download PC Steward from mirrors or other download sites."), "blue"));
         panel.Children.Add(works);
         panel.Children.Add(StewardVisuals.FootNote("\uE8A5", "Open source under the MIT licence."));
         return panel;

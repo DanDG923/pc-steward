@@ -107,7 +107,8 @@ public static class StewardPresentation
         "msix" => "MSIX",
         "appx" => "AppX",
         "registry" => "Windows registry",
-        "chocolatey" => "Chocolatey",
+        // Review F-31: the Chocolatey connector's source ID is "chocolatey-community"; it is never shown raw.
+        "chocolatey" or "chocolatey-community" => "Chocolatey",
         _ => string.Equals(value, "Unknown", StringComparison.OrdinalIgnoreCase) ? "Unknown source" : value
     };
 

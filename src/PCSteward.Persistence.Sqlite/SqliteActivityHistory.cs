@@ -70,9 +70,43 @@ public sealed partial class SqliteDatabase : IActivityHistoryReader
             reader.GetValue(9) is not string statusText || !Enum.TryParse(statusText, false, out UpdateHistoryStatus status) || !Enum.IsDefined(status) ||
             reader.GetValue(11) is not string diagnostic)
             return false;
-        int? exitCode = reader.GetValue(10) is long exit && exit is >= int.MinValue and <= int.MaxValue ? (int)exit : null;
+        int? exitCode = ReadExitCode(reader.GetValue(10));
         entry = new UpdateHistoryEntry(eventId, jobId, correlationId, stableKey, provider, packageId, installedVersion, targetVersion, occurredAt, status, exitCode, diagnostic);
         return true;
+    }
+
+    /// <summary>
+    /// The one rule every reader of <c>exit_code</c> uses (review F-29, FR-HIS-01): a stored whole number, or the text an earlier
+    /// build wrote with the PC's regional number format (digits after that region's minus sign, such as U+2212, sometimes with
+    /// a direction mark). Anything else is no exit code: it is never read as 0, which would say the installer finished.
+    /// </summary>
+    internal static int? ReadExitCode(object? stored)
+    {
+        long? value = stored switch
+        {
+            long number => number,
+            string text => ParseRegionalInteger(text),
+            _ => null,
+        };
+        return value is >= int.MinValue and <= int.MaxValue ? (int)value.Value : null;
+    }
+
+    private static long? ParseRegionalInteger(string text)
+    {
+        ReadOnlySpan<char> trimmed = text.AsSpan().Trim();
+        int digitsAt = trimmed.Length;
+        while (digitsAt > 0 && char.IsAsciiDigit(trimmed[digitsAt - 1])) digitsAt--;
+        ReadOnlySpan<char> sign = trimmed[..digitsAt], digits = trimmed[digitsAt..];
+        if (digits.Length is 0 or > 10 || !long.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out long magnitude)) return null;
+        if (sign.Length == 0) return magnitude;
+        // A regional negative sign: a hyphen-minus or U+2212, alone or with left-to-right / right-to-left marks around it.
+        bool minus = false;
+        foreach (char character in sign)
+        {
+            if (character is '-' or '−') { if (minus) return null; minus = true; }
+            else if (character is not ('‎' or '‏' or '؜')) return null;
+        }
+        return minus ? -magnitude : null;
     }
 
     private static bool TryParseTime(string text, out DateTimeOffset value) =>

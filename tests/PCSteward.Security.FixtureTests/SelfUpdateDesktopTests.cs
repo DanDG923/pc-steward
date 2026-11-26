@@ -118,6 +118,24 @@ public sealed class SelfUpdateDesktopTests
     }
 
     [TestMethod]
+    [Description("Review F-23 (FR-UPD-14, ADR-032 §7-8): an install whose exit was never observed is not reported as having kept the old version.")]
+    public void AnInstallWithNoObservedExitNeverClaimsTheOldVersionWasKept()
+    {
+        byte[] noExit = SelfUpdateHelperProtocol.WriteResult(new(JobId, SelfUpdateFinishOutcome.InstallFailed, null, "0.1.2", Manifest, null, "msiexec-did-not-finish"));
+        SelfUpdateJobVerdict verdict = SelfUpdateDesktop.Decide(Job, Inputs(noExit));
+        Assert.AreEqual(new SelfUpdateJobVerdict(SelfUpdateJobState.Failed, "install-not-finished"), verdict);
+
+        string unknown = PCSteward.SelfUpdate.SelfUpdateText.Describe(new PcStewardUpdateStatus(PcStewardUpdateState.Failed, verdict.Code, "0.1.1", "0.1.2", @"C:\log\install.log", true, false));
+        StringAssert.Contains(unknown, "can't confirm which version is installed");
+        Assert.IsFalse(unknown.Contains("kept", StringComparison.Ordinal), unknown);
+        StringAssert.Contains(unknown, "If Windows wrote an install log", "the installer may never have started, so the log is not promised");
+
+        byte[] exited = SelfUpdateHelperProtocol.WriteResult(new(JobId, SelfUpdateFinishOutcome.InstallFailed, 1603, "0.1.2", Manifest, null, "install-failed"));
+        string rolledBack = PCSteward.SelfUpdate.SelfUpdateText.Describe(new PcStewardUpdateStatus(PcStewardUpdateState.Failed, SelfUpdateDesktop.Decide(Job, Inputs(exited)).Code, "0.1.1", "0.1.2", @"C:\log\install.log", true, false));
+        StringAssert.Contains(rolledBack, "kept 0.1.1", "an installer that exited with an error did roll back (MSI transaction)");
+    }
+
+    [TestMethod]
     public void EveryOtherOutcomeIsFailedAndNeverUpdated()
     {
         (SelfUpdateFinishOutcome Outcome, string Code)[] cases =

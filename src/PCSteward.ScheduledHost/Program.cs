@@ -76,18 +76,20 @@ internal static class Program
                 [new WingetUpdateSourceConnector("winget"), new WingetUpdateSourceConnector("msstore"), new ChocolateyUpdateSourceConnector()]);
 
             ScanResult scan = await workflow.ScanAsync(null, cancellationToken).ConfigureAwait(false);
-            bool attention = false;
+            ScheduledCheckFindings findings = ScheduledCheckFindings.None;
             if (scan.Succeeded && updateSourcesEnabled)
             {
                 UpdateIntelligenceSummary updates = await workflow.RefreshUpdateIntelligenceAsync(true, cancellationToken).ConfigureAwait(false);
-                attention = updates.AttentionNeeded.Count != 0;
+                findings = ScheduledCheckFindings.From(updates);
             }
 
             ScheduledCheckStatus previous = await database.GetScheduledCheckStatusAsync(cancellationToken).ConfigureAwait(false);
             int failures = scan.Succeeded ? 0 : previous.ConsecutiveFailures + 1;
-            string result = scan.Cancelled ? "Cancelled" : scan.Succeeded ? attention ? "Attention required" : "Completed" : "Failed";
+            // Review F-24 (FR-SCH-04, UJ-09): updates that are ready count as attention, and the notification gives the counts.
+            bool attention = findings.AttentionRequired;
+            string result = scan.Cancelled ? "Cancelled" : scan.Succeeded ? findings.Result : "Failed";
             await database.SaveScheduledCheckStatusAsync(new ScheduledCheckStatus(DateTimeOffset.UtcNow, result, failures), cancellationToken).ConfigureAwait(false);
-            if (ScheduledCheckNotificationPolicy.ShouldNotify(settings, attention, scan.Succeeded, failures)) WindowsScheduledCheckNotification.TryShow(result, attention ? "Updates or review items need your attention." : "PC Steward could not complete repeated scheduled checks.");
+            if (ScheduledCheckNotificationPolicy.ShouldNotify(settings, attention, scan.Succeeded, failures)) WindowsScheduledCheckNotification.TryShow(result, attention ? findings.NotificationText : "PC Steward could not complete repeated scheduled checks.");
             return scan.Succeeded ? 0 : 1;
         }
         catch (OperationCanceledException) { await RecordFailureAsync(database, started, ScheduledCheckFailureRecorder.TimedOutResult).ConfigureAwait(false); return 2; }
