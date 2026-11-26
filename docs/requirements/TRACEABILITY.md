@@ -3,7 +3,7 @@
 `FR-UI-05`, `FR-UPD-14`, `FR-SCH-04`, `UJ-09`, `FR-INV-01`, `FR-SCH-03`, `FR-HIS-01`, ADR-032 §4 and §7–8; [review](../review/FOUR_MODEL_PROJECT_REVIEW_2026-11-26.md).
 
 - F-22 (`FR-UI-05`): `UpdateSourceRefreshServiceTests.HealthyRefreshPersistsLiveSourceAndOfflineModeUsesClearlyCachedData` (changed: a reload adds no warning), `ReloadingSavedResultsAfterAGoodCheckReadsCalmly`, `AFailedCheckWarnsUntilTheSavedResultsAreReloaded` (pins the known limit); `UiReviewAppDetailsPresentationTests.CheckedSaysUnreachableOnlyAfterAFailedCheck`.
-- F-23 (`FR-UPD-14`, ADR-032 §7–8): `SelfUpdateDesktopTests.AnInstallWithNoObservedExitNeverClaimsTheOldVersionWasKept`. Not covered: the reopen after such a result, which is unchanged.
+- F-23 (`FR-UPD-14`, ADR-032 §7–8): `SelfUpdateDesktopTests.AnInstallWithNoObservedExitNeverClaimsTheOldVersionWasKept`. `SelfUpdateReopenTests.OnlyOutcomesThatLeaveAReleaseInstalledReopen` (no reopen when the exit was not observed).
 - F-24 (`FR-SCH-04`, `UJ-09`): `ScheduledChecksTests.AScheduledCheckCountsReadyUpdatesAsAttention` (counts, saved result, notification text; one source-text line that the host uses the rule). Not covered: the host's own run (an exe with private methods).
 - F-25 (`FR-INV-01`, `FR-SCH-03`): no test. The scheduled MSIX provider reads Windows' package catalogue directly and has no seam to fake a package that throws.
 - F-29 (`FR-HIS-01`): `SqliteDatabaseTests.ExitCodesStoredAsRegionalTextByEarlierBuildsReadTheSameEverywhere`.

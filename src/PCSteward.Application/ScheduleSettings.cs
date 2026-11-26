@@ -45,8 +45,15 @@ public sealed record ScheduledCheckFindings(int ReadyUpdates, int NeedReview, in
     public static ScheduledCheckFindings From(UpdateIntelligenceSummary summary)
     {
         ArgumentNullException.ThrowIfNull(summary);
+        // Fix review RV-4: one app found by two inventories (Windows and WinGet) is two records of one update, and the Updates
+        // page shows it once. Ready updates are counted by the package and version they would install.
+        int ready = summary.Items.Where(item => item.Status == UpdateIntelligenceStatus.VerifiedUpdate)
+            .Select(item => item.Mapping is { } mapping
+                ? $"{mapping.SourceId.Trim()}\n{mapping.PackageId.Trim()}\n{mapping.CandidateVersion?.Trim()}".ToUpperInvariant()
+                : "\n" + item.StableProductKey)
+            .Distinct(StringComparer.Ordinal).Count();
         return new(
-            summary.Items.Count(item => item.Status == UpdateIntelligenceStatus.VerifiedUpdate),
+            ready,
             summary.Items.Count(item => item.Status == UpdateIntelligenceStatus.ReviewRequired),
             summary.Items.Count(item => item.Status == UpdateIntelligenceStatus.FailedUnavailable));
     }

@@ -62,6 +62,15 @@ public sealed class ScheduledChecksTests
         Assert.AreEqual("2 apps need review.", ScheduledCheckFindings.From(Summary(Review, Review)).NotificationText);
         Assert.AreEqual("1 app couldn't be checked.", ScheduledCheckFindings.From(Summary(Unavailable)).NotificationText);
 
+        // Fix review RV-4: two records of one app (Windows and WinGet both list it) are one update, as on the Updates page.
+        static PCSteward.Domain.UpdateIntelligenceItem ReadyFor(string key, string package, string version) => new(key, Ready,
+            new PCSteward.Domain.PackageMapping("winget", package, version, PCSteward.Domain.MappingConfidence.High, PCSteward.Domain.MappingOrigin.Automatic, "Exact match.", true, [],
+                new PCSteward.Domain.VersionComparisonResult(PCSteward.Domain.VersionComparisonOutcome.Newer, PCSteward.Domain.VersionComparisonExplanation.NumericDotted)), "Explanation.");
+        ScheduledCheckFindings sameApp = ScheduledCheckFindings.From(new(
+            [ReadyFor("registry:7zip", "7zip.7zip", "24.09"), ReadyFor("winget:7zip", "7ZIP.7zip", "24.09"), ReadyFor("registry:vlc", "VideoLAN.VLC", "3.0.21"), ReadyFor("registry:old7zip", "7zip.7zip", "24.08")],
+            new Dictionary<PCSteward.Domain.UpdateIntelligenceStatus, int>(), []));
+        Assert.AreEqual("3 updates are ready.", sameApp.NotificationText, "four records, three distinct package versions");
+
         string host = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "PCSteward.ScheduledHost", "Program.cs"));
         StringAssert.Contains(host, "ScheduledCheckFindings.From(updates)", "the host takes its attention and its text from this rule");
     }

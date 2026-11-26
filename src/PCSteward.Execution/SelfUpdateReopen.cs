@@ -95,6 +95,9 @@ internal static class SelfUpdateReopen
             }
             if (result is null) return NoResult;
             if (!Reopens(result.Outcome)) return LeftForNextLaunch;
+            // Review F-23: a failed install with no exit code was stopped at its limit or never started, so nothing shows it
+            // rolled back or even ended. That is not the "untouched old one" this watcher reopens; the owner opens it by hand.
+            if (result.Outcome == SelfUpdateFinishOutcome.InstallFailed && result.ExitCode is null) return LeftForNextLaunch;
             if (host.DesktopIsOpen()) return AlreadyOpen;
             if (!host.BothCarrySameReleasePin(Path.Combine(host.InstallRoot, InstalledHelperLaunchTrust.DesktopExecutableName), self)) return DesktopNotPinned;
             return host.StartDesktop() ? Opened : StartFailed;

@@ -111,7 +111,7 @@ public static class SelfUpdateText
             _ => status.Code switch
             {
                 "install-failed" => "Windows could not install " + to + " and kept " + status.FromVersion + ". The install log is in " + status.InstallLogPath + " (administrators only).",
-                "install-not-finished" => "Windows did not finish installing " + to + " in the time allowed, or could not start the installer, so PC Steward can't confirm which version is installed. Check the version shown below; reinstall PC Steward from its release page if it looks wrong. The install log is in " + status.InstallLogPath + " (administrators only).",
+                "install-not-finished" => "PC Steward did not see the installer for " + to + " finish, so it can't confirm which version is installed. Check the version at the top of About; reinstall PC Steward from its release page if it looks wrong. If Windows wrote an install log, it is in " + status.InstallLogPath + " (administrators only).",
                 "pc-steward-did-not-close" => to + " was not installed because PC Steward did not close in time. Nothing was changed.",
                 "refused-before-install" => to + " was not installed: a check just before installing failed. Nothing was changed.",
                 "mismatch-uninstalled" => "The installed files did not match the release build, so PC Steward was removed. Reinstall it from its release page.",

@@ -18,12 +18,23 @@ Findings are numbered on from the 2026-11-25 review (F-01 to F-21), which this r
 
 Fixed on branch `claude/panel-review-1126-fixes` (from `origin/phase/4-beta` at `c30d892`) by the coordinator: F-22,
 F-23, F-24 (owner decision: count ready updates and show the counts), F-25, F-29, F-30, F-31 (the prompt only) and F-32.
-**No second model has reviewed these fixes.** Left open: F-26, F-27, F-28 and the second half of F-31. See
-`docs/STATUS.md` for what each fix does and does not cover. Three limits worth knowing:
+Left open: F-26, F-27, F-28 and the second half of F-31. See `docs/STATUS.md` for what each fix does and does not cover.
+
+ChatGPT Astra 6.2 (high reasoning effort) then reviewed commit `5fba819` read-only. It passed F-29, F-30 and F-32,
+passed F-22, F-24, F-25 and F-31 with notes, and did not pass F-23. Its five follow-ups were applied by the coordinator
+and have had no second read:
+
+- RV-1 (F-23): the watcher no longer reopens PC Steward after an install with no observed exit.
+- RV-2 (F-23): the sentence no longer promises an install log or a version "below", and About's help no longer says the
+  old version always stays.
+- RV-3 (F-22): a recent saved result for one source no longer reads as Live while another enabled source has none.
+- RV-4 (F-24): ready updates are counted by package and version, so one app found by two inventories counts once.
+- RV-5 (F-25): the per-property guards no longer swallow cancellation.
+
+Limits worth knowing:
 
 - F-22: a failed check is not saved, so a reload after it shows the last good result and its age without a warning.
-- F-23: only the wording and the result code changed. PC Steward still reopens after an install with no observed exit,
-  because ADR-032 §7a lists that outcome; changing it is an owner decision on the ADR.
+- F-23: the helper still does not wait for the installer it stopped at the limit.
 - F-25 and F-31 have no tests (no seam to fake a failing package; a one-line desktop mapping).
 
 ## How it was run

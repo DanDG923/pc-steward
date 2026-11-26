@@ -37,6 +37,12 @@ public sealed class UpdateSourceRefreshServiceTests
         // A source never checked is local-only, with nothing said about being offline.
         SourceSnapshot never = (await new UpdateSourceRefreshService(new MemoryCache()).RefreshAsync([new FakeConnector("winget", good)], false, CancellationToken.None)).Single();
         Assert.AreEqual(SourceSnapshotState.LocalOnly, never.State); Assert.IsEmpty(never.Warnings);
+
+        // Fix review RV-3: one source with a recent saved result never makes the summary Live or calm while another has none.
+        FreshnessPresentation partial = FreshnessPresenter.Describe(true, [reloaded[0], never with { SourceId = "msstore" }], now);
+        Assert.AreEqual(EvidenceFreshness.Cached, partial.Freshness);
+        Assert.AreEqual(StatusTone.Attention, partial.Tone);
+        StringAssert.EndsWith(partial.Sentence, "Some update sources have no saved result yet.");
     }
 
     [TestMethod]

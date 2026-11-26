@@ -65,20 +65,20 @@ internal sealed class ScheduledMsixInventoryProvider(Func<bool> isEnabled) : ILo
     private static string? ReadOrNull(Func<string?> read)
     {
         try { return read(); }
-        catch (Exception) { return null; }
+        catch (Exception exception) when (exception is not OperationCanceledException and not OutOfMemoryException) { return null; }
     }
     // The same rule as the desktop's MSIX inventory: a package Windows itself signed is an inbox part of Windows, never an app
     // to offer. Skipping it here keeps both inventories on one identity for every package they both list.
     private static bool IsSystemSigned(Package package)
     {
         try { return package.SignatureKind == PackageSignatureKind.System; }
-        catch (Exception) { return false; }
+        catch (Exception exception) when (exception is not OperationCanceledException and not OutOfMemoryException) { return false; }
     }
     // The same rule as the desktop's MSIX inventory: a package with an external location is part of a desktop app, never an app to offer.
     private static bool HasExternalLocation(Package package)
     {
         try { return !string.IsNullOrWhiteSpace(package.EffectiveExternalPath); }
-        catch (Exception) { return false; }
+        catch (Exception exception) when (exception is not OperationCanceledException and not OutOfMemoryException) { return false; }
     }
     private static Guid StableGuid(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));
 }

@@ -128,6 +128,7 @@ public sealed class SelfUpdateDesktopTests
         string unknown = PCSteward.SelfUpdate.SelfUpdateText.Describe(new PcStewardUpdateStatus(PcStewardUpdateState.Failed, verdict.Code, "0.1.1", "0.1.2", @"C:\log\install.log", true, false));
         StringAssert.Contains(unknown, "can't confirm which version is installed");
         Assert.IsFalse(unknown.Contains("kept", StringComparison.Ordinal), unknown);
+        StringAssert.Contains(unknown, "If Windows wrote an install log", "the installer may never have started, so the log is not promised");
 
         byte[] exited = SelfUpdateHelperProtocol.WriteResult(new(JobId, SelfUpdateFinishOutcome.InstallFailed, 1603, "0.1.2", Manifest, null, "install-failed"));
         string rolledBack = PCSteward.SelfUpdate.SelfUpdateText.Describe(new PcStewardUpdateStatus(PcStewardUpdateState.Failed, SelfUpdateDesktop.Decide(Job, Inputs(exited)).Code, "0.1.1", "0.1.2", @"C:\log\install.log", true, false));
